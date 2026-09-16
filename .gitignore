@@ -1,0 +1,23 @@
+# Local Claude Code session state
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Dependencies (added when backend/frontend scaffolding lands)
+/vendor/
+/node_modules/
+
+# Build output
+/public/build/
+/storage/*.key
