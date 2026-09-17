@@ -7,6 +7,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -62,5 +63,23 @@ return Application::configure(basePath: dirname(__DIR__))
                     'request_id' => $request->attributes->get('request_id'),
                 ],
             ], 429);
+        });
+
+        // error-catalog.md VALIDATION_FAILED (A1 correction): every
+        // operation's 422 UnprocessableEntity response already referenced
+        // this same envelope with no code registered for a FormRequest's
+        // own structural/shape validation failure (as opposed to a
+        // domain-specific 422, which is a DomainException handled above).
+        // Centralized here rather than per-FormRequest so no future
+        // FormRequest needs its own failedValidation() override.
+        $exceptions->render(function (ValidationException $e, Request $request) {
+            return response()->json([
+                'error' => [
+                    'code' => 'VALIDATION_FAILED',
+                    'message' => $e->getMessage(),
+                    'details' => $e->errors(),
+                    'request_id' => $request->attributes->get('request_id'),
+                ],
+            ], $e->status);
         });
     })->create();

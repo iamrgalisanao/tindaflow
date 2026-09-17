@@ -249,6 +249,97 @@ class AuthenticationSessionTest extends PostgresSchemaTestCase
         $response->assertStatus(419);
     }
 
+    // CSRF bootstrap: proves the real pre-authentication flow a fresh
+    // browser needs -- a same-origin GET (the application-shell route,
+    // routes/web.php's `/`, itself under the `web` middleware group) sets
+    // the XSRF-TOKEN cookie, which is then sent back as X-XSRF-TOKEN
+    // together with the session cookie it belongs to, and login succeeds.
+    // No login exemption, no Sanctum, no new endpoint -- the existing
+    // `web` group's PreventRequestForgery middleware already queues
+    // XSRF-TOKEN on every response that passes through it, success,
+    // failure, or otherwise.
+    public function test_a_fresh_browser_can_bootstrap_csrf_from_the_application_shell_before_logging_in(): void
+    {
+        $this->app->instance('env', 'production'); // real CSRF enforcement, not the testing-env bypass
+
+        $this->createUser(['email' => 'cashier@test.local']);
+
+        // A genuinely fresh visitor: no cookies presented at all.
+        $bootstrap = $this->getJson('/');
+        $bootstrap->assertOk();
+
+        $xsrfCookie = collect($bootstrap->headers->getCookies())->first(fn ($c) => $c->getName() === 'XSRF-TOKEN');
+        $sessionCookie = collect($bootstrap->headers->getCookies())->first(fn ($c) => $c->getName() === config('session.cookie'));
+
+        $this->assertNotNull($xsrfCookie, 'the application-shell route must set an XSRF-TOKEN cookie for a fresh visitor');
+        $this->assertNotNull($sessionCookie);
+
+        $login = $this->withUnencryptedCookie(config('session.cookie'), $sessionCookie->getValue())
+            ->withUnencryptedCookie('XSRF-TOKEN', $xsrfCookie->getValue())
+            ->withHeader('X-XSRF-TOKEN', urldecode($xsrfCookie->getValue()))
+            ->withCredentials()
+            ->postJson('/api/v1/auth/login', ['email' => 'cashier@test.local', 'password' => 'password']);
+
+        $login->assertOk();
+        $login->assertJson(['email' => 'cashier@test.local']);
+    }
+
+    // A1 correction: structural login-validation failures (missing/
+    // malformed body fields) must return the frozen UnprocessableEntity
+    // envelope, not Laravel's native {message, errors} shape.
+    public function test_login_with_a_missing_email_returns_the_frozen_validation_envelope(): void
+    {
+        $response = $this->postJson('/api/v1/auth/login', ['password' => 'password']);
+
+        $response->assertStatus(422);
+        $response->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
+        $this->assertArrayHasKey('email', $response->json('error.details'));
+        $this->assertArrayNotHasKey('errors', $response->json(), 'Laravel-native validation shape must not leak outside the envelope');
+        $this->assertArrayNotHasKey('message', $response->json(), 'the top-level body must be the error envelope only');
+    }
+
+    public function test_login_with_a_malformed_email_returns_the_frozen_validation_envelope(): void
+    {
+        $response = $this->postJson('/api/v1/auth/login', ['email' => 'not-an-email', 'password' => 'password']);
+
+        $response->assertStatus(422);
+        $response->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
+        $this->assertArrayHasKey('email', $response->json('error.details'));
+    }
+
+    public function test_login_with_a_missing_password_returns_the_frozen_validation_envelope(): void
+    {
+        $response = $this->postJson('/api/v1/auth/login', ['email' => 'cashier@test.local']);
+
+        $response->assertStatus(422);
+        $response->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
+        $this->assertArrayHasKey('password', $response->json('error.details'));
+    }
+
+    public function test_login_with_multiple_missing_fields_reports_every_failure_in_one_envelope(): void
+    {
+        $response = $this->postJson('/api/v1/auth/login', []);
+
+        $response->assertStatus(422);
+        $response->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
+        $details = $response->json('error.details');
+        $this->assertArrayHasKey('email', $details);
+        $this->assertArrayHasKey('password', $details);
+    }
+
+    public function test_login_validation_failure_has_the_exact_frozen_envelope_shape(): void
+    {
+        $response = $this->postJson('/api/v1/auth/login', ['email' => 'not-an-email', 'password' => '']);
+
+        $response->assertStatus(422);
+        $errorKeys = array_keys($response->json('error'));
+        sort($errorKeys);
+        $this->assertSame(['code', 'details', 'message', 'request_id'], $errorKeys);
+        $this->assertIsString($response->json('error.request_id'));
+        $topLevelKeys = array_keys($response->json());
+        $this->assertSame(['error'], $topLevelKeys, 'the response body must be exactly the error envelope, nothing else');
+    }
+
     // 15 & 16. UserSummary's exact field shape; no sensitive fields leaked.
     public function test_user_summary_has_exactly_the_frozen_field_shape(): void
     {
