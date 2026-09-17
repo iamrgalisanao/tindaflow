@@ -2,7 +2,7 @@
 
 ## Status
 
-**RULINGS CLOSED. Still no Module A implementation, controller, middleware, policy, authentication handler, or terminal-enrollment code exists** — this document remains scope/decisions only. All nine items originally flagged as unresolved in §14 have been ruled on and are recorded there as the binding Decision Register. One item required touching Stage 6C: `CheckoutService`'s shift-resolution query was found (during Ruling 1's schema verification) to check `terminal_id` only, never `cashier_id` — fixed in a dedicated correction commit with a negative regression test, since Stage 6C remains unfrozen and this was a genuine correctness defect, not a design question. One combined Stage 4 contract amendment was approved in substance (`terminalCookieAuth` security scheme + `TooManyRequests`/`RATE_LIMITED`) but **deliberately not yet applied** — it is batched as step A0 of the implementation sequence (§15). Unlike the Stage 5 `credential_hash` fix (a new migration, no reconstruction needed), this amendment modifies existing frozen Stage 4 file content and therefore requires the **same full baseline-reconstruction mechanism** used for the earlier Stage 2/InvoiceSeries linearization — not a simple tag move. See "Batched Stage 4 amendment" in §14 for the exact reasoning and the required five-step sequence. No Module A baseline/tag exists. Per the owner's explicit plan, implementation (A1 onward) begins in a fresh session, with A0's reconstruction work planned for explicitly at the start, not discovered partway through it.
+**RULINGS CLOSED. Still no Module A implementation, controller, middleware, policy, authentication handler, or terminal-enrollment code exists** — this document remains scope/decisions only. All nine items originally flagged as unresolved in §14 have been ruled on and are recorded there as the binding Decision Register. One item required touching Stage 6C: `CheckoutService`'s shift-resolution query was found (during Ruling 1's schema verification) to check `terminal_id` only, never `cashier_id` — fixed in a dedicated correction commit with a negative regression test, since Stage 6C remains unfrozen and this was a genuine correctness defect, not a design question. Two approved amendments are **deliberately not yet applied**, batched into one reconstruction as step A0 of the implementation sequence (§15): the Stage 4 contract fix (`terminalCookieAuth` + `TooManyRequests`/`RATE_LIMITED`), which modifies existing frozen `openapi.yaml`/`error-catalog.md` content, and the Stage 5 `terminals.credential_hash` partial-unique-index fix — which, after a second look, turned out to also require folding into the *same* reconstruction rather than standing alone as an ordinary forward-fix (an earlier draft of this document said otherwise; corrected — see §14's "Batched Stage 4 amendment" for exactly why `credential_hash` differs from `inventory_locations`/`Sale`/`InvoiceSeries`/`ElectronicJournalEntry`, which correctly remain standalone forward-fixes). Both land together because Stage 4's amendment already forces a Stage 5 replay regardless — no second reconstruction pass is needed. No Module A baseline/tag exists. Per the owner's explicit plan, implementation (A1 onward) begins in a fresh session, with A0's full 12-step reconstruction (§15) planned for explicitly at the start, not discovered partway through it.
 
 ---
 
@@ -329,7 +329,14 @@ Terminal: tindaflow_terminal      → opaque high-entropy credential
   ON terminals (credential_hash)
   WHERE credential_hash IS NOT NULL;
   ```
-  This still gives the credential lookup (`hash presented credential → look up by credential_hash → check revoked_at IS NULL → establish Terminal`) an efficient unique path; no separate index on `revoked_at` is needed, since it's checked as an ordinary predicate against the one row the unique index already finds. **This migration is a new file, not a modification of any existing frozen migration's content — no `stage-5-baseline` retag is needed**, exactly matching the already-established forward-fix pattern (`Sale`/`InvoiceSeries`/`ElectronicJournalEntry` during Stage 6C, none of which moved `stage-5-baseline` either). This is categorically different from the Stage 4 amendment immediately below, which *does* modify existing frozen file content and therefore *does* require baseline reconstruction — see "Batched Stage 4 amendment."
+  This still gives the credential lookup (`hash presented credential → look up by credential_hash → check revoked_at IS NULL → establish Terminal`) an efficient unique path; no separate index on `revoked_at` is needed, since it's checked as an ordinary predicate against the one row the unique index already finds.
+
+  **Correction from an earlier draft of this document**: this is *not* the same category as the `Sale`/`InvoiceSeries`/`ElectronicJournalEntry`/`inventory_locations` forward-fixes, and it *does* require folding into the Stage 5 reconstruction (not a standalone forward-fix, not a separate reconstruction either — see below). The distinguishing test isn't "new file vs. edited file" (that test was too coarse); it's **whether Stage 5 already declared the design intent this migration merely completes, or whether the invariant is genuinely new, introduced by a later stage's own needs**:
+  - `terminals`' own migration comment already states: *"ADR-011: a terminal's identity is a server-issued credential"* — and the sibling `terminal_enrollment_tokens.token_hash`, created in the very same Stage 5 pass for the very same ADR-011 purpose, already has `$table->unique('token_hash')`. `credential_hash` missing its own unique index is Stage 5 failing to finish implementing its *own already-declared* intent — a genuine Stage 5 completion gap, squarely Stage-5-owned.
+  - By contrast, `inventory_locations`' migration comment says only *"unchanged from revision 1"* — no comparable declared uniqueness intent exists anywhere in Stage 5 for "one default location per store." That invariant was genuinely new, discovered by Stage 6C's own resolution needs, not a Stage 5 oversight — which is why `inventory_locations_one_default_per_store_constraint` correctly stayed a standalone Stage 6C forward-fix with no baseline retag.
+  - A partial unique index also isn't dismissible as a cosmetic implementation detail regardless of origin: it genuinely changes which database states PostgreSQL will accept (two terminals sharing one `credential_hash` was legal before, illegal after) — exactly the kind of thing "Stage 5 owns" is supposed to mean.
+
+  **Consequence**: apply this migration during the Stage 5 replay step of the Stage 4 amendment's required reconstruction (below) — it does not need a *second*, separate reconstruction pass, since Stage 4's amendment already forces a Stage 5 replay regardless. See "Batched Stage 4 amendment" for the combined sequence.
 - **Required Stage 4 amendment** (batched with Ruling 6's fix, applied together, not yet applied — see "Batched Stage 4 amendment" below): add a `terminalCookieAuth` security scheme, and require it **conjunctively** (AND, not OR) with `cookieAuth` on every `POS_TERMINAL`-classified operation (§9). Per the OpenAPI 3.1 spec, two schemes inside the *same* Security Requirement Object are AND'd together; two separate entries in the `security` array are OR'd (alternatives) — the correct shape is:
   ```yaml
   security:
@@ -374,61 +381,64 @@ Per explicit instruction: **do not retag or rewrite Stage 4 history yet.** Both 
 
 Both are purely additive at the API-behavior level — no existing operation's request/response shape changes, and no already-frozen behavior is altered. **But unlike the Stage 5 `credential_hash` fix above, this amendment modifies the actual content of existing frozen Stage 4 files (`openapi.yaml`, `error-catalog.md`), not merely adds new ones.** Confirmed by direct check: `git merge-base --is-ancestor stage-4-baseline stage-5-baseline` is currently true. If this amendment is committed forward of `main`'s current tip (which is necessarily where Module A's own work starts) and `stage-4-baseline` is then simply moved to point at it, `stage-4-baseline` would become a **descendant** of `stage-5-baseline`/`stage-6a-baseline`/`stage-6b-baseline` — inverting the required ancestry chain. This is the identical structural defect the Stage 2/InvoiceSeries linearization existed to fix, and the Stage Baseline Rule it produced applies here without exception: *"where a canonical baseline must be reconstructed as a result, every downstream baseline must be regenerated and revalidated."*
 
-**Required mechanism, therefore, at the start of A0** (not a simple tag move):
-1. Cherry-pick the amendment's diff onto the *current* `stage-4-baseline` (`2313a16`) directly — this becomes the new `stage-4-baseline`.
-2. Replay `stage-5-baseline`'s substantive content (`9de98ce`) onto it — expected to be a clean, zero-conflict cherry-pick, since nothing in Stage 5 touches `openapi.yaml`/`error-catalog.md` (the same zero-conflict property the Stage 6A replay had onto the amended Stage 5).
-3. Replay `stage-6a-baseline`'s substantive content (`823c032`), then `stage-6b-baseline`'s (`2f5e6e8` + `a64111e`), in turn.
-4. Run `scripts/validate-baselines.sh` (all 12 checks) plus the full regression suite at each new boundary before moving any tag, exactly as the original linearization did.
-5. Only then fast-forward `main` and move `stage-4-baseline`/`stage-5-baseline`/`stage-6a-baseline`/`stage-6b-baseline` to their reconstructed hashes.
+**Required mechanism, therefore, at the start of A0** (not a simple tag move) — this single reconstruction also carries the `credential_hash` partial-unique-index migration (above), since Stage 5 is being replayed forward regardless and there is no benefit to a second, separate pass for it:
+1. Cherry-pick the Stage 4 amendment's diff onto the *current* `stage-4-baseline` (`2313a16`) directly — this becomes the new `stage-4-baseline`.
+2. Replay `stage-5-baseline`'s substantive content (`9de98ce`) onto it, **then apply the `terminals_credential_hash_unique` partial-unique-index migration as an additional commit at this same boundary** — expected to be a clean, zero-conflict cherry-pick for the replay itself, since nothing in Stage 5 touches `openapi.yaml`/`error-catalog.md` (the same zero-conflict property the Stage 6A replay had onto the amended Stage 5); the new migration is then genuinely new Stage 5 content, applied here rather than later.
+3. Validate this boundary (`scripts/validate-baselines.sh` + migration round-trip + full regression) and create the new `stage-5-baseline` on it.
+4. Replay `stage-6a-baseline`'s substantive content (`823c032`), then `stage-6b-baseline`'s (`2f5e6e8` + `a64111e`), in turn, validating and re-tagging each boundary in sequence exactly as the original linearization did.
+5. Replay every post-`stage-6b-baseline` commit currently on `main` (the Stage 6C implementation, the CheckoutService cashier/shift correction, and every Module A initialization/Decision-Register commit — i.e., everything from `8af1ca8` through whatever `main`'s tip is at the moment A0 begins) onto the reconstructed chain, so none of that work is lost.
+6. Only then fast-forward `main` and move `stage-4-baseline`/`stage-5-baseline`/`stage-6a-baseline`/`stage-6b-baseline` to their reconstructed hashes.
 
-This is real, non-trivial work — smaller in scope than the original Stage 2 linearization (one small, purely-additive diff to replay forward through three stages instead of a multi-amendment domain/schema change), but the same mechanism, not a shortcut. `main`'s current tip (`af1615f`, Module A's Decision Register) and everything in Stage 6C built on top of it (`fb757b2` onward) also sit downstream of the *old* `stage-4-baseline`/`stage-5-baseline`/etc. and would themselves need replaying onto the reconstructed chain if they are to remain part of `main` afterward — this should be planned for explicitly at the start of A0, not discovered partway through it.
+This is real, non-trivial work — smaller in scope than the original Stage 2 linearization (one small, purely-additive contract diff plus one small schema migration to replay forward through three stages, instead of a multi-amendment domain/schema change), but the same mechanism, not a shortcut. Refer to `main`'s tip **at the time A0 actually begins**, not to any specific hash recorded in this document — this document is itself one of the commits that gets replayed in step 5, so a hash frozen into its own text would go stale the moment a further commit lands before A0 starts.
 
 ---
 
 ## 15. Module A implementation sequence (derived from evidence)
 
 ```text
-A0. Apply ALL prerequisite frozen-corpus amendments before any Module A
-    code — sequencing correction (owner ruling): the credential_hash
-    fix moved here from A3, since it is itself a Stage 5 amendment
-    discovered during initialization; implementing A3 first and
-    amending the database afterward would recreate the exact
-    "implementation on top of stale frozen corpus" problem already
-    cleaned up earlier in this project.
-    — Stage 4: add terminalCookieAuth security scheme; require it
-      conjunctively (AND) with cookieAuth on every POS_TERMINAL
-      operation (§9's list).
-    — Stage 4: define components/responses/TooManyRequests (standard
-      envelope) and add TERMINAL_MANAGE-independent RATE_LIMITED (429)
-      to error-catalog.md.
-    — Stage 5: add a partial unique index —
-      `CREATE UNIQUE INDEX terminals_credential_hash_unique ON
-      terminals (credential_hash) WHERE credential_hash IS NOT NULL;`
-      — explicit about the pre-enrollment NULL state, still gives the
-      credential lookup an efficient unique path. No separate index on
-      revoked_at is needed; that column is checked as an ordinary
-      predicate against the row this index already finds. THIS ONE
-      NEEDS NO BASELINE RECONSTRUCTION -- a new migration file, not a
-      modification of any existing frozen file's content, exactly like
-      the inventory_locations/Sale/InvoiceSeries/ElectronicJournalEntry
-      forward-fixes already done during Stage 6C.
-    — The Stage 4 amendment (terminalCookieAuth + TooManyRequests/
-      RATE_LIMITED) is different in kind: it modifies the CONTENT of
-      existing frozen openapi.yaml/error-catalog.md, so simply
-      committing it forward and moving stage-4-baseline would make
-      stage-4-baseline a DESCENDANT of stage-5/6a/6b-baseline --
-      inverting the required ancestry chain, the same defect the
-      Stage 2/InvoiceSeries linearization fixed. This requires the full
-      reconstruction mechanism (cherry-pick onto the CURRENT
-      stage-4-baseline, replay Stage 5/6A/6B's substantive commits
-      forward onto it, validate at each boundary, only then move tags)
-      -- see "Batched Stage 4 amendment" in SS14 for the exact five-step
-      sequence and which commits main's Stage 6C work must also be
-      replayed onto afterward. Plan for this as real reconstruction
-      work at the start of A0, not a quick tag move.
-    — Run scripts/validate-baselines.sh (all 12 checks) and the full
-      regression suite after reconstruction, BEFORE any A1+ code is
-      written.
+A0. One reconstruction, carrying both approved frozen-corpus amendments,
+    before any Module A code. Final shape (owner-specified, correcting
+    two earlier drafts of this document — see SS14's "Batched Stage 4
+    amendment" for the full reasoning):
+
+     1. Preserve the current main tip (tag it, e.g. backup/pre-module-a-a0,
+        before any rewriting -- same discipline as backup/pre-final-baseline-reconcile).
+     2. Start from the CURRENT stage-4-baseline (2313a16).
+     3. Apply the approved Stage 4 amendment: terminalCookieAuth security
+        scheme (ANDed with cookieAuth on every POS_TERMINAL operation,
+        SS9's list) + components/responses/TooManyRequests + RATE_LIMITED
+        (429) in error-catalog.md.
+     4. Create the new stage-4-baseline on this commit.
+     5. Replay Stage 5's substantive content (9de98ce) onto it.
+     6. Apply the terminals.credential_hash partial-unique-index migration
+        HERE, as further Stage 5 content at this same boundary -- not a
+        separate forward-fix, not a second reconstruction pass. It
+        qualifies as genuine Stage 5 content (not a later stage's
+        addition, unlike inventory_locations' own forward-fix) because
+        Stage 5's own terminals migration already declares the ADR-011
+        design intent this index merely completes, evidenced by
+        terminal_enrollment_tokens.token_hash already having the unique
+        index credential_hash was missing.
+     7. Validate (scripts/validate-baselines.sh + migration round-trip +
+        full regression) and create the new stage-5-baseline.
+     8. Replay Stage 6A's substantive content (823c032); validate; create
+        the new stage-6a-baseline.
+     9. Replay Stage 6B's substantive content (2f5e6e8 + a64111e);
+        validate; create the new stage-6b-baseline.
+    10. Replay every post-stage-6b-baseline commit on main at the time A0
+        begins (the Stage 6C CheckoutService implementation, the
+        cashier/shift correction, and every Module A initialization/
+        Decision-Register commit) onto the reconstructed chain.
+    11. Validate the full ancestry chain (all six adjacent-pair checks)
+        and boundary isolation (scripts/validate-baselines.sh) one more
+        time at the final tip.
+    12. Fast-forward main; move all four tags to their reconstructed
+        hashes; delete scratch branches; keep the backup tag until A1's
+        first commit has been validated against the reconstructed chain,
+        per the same disposal-point discipline used for
+        backup/pre-final-baseline-reconcile.
+
+    Only after step 12 does A1 begin.
 
 A1. Authentication/session foundation
     — login/logout/me, session config, password hashing (already
