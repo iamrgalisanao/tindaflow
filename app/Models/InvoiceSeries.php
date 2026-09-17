@@ -16,7 +16,7 @@ class InvoiceSeries extends Model
 
     protected $table = 'invoice_series';
 
-    protected $fillable = ['store_id', 'series_code', 'prefix', 'current_number', 'starting_number', 'ending_number', 'status', 'version'];
+    protected $fillable = ['store_id', 'fiscal_installation_id', 'series_code', 'prefix', 'current_number', 'starting_number', 'ending_number', 'status', 'version'];
 
     public function store(): BelongsTo
     {

@@ -2,7 +2,7 @@
 
 namespace App\Services\InvoiceNumbering;
 
-/** The result of one `InvoiceSeriesAllocator::allocateForStore()` call, ready to persist onto `invoice.invoice_number` verbatim. */
+/** The result of one `InvoiceSeriesAllocator::allocateForFiscalInstallation()` call, ready to persist onto `invoice.invoice_number` verbatim. */
 final readonly class AllocatedInvoiceNumber
 {
     public function __construct(

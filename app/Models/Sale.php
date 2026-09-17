@@ -26,7 +26,7 @@ class Sale extends Model
     protected $fillable = [
         'store_id', 'terminal_id', 'fiscal_day_id', 'shift_id', 'cashier_id', 'transaction_number',
         'sold_at', 'subtotal', 'order_level_discount_amount', 'discount_total', 'taxable_sales',
-        'vat_exempt_sales', 'zero_rated_sales', 'vat_amount', 'grand_total', 'status',
+        'vat_exempt_sales', 'zero_rated_sales', 'vat_amount', 'non_vat_sales', 'grand_total', 'status',
         'idempotency_key', 'buyer_name', 'buyer_address', 'buyer_tin', 'buyer_business_style',
     ];
 
@@ -41,6 +41,7 @@ class Sale extends Model
             'vat_exempt_sales' => 'decimal:2',
             'zero_rated_sales' => 'decimal:2',
             'vat_amount' => 'decimal:2',
+            'non_vat_sales' => 'decimal:2',
             'grand_total' => 'decimal:2',
             'created_at' => 'datetime',
         ];

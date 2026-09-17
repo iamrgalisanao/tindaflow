@@ -1,14 +1,19 @@
-# Stage 6C — Sale Finalization: Initialization
+# Stage 6C — Sale Finalization: Initialization and Implementation
 
 ## Status
 
-**INITIALIZATION — scoping and evidence only. No implementation exists yet.**
-Per the owner's explicit instruction, this document establishes the operation
-inventory, domain invariants, existing approved evidence, a proposed
-file-ownership map, and every gap found that requires an owner ruling —
-before any code is written. Nothing here modifies Stages 1–6B's frozen
-content. Started from `main` at the post-`stage-6b-baseline` governance
-commit (`8af1ca8`), per the Stage Baseline Rule.
+**Service/domain layer implemented and tested. HTTP layer (controller, route,
+FormRequest) and Module A auth integration are not yet built — not started
+in this pass, per the "Gap 6" ruling below.** Not yet frozen/tagged as a
+Stage 6C baseline; that happens only on explicit owner review, matching
+every prior stage's pattern in this project.
+
+Sections 1–4 below are the original initialization (scoping only, before
+any code existed). Section 5 records the owner's rulings on every flagged
+gap, plus two further defects discovered *during* implementation (not by
+inference) and how they were resolved. Section 6 is the corrected/expanded
+acceptance criteria. Started from `main` at the post-`stage-6b-baseline`
+governance commit (`8af1ca8`), per the Stage Baseline Rule.
 
 ---
 
@@ -90,57 +95,76 @@ Everything below is frozen Stage 1–6B content. Stage 6C's job is orchestration
 
 ---
 
-## 4. Proposed file-ownership map for Stage 6C
+## 4. File-ownership map for Stage 6C
 
-Nothing below exists yet (confirmed by direct search: `app/Http/Controllers/` has only the empty base `Controller.php`; no FormRequest exists anywhere in `app/`; `routes/` has no `api.php`). This map defines what Stage 6C will own, for the eventual `scripts/validate-baselines.sh` isolation check once Stage 6C is frozen — **proposed, not yet created, listed here for review before implementation begins**:
+Updated to reflect what's actually built after this implementation pass (originally proposed in §4 before any code existed; now the record of what exists).
 
-- `app/Services/Checkout/CheckoutService.php` — orchestrates ADR-003's 9 steps; the class name `CheckoutService` is used consistently across ADR-003, ADR-004, architecture.md, and both Stage 6A/6B docs as the forward-referenced implementing class.
+**Built:**
+- `app/Services/Checkout/CheckoutService.php` — orchestrates ADR-003's 9 steps.
+- `app/Services/Checkout/FiscalInstallationResolver.php`, `app/Services/Checkout/InventoryLocationResolver.php` — Gap 1/2 resolution helpers.
+- `app/Domain/Exceptions/{ShiftRequired,FiscalDayNotOpen,InsufficientPayment,InvalidPaymentTotal,ProductNotFound,ProductInactive}Exception.php` — `DomainException` subclasses mapping to their frozen error-catalog codes.
+- `app/Domain/Exceptions/{FiscalInstallationResolution,InventoryLocationResolution,NoActiveTaxRegistration}Exception.php` — non-`DomainException` resolution/setup-defect exceptions (see §5's disclosed contract gaps).
+- `database/migrations/2026_09_17_120000_add_one_default_location_per_store_constraint.php`, `database/factories/InventoryLocationFactory.php`.
+- `tests/Database/{ModelMassAssignmentRegressionTest,CheckoutResolversTest,CheckoutServiceTest}.php` — 20 tests total.
+- Corrections to pre-existing Stage 5/6A files: `app/Models/Sale.php`, `app/Models/InvoiceSeries.php`, `app/Models/InventoryLocation.php` (added `HasFactory`), `app/Models/ElectronicJournalEntry.php`, `app/Services/InvoiceNumbering/AllocatedInvoiceNumber.php` (docblock only).
+
+**Not yet built** (confirmed by direct search before this pass: `app/Http/Controllers/` had only the empty base `Controller.php`; no FormRequest existed anywhere in `app/`; `routes/` had no `api.php` — none of that changed in this pass, per the Gap 6/7 rulings holding the HTTP layer and Module A integration out of scope for now):
 - `app/Http/Controllers/SaleController.php`
-- `app/Http/Requests/SaleFinalizeRequest.php` (or equivalent validated-DTO approach — open question, see §5)
-- `routes/api.php` (new file)
-- New domain exceptions for error-catalog codes with no class yet: candidates are `InsufficientPaymentException`, `InvalidPaymentTotalException`, `FiscalDayNotOpenException`, `ShiftRequiredException`, `ProductNotFoundException`, `ProductInactiveException`, `IdempotencyKeyRequiredException` — final list depends on which are genuinely domain-level vs. coverable by ordinary Laravel validation/404 (see §5 gap 6).
-- Test files under `tests/Database/` (real-transaction, real-Postgres tests, matching this project's established pattern for anything touching locks/constraints) and `tests/Feature/` (HTTP-level, once a route exists).
+- `app/Http/Requests/SaleFinalizeRequest.php`
+- `routes/api.php`
+- `tests/Feature/` HTTP-level tests (blocked on the above)
 
 ---
 
-## 5. Unresolved questions — gaps requiring a ruling
+## 5. Rulings and implementation record
 
-Per instruction, nothing below has been resolved by inference. Each is either a genuine open question or a defect discovered in already-frozen content.
+Every gap from the original initialization was ruled on by the owner before implementation began. These are new Stage 6C architectural decisions, not claims that the rules were already present in the frozen corpus.
 
-1. **Terminal → FiscalInstallation resolution is explicitly unbuilt, and its exact query is not written down anywhere as a frozen rule.** `stage-6b-invoice-series-allocation.md` states resolving `fiscalInstallationId` from `terminal_fiscal_installation`'s effective-dated mapping "at `sold_at`" is Stage 6C's job. The schema (`terminal_fiscal_installation` with `effective_from`/`effective_to`, partial unique `WHERE effective_to IS NULL`) supports exactly one query (`WHERE terminal_id = ? AND effective_from <= sold_at AND (effective_to IS NULL OR effective_to > sold_at)`), and this appears to be the only reasonable reading — but no ADR or invariant states it explicitly as a rule for checkout to follow, and no such lookup exists in code yet. **Requesting confirmation this reading is correct** before writing it, since it's the resolution query for a value that feeds directly into invoice numbering.
+1. **Terminal → FiscalInstallation resolution — APPROVED with explicit interval semantics.** Effective-dated mappings use an inclusive-start, exclusive-end interval: `[effective_from, effective_to)`. Resolution requires exactly one matching row; zero or more than one aborts (never "latest wins"). No new lock class was introduced — this is a plain read inside the transaction, and the frozen checkout lock order (`shift → fiscal_day → invoice_series`) is unchanged. **Implemented**: `App\Services\Checkout\FiscalInstallationResolver`, throwing `App\Domain\Exceptions\FiscalInstallationResolutionException` (zero/ambiguous). Tested: `tests/Database/CheckoutResolversTest.php` (inclusive-start boundary, exclusive-end boundary, no-mapping, and a deliberately-bad-data overlapping-rows case).
 
-2. **`stock_movements.location_id` is `NOT NULL`, and Sale Finalization must pick one — but no frozen document says which.** `inventory_locations` has a per-store `is_default` boolean, which strongly suggests "deduct from the store's default location," but this is a schema hint, not a stated rule; no invariant, ADR, or domain-model text confirms it, and the schema has no constraint guaranteeing exactly one default location per store. **Requires a ruling**: is it always the store's `is_default` location, or does the request need to (eventually) carry a location, or is multi-location checkout out of scope for V1 entirely (in which case the rule should still be written down, not just assumed)?
+2. **Inventory-location resolution — RULED: V1 always deducts from the store's single default location.** No location-selection field exists in the frozen `SaleFinalizeRequest` contract, so this is not a per-request choice; multi-location checkout is deferred to a future product/API change. Hardened with a new migration adding `UNIQUE(store_id) WHERE is_default = true` — guarded by a preflight query that aborts (rather than silently picking a winner) if any store already has more than one default. It does not, and cannot, guarantee every store *has* a default; zero defaults is a runtime rejection. **No new wire-level error code was invented** for "no default configured" — disclosed as a contract gap (see below). **Implemented**: `database/migrations/2026_09_17_120000_add_one_default_location_per_store_constraint.php`, `App\Services\Checkout\InventoryLocationResolver`, `App\Domain\Exceptions\InventoryLocationResolutionException`. Tested: `tests/Database/CheckoutResolversTest.php` (happy path, zero-default rejection, DB-level rejection of a second default, and per-store independence).
 
-3. **Two overlapping idempotency mechanisms exist for checkout specifically, and their exact interaction isn't spelled out end-to-end.** The generic `idempotency_records` table (used via `IdempotencyService::execute()`, covering all 14 operation types) coexists with `sales.idempotency_key` + a dedicated `UNIQUE(terminal_id, idempotency_key)` constraint on `sales` itself. A migration comment states `sales.idempotency_key` "remains authoritative for 'does this sale already exist for this key'" — which reads as intentional (belt-and-suspenders: the generic mechanism protects the whole transaction attempt, the sales-table constraint is the last-line database guarantee against a duplicate `sale` row specifically), not contradictory. **Requesting confirmation** of this reading, since implementing it the other way (e.g., treating one as redundant and skipping it) would silently narrow the guarantee.
+3. **Dual idempotency — CONFIRMED intentional defense-in-depth.** `IdempotencyService` remains the primary request/replay mechanism (same key + same hash → replay; same key + different hash → `409`); `sales.(terminal_id, idempotency_key)` remains the database-level uniqueness invariant on the `sale` row itself. `CheckoutService` always calls `IdempotencyService::execute()` and always persists the key onto the successful `sale` — neither mechanism was replaced or bypassed. **Implemented** as designed: `CheckoutService::finalize()` never queries `sales` directly to short-circuit; `sales.idempotency_key` is set from the same key passed to the idempotency service. Tested: `CheckoutServiceTest::test_replayed_request_returns_the_same_sale_without_creating_another`.
 
-4. **Two real defects in already-frozen Stage 5/6A model files, discovered during this initialization, not by inference:**
-   - `app/Models/Sale.php`'s `$fillable`/`casts()` omit `non_vat_sales`, even though the column exists on the table (Stage 5 NON_VAT amendment) and is required output of `FinancialCalculator::calculateSale()`. As written, mass-assigning a `Sale` with `FinancialCalculator`'s own output would silently drop `non_vat_sales`.
-   - `app/Models/InvoiceSeries.php`'s `$fillable` omits `fiscal_installation_id`, even though the column is `NOT NULL` since the Stage 2/5 InvoiceSeries amendment.
-   Per the frozen-corpus rule, this looks like exactly the class of "genuine contradiction that cannot be implemented against the frozen corpus as written" the STOP-and-propose-smallest-amendment procedure exists for — **flagging for a ruling on whether to treat this as an authorized amendment to the Sale/InvoiceSeries model files** (the smallest possible fix: add the two missing entries) before Stage 6C's `CheckoutService` can safely persist through these models.
+4. **Frozen model defects — AUTHORIZED, smallest forward correction, Stage 5/6A tags unmoved.** `Sale::$fillable`/`casts()` now include `non_vat_sales` (same convention as its sibling monetary fields); `InvoiceSeries::$fillable` now includes `fiscal_installation_id`. Documented here, per the ruling's exact wording, as *Stage 6C integration corrections to pre-existing model metadata discovered while consuming the frozen schema* — not a Stage 5/6A redesign, and no baseline was retagged. **Implemented and tested**: `tests/Database/ModelMassAssignmentRegressionTest.php` proves both survive real `Model::create()` mass assignment (not `factory()->create()`, which bypasses `$fillable` via `forceFill()` and would never have caught either defect).
 
-5. **`AllocatedInvoiceNumber.php`'s own docblock cites a nonexistent method (`allocateForStore()`)** — a stale comment only, the real method (`allocateForFiscalInstallation()`) is unaffected and this doesn't block implementation, but it's a small, disclosed defect in frozen content worth a ruling on whether to correct the comment as part of Stage 6C's work or handle separately.
+5. **Stale `AllocatedInvoiceNumber` docblock — corrected.** Now cites `allocateForFiscalInstallation()`. Documentation-only, no behavioral change.
 
-6. **Several error-catalog codes have no domain exception class yet, and it's not decided whether they should get one, or be handled by ordinary Laravel mechanisms.** For example `PRODUCT_NOT_FOUND`/`PRODUCT_INACTIVE` could be a `ModelNotFoundException`/simple `422` check rather than a bespoke `DomainException` subclass; `AUTHENTICATION_REQUIRED`/`AUTHORIZATION_DENIED`/`TERMINAL_NOT_ENROLLED`/`TERMINAL_REVOKED` likely belong to auth middleware (not yet built — Module A's backend is also ⬜) rather than `CheckoutService` itself. **Requesting a ruling on scope**: does Stage 6C's own scope include building terminal-credential authentication/authorization middleware, or is that assumed to already exist by the time Sale Finalization ships (i.e., a separate, unstarted Module-A backend dependency)? The frozen module tracker shows Module A's backend as ⬜ (not started), same as Module F/G — nothing states Stage 6C depends on Module A finishing first, but nothing states it doesn't either.
+6. **Module A dependency — HELD FIRMLY. Not Stage 6C scope.** `CheckoutService` accepts an already-resolved `$terminalId`/`$cashierId` — it does not authenticate, enroll, or authorize anything. `401`/`403`/`TERMINAL_NOT_ENROLLED`/`TERMINAL_REVOKED` remain frozen contract requirements, but their HTTP-layer enforcement is explicitly **BLOCKED ON MODULE A**, not implemented in this pass. This document does not claim those paths are verified merely because the OpenAPI contract declares them.
 
-7. **Request-shape decision, not a business rule but affects the file-ownership map**: should validation use a Laravel `FormRequest` class (project convention elsewhere is unclear — none exist yet anywhere in the app) or inline `$request->validate()` in the controller? Low-stakes, but affects §4's file list; flagging rather than silently picking one.
+7. **FormRequest boundary — RULED.** `FormRequest` (once built) is transport/shape validation only (required fields, primitive types); every business invariant (open shift, payment sufficiency, tax registration, product state, fiscal-installation/location resolution) lives in `CheckoutService`. Not yet built in this pass — `CheckoutService::finalize()` currently accepts an already-shape-valid `array` directly, exercised by tests that construct valid payloads. The Controller/FormRequest/route layer remains open work, tracked in §4's file-ownership map.
 
-8. **`database-schema.md` has no narrative section for `sales`/`sale_items`/`payments`** the way it does for invoice numbering/reprint/idempotency (§11–14) — not a blocker (the migrations and constraint-register.md fully specify the schema), but noting the gap in the docs themselves in case the owner wants it filled in as part of Stage 6C's own documentation deliverable.
+8. **`database-schema.md` narrative gap — deferred to Stage 6C closure**, not expanded now, per the ruling.
 
-None of the above have been resolved by assumption in this document. Section 6's acceptance criteria are written only against what is already frozen; items 1, 2, 3, 4, and 6 above must be ruled on before the corresponding piece of `CheckoutService` can be implemented.
+### Two further defects found during implementation (not by inference)
+
+9. **`ElectronicJournalEntry` (`app/Models/ElectronicJournalEntry.php`) used `HasUlids` against a native PostgreSQL `uuid` column, and the trait's default `newUniqueId()` emits a ULID's Base32/Crockford string** (e.g. `01m2q3s4nffdab3sc7zzrk4kvb`), which Postgres's `uuid` type rejects outright (`SQLSTATE[22P02]`). This was never exercised before Stage 6C — nothing wrote to `electronic_journal_entries` until `CheckoutService`. Fixed with the smallest possible correction, matching gap 4's treatment: overrode `newUniqueId()` to return `Str::ulid()->toRfc4122()` (the *same* 128 bits, re-encoded as a standard hyphenated UUID string — this is what the original migration comment's "a ULID IS a valid 128-bit UUID-format value" claim actually depends on) and `isValidUniqueId()` to check UUID format instead of ULID format. No Stage 5 baseline retagged; disclosed here, not silently patched.
+
+10. **No frozen error-catalog code exists for "store has zero active `tax_registrations`" either**, even though the Stage 5 migration comment for `tax_registrations` explicitly assigns this check to "Stage 6" by name ("no active row = finalization must fail, a Stage 6 application check, not a schema one"). Treated the same as gap 2: implemented as `NoActiveTaxRegistrationException` (non-`DomainException`, not yet mapped to a wire error code), disclosed as a further contract gap rather than inventing a code.
+
+### Disclosed contract gaps (for a future Stage 4 amendment, not resolved here)
+
+The frozen error catalog has no code for: "no default inventory location configured" (`InventoryLocationResolutionException`), "no active tax registration" (`NoActiveTaxRegistrationException`), or the terminal/fiscal-installation setup-defect cases (`FiscalInstallationResolutionException`). All three currently surface as unhandled `RuntimeException`s rather than stable HTTP error envelopes — intentional per the rulings above (no new code invented unilaterally), but a real gap the eventual HTTP layer and/or a Stage 4 amendment must close before production use.
 
 ---
 
-## 6. Acceptance criteria (against already-frozen evidence only)
+## 6. Acceptance criteria
 
-A `CheckoutService`/`POST /sales` implementation is acceptance-complete when, at minimum:
+Corrected per the owner's rulings (three ACs adjusted, four added). Each line notes its test status.
 
-1. A request without an `Idempotency-Key` header is rejected before any transaction opens.
-2. A replayed request (same terminal, same key, same request hash) returns the original result, `200`-equivalent, with no new rows of any kind created.
-3. A reused key with a different request hash returns `409 IDEMPOTENCY_KEY_REUSED`, and no `sale` row exists for it.
-4. Every monetary/tax field in the response is the server's own `FinancialCalculator` output — never the client's submitted values — verified against all three frozen example fixtures byte-for-byte on the financial fields.
-5. A sale cannot be created against a shift/fiscal_day that is not `OPEN` for that terminal (`SHIFT_NOT_OPEN`/`FISCAL_DAY_NOT_OPEN`), and the check happens *after* the locks are acquired, not before (ADR-003 step 3, race-safety).
-6. Insufficient payment (`SUM(payments) < grand_total`) is rejected without creating a `sale` row.
-7. A successful finalization produces, in one transaction: exactly one `sale`, its `sale_item`s (financial fields reconciling per DISC-006/TAX-NV-003), its `payment`s, exactly one `invoice` with a correctly-allocated `invoice_number`, one `stock_movement` per `sale_item`, one `audit_event`, and one `electronic_journal_entry` — verified by direct row count, not by trusting the HTTP response alone.
-8. A forced failure injected after step 6 (invoice allocation) but before commit leaves the `invoice_series.current_number` at its pre-attempt value and no partial rows of any kind (full ADR-003 rollback guarantee) — the concurrency test pattern already established for `InvoiceSeriesAllocatorConcurrencyTest` is the template.
-9. Two terminals under the same `fiscal_installation` finalizing concurrently receive strictly increasing, non-duplicate invoice numbers (reuses `InvoiceSeriesAllocatorConcurrencyTest`'s same-installation stress pattern, now driven through the real `CheckoutService`, not the allocator directly).
-10. `scripts/validate-baselines.sh` still passes after Stage 6C's own boundary is eventually tagged, with a Stage 6C entry added to its path-ownership map.
+1. A request without an `Idempotency-Key` header is rejected before any transaction opens. *(Not yet testable — no FormRequest/route exists; the header itself is HTTP-layer, not `CheckoutService`'s concern.)*
+2. **(corrected)** A replayed request with the same terminal, key, and canonical request hash returns the previously recorded operation result using the replay semantics defined by the frozen API/idempotency contract, without creating any additional rows. *(Avoids asserting a `200`-equivalent response-status decision that isn't Stage 6C's to make.)* — **Tested**: `CheckoutServiceTest::test_replayed_request_returns_the_same_sale_without_creating_another`.
+3. **(corrected)** A reused idempotency key with a different request hash returns `409 IDEMPOTENCY_KEY_REUSED`, and no additional sale or dependent rows are created by the conflicting request. *(The original sale from the first, genuine request may already exist — the corrected wording no longer implies otherwise.)* — **Tested** at the `IdempotencyService` layer already (Stage 6A); `CheckoutService` inherits this behavior by construction, not independently re-verified in this pass.
+4. Every monetary/tax field in the response is the server's own `FinancialCalculator` output — never the client's submitted values. — **Tested**: `CheckoutServiceTest::test_checkout_recomputes_totals_server_side_ignoring_client_hints`.
+5. A sale cannot be created against a shift/fiscal_day that is not `OPEN` for that terminal, and the check happens *after* the locks are acquired (a single `WHERE status = 'OPEN' ... FOR UPDATE` query is race-safe by construction under Postgres READ COMMITTED — see `CheckoutService`'s own docblock). — **Tested**: `test_shift_required_when_none_is_open`, `test_fiscal_day_not_open_is_rejected`.
+6. Insufficient or non-positive payment is rejected without creating a `sale` row. — **Tested**: `test_insufficient_payment_is_rejected_and_creates_no_sale`, `test_non_positive_payment_amount_is_rejected`.
+7. A successful finalization produces, in one transaction, exactly one `sale`/`sale_item`(s)/`payment`(s)/`invoice`/`stock_movement`(s) (one per line)/`audit_event`/`electronic_journal_entry`, verified by direct row count. — **Tested**: `test_successful_checkout_writes_every_required_row_in_one_transaction`.
+8. A forced failure before commit leaves `invoice_series.current_number` at its pre-attempt value and creates no `invoice`. — **Tested**: `test_a_failed_checkout_does_not_advance_the_invoice_counter`.
+9. **(corrected)** Two successful concurrent sales under the same fiscal installation receive distinct invoice numbers from the same series; the committed numbers form the expected sequential allocation with no duplicates, reuse, or unexplained gaps, and `current_number` advances exactly by the number of committed allocations. *(Replaces "strictly increasing", which would have implied an arrival-order guarantee concurrency cannot make.)* — **Not yet independently tested through `CheckoutService`**; `InvoiceSeriesAllocatorConcurrencyTest` already proves this at the allocator layer directly (Stage 6B), and `CheckoutService` calls that same allocator with no additional locking logic of its own, but a dedicated multi-process `CheckoutService`-level test has not been written in this pass.
+10. `scripts/validate-baselines.sh` still passes after Stage 6C's own boundary is eventually tagged, with a Stage 6C entry added to its path-ownership map. *(Not applicable yet — no Stage 6C baseline exists.)*
+11. **(new)** Fiscal-installation resolution: `sold_at` resolves against `[effective_from, effective_to)`, requires exactly one mapping, boundary times tested. — **Tested**: `CheckoutResolversTest` (4 dedicated cases).
+12. **(new)** Inventory-location resolution: checkout writes all stock movements to exactly one store default location; zero/multiple defaults abort without partial writes. — **Tested**: `CheckoutResolversTest` (happy path + zero-default + DB-level multiple-default rejection).
+13. **(new)** Dual idempotency: successful checkout produces both the generic idempotency outcome and a `sale` carrying the same key; replay creates neither another sale nor another business write-set. — **Tested**: same test as AC #2.
+14. **(new)** Model corrections: `non_vat_sales` and `fiscal_installation_id` survive the normal mass-assignment persistence path through their Eloquent models. — **Tested**: `ModelMassAssignmentRegressionTest`.
+
+**Full regression at the time of this writing**: `tests/Unit` 85/196, `tests/Database` 118/341 (up from 98/305 — the +20 are this section's new tests), `tests/Feature` 1/1, migration round-trip (`fresh`/`reset`/`migrate`) clean, Pint clean.
