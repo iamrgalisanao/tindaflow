@@ -131,6 +131,9 @@ paths:
       operationId: terminalCurrent
       tags: [Terminal]
       summary: The terminal this browser is currently enrolled as
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       responses:
         '200':
           description: Current terminal
@@ -687,6 +690,9 @@ paths:
       tags: [Sales]
       summary: Finalize a Sale (checkout) — the single most important operation
       description: 'A Sale does not exist before this call succeeds (Stage 2 §2.7: no persisted DRAFT). Terminal, cashier, shift, fiscal_day are resolved server-side and can never be overridden by the request body (architecture.md §5/§11, Stage 2 invariant #3/#4). Server recomputes every monetary/tax/discount figure via the FinancialCalculator (ADR-012) regardless of any client-submitted preview values.'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
       requestBody:
@@ -730,6 +736,9 @@ paths:
       description: 'No processing terminal/shift/fiscal_day field is accepted in the request body — those are resolved from the authenticated terminal context at execution (Stage 2 invariants #67–#69). Requires SALE_VOID capability. If the requester already holds SALE_VOID_APPROVE, the REQUESTED → APPROVED → VOIDED transitions all happen immediately within this same call (state-machines.md §2, "or immediate, if requester already holds SALE_VOID_APPROVE"). Otherwise the response reflects status REQUESTED, and the void remains pending until a separate actor calls POST /voids/{voidId}/approve or POST /voids/{voidId}/reject — see the Voids section below (added in remediation pass 3 to make that transition reachable).
 
         '
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/SaleIdPath'}
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
@@ -760,6 +769,9 @@ paths:
       x-capability: SALE_REFUND
       summary: Finalize a Refund (Stage 2 §2.9 — full or partial)
       description: 'No authoritative refund totals are accepted from the client — the server derives remaining refundable quantity/consideration from the frozen sale_item snapshot (net_line_amount, DISC-004) and validates SUM(settlements.amount) equals the derived refund total (Stage 2 invariant #70). Processing terminal/shift/fiscal_day are resolved server-side, never from the request body (invariants #67–#69). If the requester already holds SALE_REFUND_APPROVE, the REQUESTED → APPROVED → COMPLETED transitions all happen immediately within this same call (state-machines.md §3). Otherwise the response reflects status REQUESTED — the requested items/settlements are recorded but not yet executed — and the refund remains pending until a separate actor calls POST /refunds/{refundId}/approve or POST /refunds/{refundId}/reject — see the Refunds section below (added in remediation pass 3 to make that transition reachable).'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/SaleIdPath'}
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
@@ -835,6 +847,9 @@ paths:
       x-capability: SALE_VOID_APPROVE
       summary: 'Approve a REQUESTED Void — this IS the fiscal execution point, not a permission grant (state-machines.md §2)'
       description: 'CONFIRMED FISCAL EXECUTION COMMAND, not mere authorization: Stage 2''s void state diagram shows APPROVED immediately followed by system-executed reversal ("APPROVED --> VOIDED: system executes reversal"), with no separately-persisted resting state between them, and invariant #24 names exactly three void audit events — SALE_VOID_REQUESTED, SALE_VOIDED, SALE_VOID_REJECTED — with no fourth "SALE_VOID_APPROVED" event, confirming Stage 2 never treats APPROVED as its own independently-loggable, fiscally-effective moment. This operation therefore performs REQUESTED → APPROVED → VOIDED atomically, in one database transaction, exactly mirroring what already happens inline in POST /sales/{saleId}/void when the original requester holds SALE_VOID_APPROVE. On success, this single transaction: resolves the authenticated approver from the session (never client-supplied); resolves the enrolled executing terminal (ADR-011) and its own currently-OPEN fiscal_day/shift — independent of the original requester''s or the original sale''s terminal/shift/fiscal_day (Stage 2 amendment pass 3; invariants #67/#69) — failing the call (see below) if none is open right now; locks and re-validates the referenced void row is still REQUESTED and the originating sale still meets void eligibility (Stage 2 §2.8''s five conditions, re-checked, not read from the original request-time result); creates the full-quantity SALE_RETURN stock_movement per sale_item (invariant #22); populates void.terminal_id/fiscal_day_id/shift_id from the executing context; transitions sale.status to VOIDED; and writes a single SALE_VOIDED audit_event plus its corresponding electronic_journal_entry (event_type=VOID) — all committed atomically, or none of it. A REQUESTED-time processing context is never reused: this call always resolves and uses the context that exists right now, at execution, never a context captured or frozen when the void was originally requested. FAILED APPROVAL IS NOT AUTOMATIC REJECTION (Stage 2 amendment pass 4, correcting state-machines.md §2''s previous wording): if the void''s eligibility no longer holds at execution time (any of the five request-time conditions, e.g. the originating sale''s own fiscal_day has since Z-closed), this call fails with `409 SALE_NOT_VOIDABLE` and the void row is left completely unchanged — still REQUESTED, no stock_movement, no audit_event, no electronic_journal_entry, no processing-context fields populated. Likewise, if the executing terminal itself has no open fiscal_day/shift right now, this call fails with `409 FISCAL_DAY_CLOSED`/`SHIFT_NOT_OPEN` and the void stays REQUESTED, unchanged — never silently reattributed to whatever context happens to be open. A failed execution attempt is never itself an authorized decision that the request should not proceed; only an explicit call to POST /voids/{voidId}/reject (a human, capability-holding decision) or a later, successful call to this same endpoint ever resolves a REQUESTED void. The 409 below for VOID_NOT_PENDING_APPROVAL is reserved for a structurally invalid call — the void was not in REQUESTED status when this call arrived (already VOIDED/REJECTED by a concurrent request) — which, like every other failure path here, never touches the ledger. Idempotent (ADR-010), with an important refinement for failure paths: a retry with the same Idempotency-Key after a SUCCESSFUL execution returns the original VOIDED result verbatim, never re-executing the reversal. A retry after a FAILED attempt (409, no fiscal mutation committed) is different: no idempotency_record is durably resolved for an attempt that committed nothing, so the SAME Idempotency-Key MAY be reused for a fresh attempt once the caller corrects the precondition (e.g. opens a shift) — this is treated as a new attempt of the same logical operation, not a cached-failure replay, and a new key is not required.'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/VoidIdPath'}
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
@@ -859,6 +874,9 @@ paths:
       x-capability: SALE_VOID_APPROVE
       summary: Reject a REQUESTED Void — a human decision, never a fiscal mutation (state-machines.md §2)
       description: 'NOT a fiscal mutation, by design: REQUESTED → REJECTED only. Resolves the authenticated rejecting actor from the session (never client-supplied) and persists reason/rejected_at/rejected_by (via approved_by/resolved_at on VoidSummary — the same fields approve uses, since exactly one of the two ever resolves a REQUESTED void). Never executes a reversal, never creates a stock_movement, never touches Sale (sale.status stays COMPLETED), and never touches invoice_series. Writes SALE_VOID_REJECTED to audit_event ONLY — never electronic_journal_entry, since a rejected void never becomes the fiscal fact the VOID journal event_type represents (see voidApprove''s description for the full reasoning). No processing-context fields (terminal_id/fiscal_day_id/shift_id) are populated on this path, because Stage 2 only defines those as being set during APPROVED → VOIDED execution — so, unlike approve, this operation does not require an enrolled terminal or an OPEN shift/fiscal_day; nothing in Stage 2 ties declining a request to the rejecting actor''s own processing context. Requires SALE_VOID_APPROVE — the same capability that can approve can decline. Idempotent (ADR-010): a retry with the same Idempotency-Key returns the original rejection result verbatim.'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/VoidIdPath'}
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
@@ -941,6 +959,9 @@ paths:
       x-capability: SALE_REFUND_APPROVE
       summary: 'Approve a REQUESTED Refund — this IS the fiscal execution point, not a permission grant (state-machines.md §3)'
       description: 'CONFIRMED FISCAL EXECUTION COMMAND, not mere authorization — same determination as voidApprove (see its description for the full frozen-text citation: state-machines.md''s APPROVED→COMPLETED arrow, no separately-persisted resting state, no distinct "SALE_REFUND_APPROVED" event name). Performs REQUESTED → APPROVED → COMPLETED atomically, in one database transaction. On success: resolves the authenticated approver from the session; resolves the enrolled executing terminal (ADR-011) and its own currently-OPEN fiscal_day/shift, independent of the original requester''s or original sale''s terminal/shift/fiscal_day (Stage 2 amendment pass 3; invariants #67/#69) — never the context that existed when the refund was originally requested; locks the referenced refund row and the referenced sale_item row(s), re-confirming the refund is still REQUESTED; **re-validates the cumulative quantity/amount cap against every refund_item that exists right now** (invariants #27/#28 — "checked server-side... never trusted from client input" applies at the moment rows are actually created, not only at the original request, precisely because a *different* refund against the same sale_item could have been approved in the interim); validates `SUM(settlements.amount)` still equals the derived refund total (invariant #70); creates `refund_item` rows (with disposition, from the values supplied at request time — never re-solicited here) and `refund_settlement` rows (from the settlement detail supplied at request time); creates a restocking `stock_movement` only for `RETURN_TO_STOCK` lines (invariant #30); recomputes `sale.status`; populates `refund.terminal_id`/`fiscal_day_id`/`shift_id` from the executing context; and writes a single fiscal-completion audit_event plus its corresponding `electronic_journal_entry` (event_type=REFUND) — all committed atomically, or none of it. FAILED APPROVAL IS NOT AUTOMATIC REJECTION, symmetric with voidApprove (Stage 2 amendment pass 4): if the originally-requested quantity/amount no longer fits (a concurrent refund against the same sale_item was approved first), this call fails with `422 REFUND_EXCEEDS_REMAINING_QUANTITY`/`REFUND_EXCEEDS_REMAINING_AMOUNT` (the same codes the original request-time check uses); if the executing terminal has no open fiscal_day/shift at this moment, this call fails with `409 FISCAL_DAY_CLOSED`/`SHIFT_NOT_OPEN` (the same codes `POST /sales/{saleId}/refunds` itself already documents for that condition). In every failure case the refund row is left completely unchanged — still REQUESTED, no refund_item/refund_settlement/stock_movement/audit_event/electronic_journal_entry, no processing-context fields populated — requiring a human decision (a fresh approve attempt, or an explicit reject) rather than silently completing an over-limit refund or silently producing a REJECTED result. (Refund and Void now share the same failure-handling shape; the only remaining difference is which specific conditions each re-checks, not what happens when a check fails — see api-design.md §12.1.) Idempotent (ADR-010), with the same refinement as voidApprove: a retry with the same Idempotency-Key after a SUCCESSFUL execution returns the original COMPLETED result verbatim. A retry after a FAILED attempt (409/422, no fiscal mutation committed) may reuse the same Idempotency-Key for a fresh attempt once the underlying condition is corrected — no idempotency_record is durably resolved for an attempt that committed nothing, so this is treated as a new attempt, not a cached-failure replay.'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/RefundIdPath'}
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
@@ -970,6 +991,9 @@ paths:
       x-capability: SALE_REFUND_APPROVE
       summary: Reject a REQUESTED Refund — a human decision, never a fiscal mutation (state-machines.md §3)
       description: 'NOT a fiscal mutation, by design: REQUESTED → REJECTED only. Resolves the authenticated rejecting actor from the session (never client-supplied) and persists it to RefundSummary.approved_by, sets resolved_at to now (both added this pass — see their schema descriptions), and leaves refunded_at null (it only ever reflects COMPLETED, never REJECTED). Never executes, never creates a refund_item/refund_settlement/stock_movement, and never touches Sale (sale.status stays whatever it already was). Writes a rejection audit_event ONLY — never electronic_journal_entry, since a rejected refund never becomes the fiscal fact the REFUND journal event_type represents (same reasoning as voidReject). No processing-context fields are populated, because Stage 2 only defines those as being set during APPROVED → COMPLETED execution — so, unlike approve, this operation does not require an enrolled terminal or an OPEN shift/fiscal_day. Requires SALE_REFUND_APPROVE. Idempotent (ADR-010): a retry with the same Idempotency-Key returns the original rejection result verbatim.'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/RefundIdPath'}
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
@@ -1057,6 +1081,9 @@ paths:
       tags: [Shifts]
       summary: Open a Shift
       description: 'Terminal comes from enrolled terminal context; cashier from the authenticated user. If the terminal has no currently OPEN FiscalDay, one is opened atomically as part of this same transaction before the Shift (V1 operating policy — see api-design.md §"FiscalDay opening policy"; not a BIR statutory requirement). Fails with SHIFT_ALREADY_OPEN if this cashier or this terminal already has an open shift (Stage 2 invariants #33/#34).'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
       requestBody:
@@ -1129,6 +1156,9 @@ paths:
       tags: [Shifts]
       summary: Record a cash movement (CASH_IN or CASH_OUT)
       description: 'CASH_OUT above a configurable threshold requires the CASH_OUT capability (architecture.md §16/Stage 2 invariant #39). No generic PATCH of Shift cash balances exists.'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/ShiftIdPath'}
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
@@ -1177,6 +1207,9 @@ paths:
       operationId: shiftXReadingCreate
       tags: [Shifts]
       summary: Generate an on-demand X-Reading (does not close or reset anything — Stage 2 invariant
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/ShiftIdPath'}
       responses:
@@ -1194,6 +1227,9 @@ paths:
       tags: [Shifts]
       summary: Close a Shift (atomically generates the closing X-Reading)
       description: 'Accepts declared_cash only. expected_cash, variance, cash_sales, cash_refunds, cash_in/out totals are computed server-side from the authoritative ledger and are never accepted from the client (Stage 2 invariant #37/#40; architecture.md §46).'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/ShiftIdPath'}
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
@@ -1303,6 +1339,9 @@ paths:
       x-capability: FISCAL_DAY_CLOSE
       summary: Close a FiscalDay and generate its Z-Reading (architecture.md §8, exactly once — Stage 2 invariant
       description: 'Rejects with FISCAL_DAY_HAS_OPEN_SHIFT if any Shift referencing this FiscalDay is still OPEN (Stage 2 invariant #36). All Z-Reading totals are derived server-side from authoritative committed records — never accepted from the browser (architecture.md §46).'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
       parameters:
       - {$ref: '#/components/parameters/FiscalDayIdPath'}
       - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
@@ -1893,6 +1932,7 @@ paths:
 components:
   securitySchemes:
     cookieAuth: {type: apiKey, in: cookie, name: tindaflow_session, description: 'Laravel-compatible session cookie (HttpOnly, Secure, SameSite=Strict). All state-changing requests additionally require a valid CSRF token via the standard Laravel double-submit-cookie mechanism (X-XSRF-TOKEN header sourced from the XSRF-TOKEN cookie); this is enforced by global middleware and is not repeated as a parameter on every operation in this document — see api-design.md, Authentication.'}
+    terminalCookieAuth: {type: apiKey, in: cookie, name: tindaflow_terminal, description: 'Opaque, high-entropy terminal credential issued at enrollment (ADR-011) and stored as a second HttpOnly/SameSite=Strict cookie (Secure mandatory in production). Looked up by deterministic hash against terminals.credential_hash on every request; a revoked (revoked_at IS NOT NULL) or unmatched credential fails with TERMINAL_REVOKED/TERMINAL_NOT_ENROLLED. Required in addition to, never instead of, cookieAuth on every POS_TERMINAL operation (module-a-auth-terminal-initialization.md §14 Ruling 3) — combined in a single Security Requirement Object so both are conjunctively required.'}
   parameters:
     PageParam:
       name: page
