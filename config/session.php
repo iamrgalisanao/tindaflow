@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Support\Str;
-
 return [
 
     /*
@@ -127,10 +125,12 @@ return [
     |
     */
 
-    'cookie' => env(
-        'SESSION_COOKIE',
-        Str::slug((string) env('APP_NAME', 'laravel')).'-session'
-    ),
+    // Module A Decision Register (module-a-auth-terminal-initialization.md
+    // SS14, Ruling 3): tindaflow_session is the frozen human-session
+    // cookie name, independent of the future tindaflow_terminal
+    // credential -- they are separate trust boundaries and must never be
+    // conflated, including at the config level.
+    'cookie' => env('SESSION_COOKIE', 'tindaflow_session'),
 
     /*
     |--------------------------------------------------------------------------
@@ -169,7 +169,13 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    // Secure in production, per the same frozen security intent -- opt
+    // out only for local/testing where the app isn't served over HTTPS.
+    // Always explicit via SESSION_SECURE_COOKIE if set. Reads the raw
+    // APP_ENV variable rather than app()->environment(): config files
+    // load before the container's 'env' binding is set, so the latter
+    // isn't available yet at this point in the boot sequence.
+    'secure' => env('SESSION_SECURE_COOKIE', ! in_array(env('APP_ENV', 'production'), ['local', 'testing'], true)),
 
     /*
     |--------------------------------------------------------------------------
@@ -199,7 +205,10 @@ return [
     |
     */
 
-    'same_site' => env('SESSION_SAME_SITE', 'lax'),
+    // SameSite=Strict is the frozen human-session security intent
+    // (module-a-auth-terminal-initialization.md SS14, Ruling 3), not
+    // Laravel's default "lax".
+    'same_site' => env('SESSION_SAME_SITE', 'strict'),
 
     /*
     |--------------------------------------------------------------------------
