@@ -323,7 +323,13 @@ Terminal: tindaflow_terminal      → opaque high-entropy credential
 - Cookie name: `tindaflow_terminal` (ADR-011 does not name one; this is the smallest, most legible choice paired with `tindaflow_session`). HttpOnly, SameSite=Strict; `Secure` mandatory in production.
 - The raw credential is returned/set exactly once (at successful enrollment) and never stored server-side — same discipline already used for enrollment tokens.
 - **Hashing algorithm**: ADR-011 does not specify one, so this is a Stage 6 (Module A) choice, not an amendment to the ADR. Because `credential_hash` is used for **direct equality lookup** (not verification of a low-entropy secret against a slow adversary, the way a login password is), it must **not** use `Hash::make()`/bcrypt — a deterministic digest is required for the lookup to work at all, and a bcrypt hash of a *high-entropy* random credential (unlike a human password) gains no meaningful security benefit from bcrypt's slowness, only cost. Use a deterministic cryptographic digest or HMAC over the raw credential (e.g. SHA-256), matching the same pattern `terminal_enrollment_tokens.token_hash` already uses.
-- **Stage 5 schema gap confirmed by direct inspection, not assumed**: `terminals.credential_hash` has **no index of any kind**, let alone a unique one — unlike `terminal_enrollment_tokens.token_hash`, which already has `$table->unique('token_hash')`. **Approved as a required forward-fix**: a new migration adding `UNIQUE (credential_hash)` (nullable-safe — Postgres permits multiple NULLs under a plain unique constraint, so not-yet-enrolled terminals are unaffected), applied as part of A3, not before — matching this project's own established pattern of forward-correcting a disclosed Stage 5 gap without retagging the Stage 5 baseline (the same treatment already given to `Sale`/`InvoiceSeries`/`ElectronicJournalEntry` during Stage 6C).
+- **Stage 5 schema gap confirmed by direct inspection, not assumed**: `terminals.credential_hash` has **no index of any kind**, let alone a unique one — unlike `terminal_enrollment_tokens.token_hash`, which already has `$table->unique('token_hash')`. **Approved as a required forward-fix, sequenced into A0 (not A3)** — a Stage 4/5 amendment discovered during initialization must land before any Module A code, exactly like the other A0 items, or A3 would be implementing credential verification on top of a database not yet amended to support it (the same "implementation on stale frozen corpus" problem already cleaned up earlier in this project). A **partial unique index**, not a plain unique constraint, per the owner's refinement — explicit about the pre-enrollment `NULL` state:
+  ```sql
+  CREATE UNIQUE INDEX terminals_credential_hash_unique
+  ON terminals (credential_hash)
+  WHERE credential_hash IS NOT NULL;
+  ```
+  This still gives the credential lookup (`hash presented credential → look up by credential_hash → check revoked_at IS NULL → establish Terminal`) an efficient unique path; no separate index on `revoked_at` is needed, since it's checked as an ordinary predicate against the one row the unique index already finds. No Stage 5 baseline retag needed — same forward-fix pattern already used for `Sale`/`InvoiceSeries`/`ElectronicJournalEntry` during Stage 6C.
 - **Required Stage 4 amendment** (batched with Ruling 6's fix, applied together, not yet applied — see "Batched Stage 4 amendment" below): add a `terminalCookieAuth` security scheme, and require it **conjunctively** (AND, not OR) with `cookieAuth` on every `POS_TERMINAL`-classified operation (§9). Per the OpenAPI 3.1 spec, two schemes inside the *same* Security Requirement Object are AND'd together; two separate entries in the `security` array are OR'd (alternatives) — the correct shape is:
   ```yaml
   security:
@@ -373,12 +379,30 @@ Both are purely additive — no existing operation's request/response shape chan
 ## 15. Module A implementation sequence (derived from evidence)
 
 ```text
-A0. Apply the batched Stage 4 amendment (§14, "Batched Stage 4 amendment")
-    — terminalCookieAuth security scheme + AND requirement on
-      POS_TERMINAL operations, TooManyRequests response + RATE_LIMITED
-      code. Applied and stage-4-baseline moved BEFORE A1-A6, so every
-      later step implements against the corrected contract rather than
-      needing its own follow-up amendment.
+A0. Apply ALL prerequisite frozen-corpus amendments before any Module A
+    code — sequencing correction (owner ruling): the credential_hash
+    fix moved here from A3, since it is itself a Stage 5 amendment
+    discovered during initialization; implementing A3 first and
+    amending the database afterward would recreate the exact
+    "implementation on top of stale frozen corpus" problem already
+    cleaned up earlier in this project.
+    — Stage 4: add terminalCookieAuth security scheme; require it
+      conjunctively (AND) with cookieAuth on every POS_TERMINAL
+      operation (§9's list).
+    — Stage 4: define components/responses/TooManyRequests (standard
+      envelope) and add TERMINAL_MANAGE-independent RATE_LIMITED (429)
+      to error-catalog.md.
+    — Stage 5: add a partial unique index —
+      `CREATE UNIQUE INDEX terminals_credential_hash_unique ON
+      terminals (credential_hash) WHERE credential_hash IS NOT NULL;`
+      — explicit about the pre-enrollment NULL state, still gives the
+      credential lookup an efficient unique path. No separate index on
+      revoked_at is needed; that column is checked as an ordinary
+      predicate against the row this index already finds.
+    — Validate and reconcile whichever of stage-4-baseline/
+      stage-5-baseline/stage-6a-baseline/stage-6b-baseline are actually
+      touched, using scripts/validate-baselines.sh, BEFORE any A1+ code
+      is written.
 
 A1. Authentication/session foundation
     — login/logout/me, session config, password hashing (already
@@ -396,12 +420,9 @@ A3. Terminal enrollment and credential verification
     — TerminalEnrollmentService (token issuance/verification/
       single-use), the enrollment endpoints, ResolveTerminalContext
       middleware, per §14 Ruling 3's exact design (tindaflow_terminal
-      cookie, deterministic digest/HMAC, never Hash::make()). Includes
-      the approved Stage 5 forward-fix: a new migration adding
-      `UNIQUE (credential_hash)` to `terminals` (confirmed missing by
-      direct inspection — no baseline retag needed, same forward-fix
-      pattern already used for Sale/InvoiceSeries/ElectronicJournalEntry).
-      Independent of A2's capability logic except that
+      cookie, deterministic digest/HMAC, never Hash::make()), built
+      against the credential_hash partial unique index A0 already
+      established. Independent of A2's capability logic except that
       terminalCreateEnrollmentToken/terminalEnroll/etc. themselves
       require TERMINAL_MANAGE (so A3 depends on A2 for its own gating,
       even though its OUTPUT — terminal context — is what A4 composes).
