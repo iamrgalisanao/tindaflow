@@ -2,7 +2,11 @@
 
 ## Status
 
-**RULINGS CLOSED. Still no Module A implementation, controller, middleware, policy, authentication handler, or terminal-enrollment code exists** — this document remains scope/decisions only. All nine items originally flagged as unresolved in §14 have been ruled on and are recorded there as the binding Decision Register. One item required touching Stage 6C: `CheckoutService`'s shift-resolution query was found (during Ruling 1's schema verification) to check `terminal_id` only, never `cashier_id` — fixed in a dedicated correction commit with a negative regression test, since Stage 6C remains unfrozen and this was a genuine correctness defect, not a design question. Two approved amendments are **deliberately not yet applied**, batched into one reconstruction as step A0 of the implementation sequence (§15): the Stage 4 contract fix (`terminalCookieAuth` + `RATE_LIMITED` — see §14 Ruling 6 for why this is `RATE_LIMITED` alone and not also a new `TooManyRequests` response), which modifies existing frozen `openapi.yaml`/`error-catalog.md` content, and the Stage 5 `terminals.credential_hash` partial-unique-index fix — which, after a second look, turned out to also require folding into the *same* reconstruction rather than standing alone as an ordinary forward-fix (an earlier draft of this document said otherwise; corrected — see §14's "Batched Stage 4 amendment" for exactly why `credential_hash` differs from `inventory_locations`/`Sale`/`InvoiceSeries`/`ElectronicJournalEntry`, which correctly remain standalone forward-fixes). Both land together because Stage 4's amendment already forces a Stage 5 replay regardless — no second reconstruction pass is needed. No Module A baseline/tag exists. Per the owner's explicit plan, implementation (A1 onward) begins in a fresh session, with A0's full 12-step reconstruction (§15) planned for explicitly at the start, not discovered partway through it.
+**RULINGS CLOSED. A0 CLOSED. A1 (human authentication/session foundation) IMPLEMENTED.** A2 through A6 have not started — no terminal enrollment, RBAC/capability enforcement, authoritative User+Terminal context, user-management endpoints, or Stage 6C HTTP integration exists yet.
+
+All nine Decision Register items are ruled (§14). One item required touching Stage 6C during the evidence pass: `CheckoutService`'s shift-resolution query was found to check `terminal_id` only, never `cashier_id` — fixed with a dedicated regression test. Both approved Stage 4/5 amendments (`terminalCookieAuth` + `RATE_LIMITED`; the `terminals.credential_hash` partial unique index) were applied via the **A0 baseline reconstruction**: `stage-4-baseline`/`stage-5-baseline`/`stage-6a-baseline`/`stage-6b-baseline` were rebuilt on top of them and revalidated (see `docs/PROJECT-MANIFEST.md`'s "A0 baseline reconstruction" section for the full record — old/new hashes, verification, backup tag). Stage 1/2/3 baselines are unchanged.
+
+**A1** (this pass) implemented `POST /auth/login`, `POST /auth/logout`, and `GET /auth/me` against the reconstructed, corrected contract — see §17 for the full implementation summary. No Module A baseline/tag has been created; per the same discipline used throughout this project, that happens only on explicit owner review once A1–A6 are complete.
 
 ---
 
@@ -506,7 +510,7 @@ This order is derived from dependency evidence (A2 needs A1's authenticated user
 
 `POST /sales` becomes production-ready only when **all** of the following hold, cross-checked against `stage-6c-sale-finalization.md`'s own stated expectations:
 
-1. An authenticated user's identity is trustworthy, including live re-verification of `active` on every request, not just at login (A1, §14 Ruling 2).
+1. **A1 DONE.** An authenticated user's identity is trustworthy, including live re-verification of `active` on every request, not just at login (A1, §14 Ruling 2) — implemented (§17); still pending A6's re-verification once fed real Stage 6C routes.
 2. Authoritative terminal context exists and cannot be spoofed (A3/A4, ADR-011's trust boundary enforced in code via the `tindaflow_terminal` credential — §14 Ruling 3 — not just documented).
 3. Store context cannot be spoofed: `user.store_id == terminal.store_id` is enforced at the POS request-context boundary (A4), **and** `CheckoutService`'s own OPEN-Shift/cashier-match check (already implemented and tested) is re-verified once fed a genuine authenticated cashier — the two are layered per §14 Ruling 1, neither substitutes for the other.
 4. Role/capability checks are available and enforced (A2) for every operation that needs one, preserving the conditional field-level checks (`PRICE_OVERRIDE`/`DISCOUNT_OVERRIDE`/`CASH_OUT`) rather than flattening them.
@@ -514,6 +518,52 @@ This order is derived from dependency evidence (A2 needs A1's authenticated user
 6. Authentication/authorization failures map to the existing frozen codes (`AUTHENTICATION_REQUIRED`, `AUTHORIZATION_DENIED`, `TERMINAL_NOT_ENROLLED`, `TERMINAL_REVOKED`) plus the one new, approved code (`RATE_LIMITED`, §14 Ruling 6) — no further new code invented without going through the amendment procedure.
 7. Terminal identity/enrollment behavior matches ADR-011 exactly (one-time tokens, hashed storage, revocation semantics), using the specific credential mechanism and hashing discipline ruled in §14 Ruling 3 (deterministic digest/HMAC, never `Hash::make()`).
 8. The `Idempotency-Key` HTTP header reaches `CheckoutService`'s existing `IdempotencyService` integration unchanged — Module A must not interpose any additional idempotency logic of its own on top of Stage 6A's already-frozen mechanism.
-9. The batched Stage 4 amendment (§14, A0) has been applied and `stage-4-baseline` moved, so the HTTP layer is built against the corrected contract, not the one missing a `RATE_LIMITED` catalog code and an unmodeled second credential.
+9. **DONE.** The batched Stage 4 amendment (§14, A0) has been applied and `stage-4-baseline` moved, so the HTTP layer is built against the corrected contract, not the one missing a `RATE_LIMITED` catalog code and an unmodeled second credential.
 
 Until all nine hold and are demonstrated by passing tests (not merely implemented), `POST /sales` remains not production-ready, and Stage 6C remains unfrozen.
+
+---
+
+## 17. A1 implementation summary (human authentication/session foundation)
+
+**Scope delivered**: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` — exactly these three, against the corrected (post-A0) `openapi.yaml` contract. No terminal enrollment, no RBAC/capability *enforcement*, no authoritative User+Terminal context, no user-management endpoints, no Stage 6C HTTP integration — all remain A2–A6.
+
+**Files added**:
+- `app/Http/Controllers/AuthController.php` — `login`/`logout`/`me`.
+- `app/Http/Requests/LoginRequest.php` — whitelists exactly `{email, password}`.
+- `app/Http/Middleware/EnsureUserIsActive.php` — Ruling 2's active-revalidation boundary.
+- `app/Http/Middleware/AssignRequestId.php` — api-design.md §6's `request_id`/`X-Request-ID`, needed by every error envelope and not previously wired anywhere.
+- `app/Http/Resources/UserSummaryResource.php` — the single `UserSummary` serializer (`public static $wrap = null`, since the frozen schema is a bare object, not `{"data": ...}`).
+- `app/Services/Auth/RoleCapabilityCatalog.php` — the fixed role→capability projection from api-design.md's table, shared so login/`me` never drift and so A2 has one place to extend for its own `Gate` checks.
+- `app/Services/Auth/LoginRateLimiter.php` + `config/tindaflow.php` — the named `login` rate limiter's key/limit, centralized (no magic numbers in the provider registration or tests).
+- `tests/Database/AuthenticationSessionTest.php` (15 methods / 53 assertions) + `tests/Unit/Services/Auth/RoleCapabilityCatalogTest.php` (4 methods / 13 assertions).
+
+**Files changed**:
+- `app/Providers/AppServiceProvider.php` — registers the `login` named rate limiter.
+- `bootstrap/app.php` — prepends `AssignRequestId`; wires three exception renderers (see below).
+- `config/session.php` — `cookie` defaults to `tindaflow_session` (was the app-name-derived Laravel default), `same_site` to `strict` (was `lax`), `secure` to `true` unless `local`/`testing` (was always `null`/false unless explicitly set).
+- `routes/web.php` — the three routes, prefixed `/api/v1`.
+- `.env.example` — documents the new (optional) `SESSION_COOKIE`/`SESSION_SAME_SITE`/`SESSION_SECURE_COOKIE`/`LOGIN_THROTTLE_*` overrides.
+
+**Route/middleware topology**: all three routes live in `routes/web.php` (registered via `withRouting(web: ...)`, so they run through Laravel's default `web` middleware group — session + CSRF already included, per Ruling 5 — never the stateless `api` group), under `Route::prefix('api/v1')` to match the OpenAPI server base path. `login` additionally carries `throttle:login`; `logout`/`me` carry `['auth', EnsureUserIsActive::class]`.
+
+**Login/session mechanics**: `Auth::guard('web')->attempt($credentials)` (Laravel's own password-hashing facility); on success, an `active` check runs — if false, the just-established session is torn down (`logout()` + `session()->invalidate()` + `session()->regenerateToken()`) and the SAME generic 401 is returned as a wrong password, never revealing the credentials were otherwise correct. `session()->regenerate()` runs on every real success (session-fixation protection — proven by a dedicated test comparing the pre- and post-login session cookie values).
+
+**Active-user revalidation**: `EnsureUserIsActive` runs after `auth` on every protected route; if the resolved user's `active` is false, it invalidates the session and throws `AuthenticationException` (rendered identically to any other 401) — proven by a test that flips `active` mid-session and confirms both the immediate rejection and that reactivating the user does *not* resurrect the old session (genuine invalidation, not a live-only check).
+
+**Session invalidation on logout**: `logout()` + `session()->invalidate()` + `session()->regenerateToken()`; only the current session is affected — a second concurrent session for the same user is untouched (multiple simultaneous sessions remain allowed by default, per §14 Ruling 5's scope and the absence of any single-session-enforcement ruling).
+
+**CSRF**: enforced by Laravel's default `web`-group `PreventRequestForgery` middleware on every state-changing route, login included — no exemptions, no Sanctum. (Laravel bypasses CSRF automatically whenever `APP_ENV=testing`, which is phpunit.xml's default for every suite; the CSRF test forces this off via `$this->app->instance('env', 'production')` for that one assertion, to exercise real enforcement.)
+
+**Rate limiting**: named limiter `login`, keyed by `lower(email)|ip` (participates identically for real and nonexistent emails, and one abusive IP cannot lock out every other user sharing it), `Limit::perMinutes(decay_minutes, max_attempts)` with V1 defaults `max_attempts=5`, `decay_minutes=1` (`config/tindaflow.php`, overridable via `LOGIN_THROTTLE_MAX_ATTEMPTS`/`LOGIN_THROTTLE_DECAY_MINUTES`). Exceeding it throws Laravel's own `ThrottleRequestsException`, rendered as `429 RATE_LIMITED`. No explicit clear-on-success: "eventually decays" is satisfied by the window's natural expiry, which avoids depending on `ThrottleRequests`' internal (hashed, undocumented) cache-key format.
+
+**Exception rendering** (`bootstrap/app.php`, wired for the first time — no controller/route existed before this pass to need it):
+- `App\Domain\Exceptions\DomainException` → its own `toErrorEnvelope()`/`httpStatus()` (built during Stage 6C, never previously rendered).
+- `Illuminate\Auth\AuthenticationException` → `401 AUTHENTICATION_REQUIRED`. Covers no/invalid session, bad login credentials, inactive-at-login, and inactive-session-on-next-request identically, per §13 — no `INVALID_CREDENTIALS`/`USER_INACTIVE`/`SESSION_EXPIRED` invented.
+- `Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException` → `429 RATE_LIMITED`.
+
+**Deliberately deferred, not silently resolved**: `LoginRequest`'s own structural validation failures (missing/malformed `email`/`password`) still render via Laravel's default JSON validation-error shape, not the frozen `{"error": {...}}` envelope. This is the exact same "structurally-bad login" **CONTRACT GAP** §11 already disclosed and deferred (no code exists for it, and none of the 18 required A1 tests exercise it) — A1 does not invent a code for it. A future amendment can add one, whether folded back into `stage-4-baseline` or added as a forward addition, matching whatever the owner decides then.
+
+**Tests and totals**: `tests/Database/AuthenticationSessionTest.php` covers all 18 required behaviors (some combined into one method where they test one continuous scenario — e.g. logout-then-rejected, and inactive-then-invalidated). Placed under `tests/Database/`, not `tests/Feature/`, because every migration in this project is PostgreSQL-specific (confirmed directly: `ALTER TABLE ... ADD CONSTRAINT` fails under phpunit.xml's default sqlite connection) — a real `users` table to authenticate against is only available the same way every other schema-dependent test in this project already gets one. Full regression at this point: `tests/Unit` 89/209, `tests/Database` 154/542, `tests/Feature` 1/1, Stage 6A concurrency (3/33), Stage 6B concurrency (3/105), Stage 6C checkout (12/105) and checkout-concurrency (3/46) individually re-verified, migration round-trip clean, Pint clean, `scripts/validate-baselines.sh` 12/12 (no baseline tag touched).
+
+**Deviations from the initialization-pass assumptions**: none found. Both amendments assumed by §14/§15 turned out to be exactly what A0 needed (net of the Ruling 6 correction already recorded); no new contract gap was discovered during A1 implementation itself.
