@@ -79,6 +79,8 @@ No endpoint was invented beyond what `openapi.yaml` actually declares.
 
 ---
 
+*The gaps described in §§4, 7, and 11 reflect the state discovered during the initialization pass; where applicable, they are superseded by the binding rulings in §14.*
+
 ## 4. Auth contract — answers to the required questions
 
 1. **What authenticates a human user?** Laravel's standard session-based auth. `User` extends `Illuminate\Foundation\Auth\User as Authenticatable`; `getAuthPasswordName()`/`getAuthPassword()` are already overridden to point at the frozen `password_hash` column name (domain-model.md §2.2). Hashing: bcrypt/argon2id (architecture.md §16, Laravel default).
