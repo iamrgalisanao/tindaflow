@@ -81,6 +81,7 @@ with the envelope above.
 | `STOCK_ADJUSTMENT_REASON_REQUIRED` | 422 | Adjustment/damage/expired movement submitted with an empty reason | Stage 2 invariant #46 |
 | `CONCURRENCY_CONFLICT` | 409 | A generic current-state race lost against another request (used only where no more specific code above applies) | architecture.md §24 |
 | `RATE_LIMITED` | 429 | Request throttled (e.g. login brute-force throttling, checkout-endpoint rate cap); emitted directly by throttling middleware, not a domain exception | module-a-auth-terminal-initialization.md §14 Ruling 6; `openapi.yaml`'s `TooManyRequests` response |
+| `VALIDATION_FAILED` | 422 | Request body failed structural/shape validation at the `FormRequest` boundary (a required field missing, or malformed — e.g. not a valid email) — distinct from a domain-specific 422 (`PRODUCT_INACTIVE`, `INSUFFICIENT_PAYMENT`, etc.), which is raised by business logic against otherwise well-formed input. `details` carries the field → message(s) map. Applies uniformly to every operation's `UnprocessableEntity` response; no operation has bespoke structural-validation semantics (verified across every `422` in `openapi.yaml`) | Module A A1 correction — every `authLogin`/etc. `422` already referenced this same envelope with no code registered for the generic case |
 
 No further codes are defined speculatively. A new code is added only when
 implementation surfaces a real, distinct failure mode this list doesn't
