@@ -2,10 +2,13 @@
 
 namespace Tests\Database;
 
+use App\Models\ElectronicJournalEntry;
 use App\Models\FiscalInstallation;
 use App\Models\InvoiceSeries;
 use App\Models\Sale;
 use App\Models\Shift;
+use App\Models\Store;
+use Illuminate\Support\Str;
 
 // Stage 6C integration corrections to pre-existing model metadata,
 // discovered while consuming the frozen Stage 5/6A schema (not a redesign
@@ -60,5 +63,26 @@ class ModelMassAssignmentRegressionTest extends PostgresSchemaTestCase
         ]);
 
         $this->assertSame($fiscalInstallation->id, $series->fresh()->fiscal_installation_id);
+    }
+
+    public function test_electronic_journal_entry_generates_a_postgresql_uuid_accepted_id(): void
+    {
+        $store = Store::factory()->create();
+
+        $entry = ElectronicJournalEntry::create([
+            'store_id' => $store->id,
+            'event_type' => 'INVOICE',
+            'source_type' => 'invoice',
+            'source_id' => (string) Str::uuid(),
+            'payload_json' => ['schema_version' => 1],
+        ]);
+
+        $this->assertTrue(Str::isUuid($entry->id), "generated id \"{$entry->id}\" is not a valid UUID");
+
+        // Round-trips through the real `uuid` column -- this is the
+        // assertion that would have failed outright (SQLSTATE 22P02)
+        // before the HasUuids correction.
+        $persisted = ElectronicJournalEntry::findOrFail($entry->id);
+        $this->assertSame($entry->id, $persisted->id);
     }
 }

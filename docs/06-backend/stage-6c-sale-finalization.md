@@ -2,18 +2,9 @@
 
 ## Status
 
-**Service/domain layer implemented and tested. HTTP layer (controller, route,
-FormRequest) and Module A auth integration are not yet built — not started
-in this pass, per the "Gap 6" ruling below.** Not yet frozen/tagged as a
-Stage 6C baseline; that happens only on explicit owner review, matching
-every prior stage's pattern in this project.
+**Checkout domain/service layer: VERIFIED**, following a dedicated verification pass that closed four gates the owner held open after the first implementation report (§7 below). **`POST /sales` production readiness: BLOCKED ON MODULE A** — the HTTP layer (controller, route, `FormRequest`) is intentionally not built and no route is registered, per the Gap 6 ruling. These are two independent readiness statuses, tracked separately so a verified service layer is never mistaken for an operational, secured endpoint. Not yet frozen/tagged as a Stage 6C baseline; that happens only on explicit owner review, matching every prior stage's pattern in this project.
 
-Sections 1–4 below are the original initialization (scoping only, before
-any code existed). Section 5 records the owner's rulings on every flagged
-gap, plus two further defects discovered *during* implementation (not by
-inference) and how they were resolved. Section 6 is the corrected/expanded
-acceptance criteria. Started from `main` at the post-`stage-6b-baseline`
-governance commit (`8af1ca8`), per the Stage Baseline Rule.
+Sections 1–4 are the original initialization (scoping only, before any code existed). Section 5 records the owner's first-round rulings plus two defects discovered during implementation. Section 6 is the acceptance criteria (as corrected/expanded after round one). **Section 7 is the second verification pass** — the four gates the owner required before accepting the service/domain layer as complete. Started from `main` at the post-`stage-6b-baseline` governance commit (`8af1ca8`), per the Stage Baseline Rule.
 
 ---
 
@@ -101,12 +92,12 @@ Updated to reflect what's actually built after this implementation pass (origina
 
 **Built:**
 - `app/Services/Checkout/CheckoutService.php` — orchestrates ADR-003's 9 steps.
-- `app/Services/Checkout/FiscalInstallationResolver.php`, `app/Services/Checkout/InventoryLocationResolver.php` — Gap 1/2 resolution helpers.
+- `app/Services/Checkout/{FiscalInstallationResolver,InventoryLocationResolver,TaxRegistrationResolver}.php` — Gap 1/2 resolution helpers, plus the tax-registration resolver added in the second verification pass (§7 gate 2) to replace an inline `->first()` query.
 - `app/Domain/Exceptions/{ShiftRequired,FiscalDayNotOpen,InsufficientPayment,InvalidPaymentTotal,ProductNotFound,ProductInactive}Exception.php` — `DomainException` subclasses mapping to their frozen error-catalog codes.
-- `app/Domain/Exceptions/{FiscalInstallationResolution,InventoryLocationResolution,NoActiveTaxRegistration}Exception.php` — non-`DomainException` resolution/setup-defect exceptions (see §5's disclosed contract gaps).
+- `app/Domain/Exceptions/{FiscalInstallationResolution,InventoryLocationResolution,TaxRegistrationResolution}Exception.php` — non-`DomainException` resolution/setup-defect exceptions (see §5's disclosed contract gaps). `TaxRegistrationResolutionException` supersedes round one's simpler `NoActiveTaxRegistrationException`, deleted once the rigor gap was closed.
 - `database/migrations/2026_09_17_120000_add_one_default_location_per_store_constraint.php`, `database/factories/InventoryLocationFactory.php`.
-- `tests/Database/{ModelMassAssignmentRegressionTest,CheckoutResolversTest,CheckoutServiceTest}.php` — 20 tests total.
-- Corrections to pre-existing Stage 5/6A files: `app/Models/Sale.php`, `app/Models/InvoiceSeries.php`, `app/Models/InventoryLocation.php` (added `HasFactory`), `app/Models/ElectronicJournalEntry.php`, `app/Services/InvoiceNumbering/AllocatedInvoiceNumber.php` (docblock only).
+- `tests/Database/{ModelMassAssignmentRegressionTest,CheckoutResolversTest,CheckoutServiceTest,CheckoutServiceConcurrencyTest}.php`, `tests/Database/support/checkout_worker.php` — 34 tests total across both passes.
+- Corrections to pre-existing Stage 5/6A files: `app/Models/Sale.php`, `app/Models/InvoiceSeries.php`, `app/Models/InventoryLocation.php` (added `HasFactory`), `app/Models/ElectronicJournalEntry.php` (switched to `HasUuids`, §7), `app/Services/InvoiceNumbering/AllocatedInvoiceNumber.php` (docblock only).
 
 **Not yet built** (confirmed by direct search before this pass: `app/Http/Controllers/` had only the empty base `Controller.php`; no FormRequest existed anywhere in `app/`; `routes/` had no `api.php` — none of that changed in this pass, per the Gap 6/7 rulings holding the HTTP layer and Module A integration out of scope for now):
 - `app/Http/Controllers/SaleController.php`
@@ -140,11 +131,11 @@ Every gap from the original initialization was ruled on by the owner before impl
 
 9. **`ElectronicJournalEntry` (`app/Models/ElectronicJournalEntry.php`) used `HasUlids` against a native PostgreSQL `uuid` column, and the trait's default `newUniqueId()` emits a ULID's Base32/Crockford string** (e.g. `01m2q3s4nffdab3sc7zzrk4kvb`), which Postgres's `uuid` type rejects outright (`SQLSTATE[22P02]`). This was never exercised before Stage 6C — nothing wrote to `electronic_journal_entries` until `CheckoutService`. Fixed with the smallest possible correction, matching gap 4's treatment: overrode `newUniqueId()` to return `Str::ulid()->toRfc4122()` (the *same* 128 bits, re-encoded as a standard hyphenated UUID string — this is what the original migration comment's "a ULID IS a valid 128-bit UUID-format value" claim actually depends on) and `isValidUniqueId()` to check UUID format instead of ULID format. No Stage 5 baseline retagged; disclosed here, not silently patched.
 
-10. **No frozen error-catalog code exists for "store has zero active `tax_registrations`" either**, even though the Stage 5 migration comment for `tax_registrations` explicitly assigns this check to "Stage 6" by name ("no active row = finalization must fail, a Stage 6 application check, not a schema one"). Treated the same as gap 2: implemented as `NoActiveTaxRegistrationException` (non-`DomainException`, not yet mapped to a wire error code), disclosed as a further contract gap rather than inventing a code.
+10. **No frozen error-catalog code exists for "store has zero active `tax_registrations`" either**, even though the Stage 5 migration comment for `tax_registrations` explicitly assigns this check to "Stage 6" by name ("no active row = finalization must fail, a Stage 6 application check, not a schema one"). Treated the same as gap 2: implemented as `NoActiveTaxRegistrationException` (non-`DomainException`, not yet mapped to a wire error code), disclosed as a further contract gap rather than inventing a code. **Superseded in §7 gate 2**: replaced with a dedicated `TaxRegistrationResolver` + `TaxRegistrationResolutionException`, matching `FiscalInstallationResolver`'s full zero/one/many rigor instead of a bare existence check.
 
 ### Disclosed contract gaps (for a future Stage 4 amendment, not resolved here)
 
-The frozen error catalog has no code for: "no default inventory location configured" (`InventoryLocationResolutionException`), "no active tax registration" (`NoActiveTaxRegistrationException`), or the terminal/fiscal-installation setup-defect cases (`FiscalInstallationResolutionException`). All three currently surface as unhandled `RuntimeException`s rather than stable HTTP error envelopes — intentional per the rulings above (no new code invented unilaterally), but a real gap the eventual HTTP layer and/or a Stage 4 amendment must close before production use.
+The frozen error catalog has no code for: "no default inventory location configured" (`InventoryLocationResolutionException`), "no/ambiguous active tax registration" (`TaxRegistrationResolutionException`), or the terminal/fiscal-installation setup-defect cases (`FiscalInstallationResolutionException`). All three currently surface as unhandled `RuntimeException`s rather than stable HTTP error envelopes — intentional per the rulings above (no new code invented unilaterally), but a real gap the eventual HTTP layer and/or a Stage 4 amendment must close before production use.
 
 ---
 
@@ -160,7 +151,7 @@ Corrected per the owner's rulings (three ACs adjusted, four added). Each line no
 6. Insufficient or non-positive payment is rejected without creating a `sale` row. — **Tested**: `test_insufficient_payment_is_rejected_and_creates_no_sale`, `test_non_positive_payment_amount_is_rejected`.
 7. A successful finalization produces, in one transaction, exactly one `sale`/`sale_item`(s)/`payment`(s)/`invoice`/`stock_movement`(s) (one per line)/`audit_event`/`electronic_journal_entry`, verified by direct row count. — **Tested**: `test_successful_checkout_writes_every_required_row_in_one_transaction`.
 8. A forced failure before commit leaves `invoice_series.current_number` at its pre-attempt value and creates no `invoice`. — **Tested**: `test_a_failed_checkout_does_not_advance_the_invoice_counter`.
-9. **(corrected)** Two successful concurrent sales under the same fiscal installation receive distinct invoice numbers from the same series; the committed numbers form the expected sequential allocation with no duplicates, reuse, or unexplained gaps, and `current_number` advances exactly by the number of committed allocations. *(Replaces "strictly increasing", which would have implied an arrival-order guarantee concurrency cannot make.)* — **Not yet independently tested through `CheckoutService`**; `InvoiceSeriesAllocatorConcurrencyTest` already proves this at the allocator layer directly (Stage 6B), and `CheckoutService` calls that same allocator with no additional locking logic of its own, but a dedicated multi-process `CheckoutService`-level test has not been written in this pass.
+9. **(corrected)** Two successful concurrent sales under the same fiscal installation receive distinct invoice numbers from the same series; the committed numbers form the expected sequential allocation with no duplicates, reuse, or unexplained gaps, and `current_number` advances exactly by the number of committed allocations. *(Replaces "strictly increasing", which would have implied an arrival-order guarantee concurrency cannot make.)* — **Tested through the real `CheckoutService`** (§7 gate 3): `CheckoutServiceConcurrencyTest::test_concurrent_different_key_checkouts_produce_distinct_transaction_and_invoice_numbers` (two genuinely separate OS processes, real PostgreSQL race) — a level above `InvoiceSeriesAllocatorConcurrencyTest`'s own allocator-layer proof (Stage 6B).
 10. `scripts/validate-baselines.sh` still passes after Stage 6C's own boundary is eventually tagged, with a Stage 6C entry added to its path-ownership map. *(Not applicable yet — no Stage 6C baseline exists.)*
 11. **(new)** Fiscal-installation resolution: `sold_at` resolves against `[effective_from, effective_to)`, requires exactly one mapping, boundary times tested. — **Tested**: `CheckoutResolversTest` (4 dedicated cases).
 12. **(new)** Inventory-location resolution: checkout writes all stock movements to exactly one store default location; zero/multiple defaults abort without partial writes. — **Tested**: `CheckoutResolversTest` (happy path + zero-default + DB-level multiple-default rejection).
@@ -168,3 +159,90 @@ Corrected per the owner's rulings (three ACs adjusted, four added). Each line no
 14. **(new)** Model corrections: `non_vat_sales` and `fiscal_installation_id` survive the normal mass-assignment persistence path through their Eloquent models. — **Tested**: `ModelMassAssignmentRegressionTest`.
 
 **Full regression at the time of this writing**: `tests/Unit` 85/196, `tests/Database` 118/341 (up from 98/305 — the +20 are this section's new tests), `tests/Feature` 1/1, migration round-trip (`fresh`/`reset`/`migrate`) clean, Pint clean.
+
+---
+
+## 7. Second verification pass (owner-required gates before "complete")
+
+The owner accepted round one's discipline but withheld "complete" pending four closures. Each is closed below with what changed and what now proves it.
+
+### Gate 1 — `transaction_number`: generation and uniqueness semantics
+
+**What the frozen corpus actually settles** (`database/migrations/2026_01_01_000200_create_sales_table.php`'s own comment, quoted exactly): *"transaction_number uniqueness scope (Stage 5 instruction §64, not specified by the frozen corpus): unique per store, disclosed as a Stage 5 decision, not a quoted frozen rule."* From the migration itself: the column is `NOT NULL` (required), and `UNIQUE(store_id, transaction_number)` is a real database constraint (scope: **per store**, not global, not per-terminal, not per-fiscal-day). No CHECK constrains its format (unlike `invoice_number`'s `^[0-9]{6,}$`), and there is no database default/sequence/trigger — **generation is application-side**, and Stage 5 explicitly left the exact algorithm undecided.
+
+**What was NOT settled, and is therefore a Stage 6C ruling, not a citation**: the generation algorithm. `CheckoutService` generates `(string) Str::ulid()` — a 128-bit, collision-resistant, time-sortable identifier. This is a **proposed ruling**, not silently finalized: it satisfies the frozen per-store uniqueness scope with a collision probability low enough that no retry-on-conflict loop is needed (proven empirically below, not merely asserted), and it matches this codebase's own established use of ULID-family identifiers elsewhere. **Owner confirmation requested** before treating this as settled; an alternative (e.g., a human-readable sequential format) would need its own concurrency-safe allocation design, which does not currently exist and was not built speculatively.
+
+**Concurrent-checkout collision proof**: `CheckoutServiceConcurrencyTest::test_concurrent_different_key_checkouts_produce_distinct_transaction_and_invoice_numbers` runs two genuinely separate OS processes finalizing different sales for the same terminal at approximately the same instant and asserts their `transaction_number`s are distinct — proving the per-store uniqueness constraint is never violated under real concurrency, not merely under sequential test calls.
+
+### Gate 2 — Tax-registration resolution rigor
+
+Replaced the original inline `->first()` query (round one's actual defect — it would have silently picked a row under ambiguous data rather than rejecting) with a dedicated `App\Services\Checkout\TaxRegistrationResolver`, mirroring `FiscalInstallationResolver`'s exact rigor: **zero matches → reject, one match → use it, more than one → data-integrity error, never `.first()`.**
+
+**Interval semantics determined from the schema itself, not copied by analogy**: `tax_registrations` stores whole-day `date` columns (not timestamptz instants like `terminal_fiscal_installations`), and its own CHECK constraint (`tax_registrations_dates_check: effective_to >= effective_from`) permits `effective_from == effective_to` as a valid single-day registration — which only makes sense under **inclusive-end** semantics (`[effective_from, effective_to]`). Using the fiscal-installation resolver's exclusive-end convention here would make that single-day case a zero-length interval, never actually in effect. This determination is documented in `TaxRegistrationResolver`'s own docblock and flagged here for owner confirmation, since it is a new Stage 6C reading, not a quoted frozen rule.
+
+The schema's `tax_registrations_one_current_per_store` partial unique index (`WHERE effective_to IS NULL`) only prevents two simultaneous *current* registrations — it does **not** prevent overlapping *closed* historical intervals, exactly as the migration's own comment discloses ("a genuinely overlapping closed interval is a transactional/application concern (Stage 6)"). The "ambiguous" branch is therefore genuinely reachable with bad data, unlike `InventoryLocationResolver`'s DB-blocked case.
+
+**Boundary tests** (`CheckoutResolversTest`, 6 new cases): `sold_at == effective_from` → included; a single-day registration (`effective_from == effective_to`) → included; the day after `effective_to` → excluded; zero registrations → rejected; two overlapping historical registrations → rejected, not guessed.
+
+### Gate 3 — Adversarial idempotency/business-transaction atomicity
+
+**Sequential adversarial test** (`CheckoutServiceTest::test_late_stage_failure_leaves_no_partial_write_set_and_the_same_key_can_retry`): exhausts the invoice series *before* checkout begins, so `InvoiceSeriesAllocator` throws **after** `sale`/`sale_item`/`payment` have already been inserted inside the still-open transaction (ADR-003 step 6 follows step 5). Proves: (1) zero rows survive in every one of `sales`/`sale_items`/`payments`/`invoices`/`stock_movements`/`audit_events`/`electronic_journal_entries`; (2) the `idempotency_records` reservation itself is gone too — not left as an `IN_PROGRESS` orphan — because it was the first statement of the same now-rolled-back transaction (`IdempotencyService`'s own design, Stage 6A); (3) fixing the underlying problem and retrying with the **same key** succeeds exactly once, with exactly one complete write-set and exactly one `COMPLETED` idempotency record pointing at it.
+
+**Concurrency test, through the real `CheckoutService`** (`CheckoutServiceConcurrencyTest`, new worker script `tests/Database/support/checkout_worker.php`, same real-OS-process/file-barrier technique as `IdempotencyConcurrencyTest`/`InvoiceSeriesAllocatorConcurrencyTest`):
+- `test_simultaneous_same_terminal_same_key_checkout_produces_exactly_one_sale`: two processes race the identical request; both observe the same `sale_id`; exactly one `Sale`/`Invoice` row exists; the `idempotency_records` row is `COMPLETED` and points at it.
+- `test_concurrent_different_key_checkouts_produce_distinct_transaction_and_invoice_numbers`: doubles as gate 1's collision proof and a `CheckoutService`-level re-verification of AC #9.
+
+This establishes the two-layer guarantee (`IdempotencyService` + `sales.UNIQUE(terminal_id, idempotency_key)`) end to end through the actual service, not merely at each layer independently.
+
+### Gate 4 — AC #7 strengthened from row-count to semantic verification
+
+`test_successful_checkout_writes_every_required_row_in_one_transaction` now asserts, per record (59 assertions total, up from row-count-only):
+
+| Record | Now asserted |
+|---|---|
+| `sale` | terminal/cashier/shift/fiscal_day identity, idempotency key, transaction number, every tax bucket incl. `non_vat_sales`, grand total, subtotal |
+| `sale_item` | product snapshot fields, line number, quantity, unit price, gross/net amounts, discount allocation, tax classification/rate/base/amount, unit cost |
+| `payment` | method, exact amount |
+| `invoice` | sale relation, series' store match, terminal, `tax_registration_type_snapshot`, `invoice_snapshot_json`'s `schema_version`/`invoice_number` |
+| `stock_movement` | **direction/sign semantics, explicitly proven**: `movement_type = 'SALE'` (the frozen schema's own convention — quantity is *always* positive by CHECK constraint; direction comes from `movement_type`, never a sign, per the migration's own comment, quoted in the test) — plus product, reference (`sale_item.id`), quantity, and the resolved default location |
+| `audit_event` | actor, terminal, entity type/id |
+| `electronic_journal_entry` | source type/id, linked `audit_event_id`, payload's `invoice_number` |
+| `idempotency_records` | operation type `CHECKOUT`, `COMPLETED` status, 64-char hash, `result_resource_id` |
+
+A row existing is no longer treated as sufficient on its own.
+
+### Full regression after gate closure
+
+`tests/Unit` 85/196, `tests/Database` 128/437 (+10 from this pass: 6 tax-registration boundary tests, 1 adversarial atomicity test, 2 `CheckoutService`-level concurrency tests, 1 `ElectronicJournalEntry` UUID-generation proof), `tests/Feature` 1/1, migration round-trip clean, Pint clean, `scripts/validate-baselines.sh` all 12 checks pass (no frozen baseline touched).
+
+### `ElectronicJournalEntry` — corrected further per the owner's suggestion
+
+Round one's fix (`HasUlids` + a custom `newUniqueId()`/`isValidUniqueId()` override converting to RFC4122 form) worked but was not the clearest available fix. **Switched to plain `HasUuids`**: Laravel's own `HasUuids::newUniqueId()` generates a UUIDv7 (`Str::uuid7()`), which is *already* time-sortable by creation time — exactly the property ADR-005 asked a ULID for ("a bigserial or a ULID... for stable same-timestamp ordering") — as a genuine, standard UUID string, with **no custom override needed at all**. Proven by a dedicated regression test (`ModelMassAssignmentRegressionTest::test_electronic_journal_entry_generates_a_postgresql_uuid_accepted_id`): generated id is a valid UUID, and round-trips through the real `uuid` column via `create()` + `findOrFail()`.
+
+### Deployment behavior for the default-location migration (recorded, not yet operationalized)
+
+The `2026_09_17_120000_add_one_default_location_per_store_constraint.php` migration's preflight check identifies violating store IDs and **aborts without changing any existing record** — it never auto-picks a default. The corresponding pre-deployment procedure, for whenever this migration runs against real data:
+
+```text
+Pre-deployment query: any store with >1 default inventory_location?
+   0 duplicate-default stores  → migration may proceed
+   >0 duplicate-default stores → STOP; the data owner resolves which
+                                   location stays default before the
+                                   migration runs again
+```
+
+This is a runbook note, not new code — the migration itself already enforces the abort; recorded here so it isn't lost between now and an actual deployment.
+
+### Authentication boundary (documented for the future controller, not yet built)
+
+Recorded as a binding constraint on the eventual HTTP layer, not implemented yet (no controller exists): **`terminalId` and `cashierId` must be resolved from a trusted, authenticated context (Module A) — never taken directly from caller-controlled request fields.** The future call shape is:
+
+```text
+HTTP request → Module A auth/terminal-credential validation → trusted
+terminal + authenticated actor → SaleFinalizeRequest (shape only) →
+SaleController → CheckoutService(trustedTerminalId, trustedCashierId, validatedPayload)
+```
+
+`CheckoutService::finalize(string $terminalId, string $cashierId, ...)` accepting these as plain parameters is correct at the service layer precisely because the service has no way to enforce how its caller obtained them — that enforcement is the controller's job, once Module A exists to make it possible. This document makes the expectation explicit so a future controller cannot satisfy Stage 6C's contract by doing the equivalent of `$checkoutService->finalize($request->terminal_id, $request->cashier_id, ...)`.
+
+**Disposition**: **Checkout domain/service layer — VERIFIED.** `POST /sales` production readiness remains **BLOCKED ON MODULE A**. Not frozen or tagged — the actual `POST /sales` contract cannot be verified end-to-end while its authentication dependency is unbuilt, and Stage 6C is not sealed until that full path exists and passes review.

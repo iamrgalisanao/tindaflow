@@ -5,7 +5,6 @@ namespace App\Services\Checkout;
 use App\Domain\Exceptions\FiscalDayNotOpenException;
 use App\Domain\Exceptions\InsufficientPaymentException;
 use App\Domain\Exceptions\InvalidPaymentTotalException;
-use App\Domain\Exceptions\NoActiveTaxRegistrationException;
 use App\Domain\Exceptions\ProductInactiveException;
 use App\Domain\Exceptions\ProductNotFoundException;
 use App\Domain\Exceptions\ShiftRequiredException;
@@ -57,6 +56,7 @@ final class CheckoutService
         private readonly FinancialCalculator $financialCalculator,
         private readonly FiscalInstallationResolver $fiscalInstallationResolver,
         private readonly InventoryLocationResolver $inventoryLocationResolver,
+        private readonly TaxRegistrationResolver $taxRegistrationResolver,
         private readonly InvoiceSeriesAllocator $invoiceSeriesAllocator,
     ) {}
 
@@ -129,16 +129,7 @@ final class CheckoutService
 
         // Stage 5 migration's own instruction: "no active row = finalization
         // must fail, a Stage 6 application check" (tax_registrations).
-        $taxRegistration = DB::table('tax_registrations')
-            ->where('store_id', $storeId)
-            ->where('effective_from', '<=', $soldAt->toDateString())
-            ->where(function ($query) use ($soldAt) {
-                $query->whereNull('effective_to')->orWhere('effective_to', '>=', $soldAt->toDateString());
-            })
-            ->first();
-        if ($taxRegistration === null) {
-            throw NoActiveTaxRegistrationException::forStore($storeId);
-        }
+        $taxRegistrationType = $this->taxRegistrationResolver->resolveForStore($storeId, $soldAt->toDateString());
 
         // ADR-003 step 3 (continued): fetch each product's current snapshot.
         $items = array_values($payload['items']);
@@ -169,7 +160,7 @@ final class CheckoutService
         }
 
         $orderLevelDiscountAmount = Money::fromApiString((string) ($payload['order_level_discount_amount'] ?? '0.00'));
-        $calculation = $this->financialCalculator->calculateSale($lines, $orderLevelDiscountAmount, $taxRegistration->registration_type);
+        $calculation = $this->financialCalculator->calculateSale($lines, $orderLevelDiscountAmount, $taxRegistrationType);
 
         // Server-authoritative payment sufficiency (invariant #8).
         $totalPayments = Money::zero();
@@ -268,7 +259,7 @@ final class CheckoutService
             'seller_registered_name' => $storeSettings->registered_name ?? null,
             'seller_tin' => $storeSettings->tin ?? null,
             'seller_address' => $storeSettings->business_address ?? null,
-            'tax_registration_type' => $taxRegistration->registration_type,
+            'tax_registration_type' => $taxRegistrationType,
             'terminal_code' => $terminal->terminal_code,
             'buyer_name' => $sale->buyer_name,
             'buyer_address' => $sale->buyer_address,
@@ -302,7 +293,7 @@ final class CheckoutService
             'issued_at' => $soldAt,
             'terminal_id' => $terminalId,
             'seller_registered_name_snapshot' => $storeSettings->registered_name ?? '',
-            'tax_registration_type_snapshot' => $taxRegistration->registration_type,
+            'tax_registration_type_snapshot' => $taxRegistrationType,
             'terminal_code_snapshot' => $terminal->terminal_code,
             'invoice_snapshot_json' => $invoiceSnapshot,
         ]);

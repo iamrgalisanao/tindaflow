@@ -4,12 +4,14 @@ namespace Tests\Database;
 
 use App\Domain\Exceptions\FiscalInstallationResolutionException;
 use App\Domain\Exceptions\InventoryLocationResolutionException;
+use App\Domain\Exceptions\TaxRegistrationResolutionException;
 use App\Models\FiscalInstallation;
 use App\Models\InventoryLocation;
 use App\Models\Store;
 use App\Models\Terminal;
 use App\Services\Checkout\FiscalInstallationResolver;
 use App\Services\Checkout\InventoryLocationResolver;
+use App\Services\Checkout\TaxRegistrationResolver;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -23,12 +25,15 @@ class CheckoutResolversTest extends PostgresSchemaTestCase
 
     private InventoryLocationResolver $inventoryLocationResolver;
 
+    private TaxRegistrationResolver $taxRegistrationResolver;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->fiscalInstallationResolver = new FiscalInstallationResolver;
         $this->inventoryLocationResolver = new InventoryLocationResolver;
+        $this->taxRegistrationResolver = new TaxRegistrationResolver;
     }
 
     // --- FiscalInstallationResolver -----------------------------------
@@ -174,5 +179,93 @@ class CheckoutResolversTest extends PostgresSchemaTestCase
 
         $this->assertSame($defaultA->id, $this->inventoryLocationResolver->resolveDefaultForStore($storeA->id));
         $this->assertSame($defaultB->id, $this->inventoryLocationResolver->resolveDefaultForStore($storeB->id));
+    }
+
+    // --- TaxRegistrationResolver -----------------------------------------
+
+    public function test_resolves_the_single_effective_registration(): void
+    {
+        $store = Store::factory()->create();
+        DB::table('tax_registrations')->insert([
+            'id' => (string) Str::uuid(), 'store_id' => $store->id, 'registration_type' => 'VAT',
+            'effective_from' => '2026-01-01', 'effective_to' => null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resolved = $this->taxRegistrationResolver->resolveForStore($store->id, '2026-06-01');
+
+        $this->assertSame('VAT', $resolved);
+    }
+
+    public function test_registration_interval_is_inclusive_start(): void
+    {
+        $store = Store::factory()->create();
+        DB::table('tax_registrations')->insert([
+            'id' => (string) Str::uuid(), 'store_id' => $store->id, 'registration_type' => 'VAT',
+            'effective_from' => '2026-06-01', 'effective_to' => null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resolved = $this->taxRegistrationResolver->resolveForStore($store->id, '2026-06-01');
+
+        $this->assertSame('VAT', $resolved);
+    }
+
+    public function test_registration_interval_is_inclusive_end(): void
+    {
+        $store = Store::factory()->create();
+        // Deliberately a single-day registration (effective_from ==
+        // effective_to) -- the schema's own CHECK constraint permits
+        // this, which only makes sense under inclusive-end semantics.
+        DB::table('tax_registrations')->insert([
+            'id' => (string) Str::uuid(), 'store_id' => $store->id, 'registration_type' => 'NON_VAT',
+            'effective_from' => '2026-06-01', 'effective_to' => '2026-06-01',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resolved = $this->taxRegistrationResolver->resolveForStore($store->id, '2026-06-01');
+
+        $this->assertSame('NON_VAT', $resolved);
+    }
+
+    public function test_registration_excluded_the_day_after_effective_to(): void
+    {
+        $store = Store::factory()->create();
+        DB::table('tax_registrations')->insert([
+            'id' => (string) Str::uuid(), 'store_id' => $store->id, 'registration_type' => 'VAT',
+            'effective_from' => '2026-01-01', 'effective_to' => '2026-06-01',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        // 2026-06-01 itself resolves fine (inclusive end); the day after does not.
+        $this->expectException(TaxRegistrationResolutionException::class);
+        $this->taxRegistrationResolver->resolveForStore($store->id, '2026-06-02');
+    }
+
+    public function test_no_registration_throws_resolution_exception(): void
+    {
+        $store = Store::factory()->create();
+
+        $this->expectException(TaxRegistrationResolutionException::class);
+        $this->taxRegistrationResolver->resolveForStore($store->id, '2026-06-01');
+    }
+
+    public function test_overlapping_registrations_are_treated_as_ambiguous_not_guessed(): void
+    {
+        $store = Store::factory()->create();
+
+        // Deliberately bad data: two historical (effective_to IS NOT
+        // NULL, so the partial unique index does not block this)
+        // registrations whose windows both cover the same date.
+        foreach (['VAT', 'NON_VAT'] as $type) {
+            DB::table('tax_registrations')->insert([
+                'id' => (string) Str::uuid(), 'store_id' => $store->id, 'registration_type' => $type,
+                'effective_from' => '2026-01-01', 'effective_to' => '2026-12-31',
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $this->expectException(TaxRegistrationResolutionException::class);
+        $this->taxRegistrationResolver->resolveForStore($store->id, '2026-06-01');
     }
 }
