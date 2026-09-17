@@ -166,13 +166,26 @@ Corrected per the owner's rulings (three ACs adjusted, four added). Each line no
 
 The owner accepted round one's discipline but withheld "complete" pending four closures. Each is closed below with what changed and what now proves it.
 
-### Gate 1 — `transaction_number`: generation and uniqueness semantics
+### Gate 1 — `transaction_number`: generation and uniqueness semantics (RULED, CONFIRMED)
 
 **What the frozen corpus actually settles** (`database/migrations/2026_01_01_000200_create_sales_table.php`'s own comment, quoted exactly): *"transaction_number uniqueness scope (Stage 5 instruction §64, not specified by the frozen corpus): unique per store, disclosed as a Stage 5 decision, not a quoted frozen rule."* From the migration itself: the column is `NOT NULL` (required), and `UNIQUE(store_id, transaction_number)` is a real database constraint (scope: **per store**, not global, not per-terminal, not per-fiscal-day). No CHECK constrains its format (unlike `invoice_number`'s `^[0-9]{6,}$`), and there is no database default/sequence/trigger — **generation is application-side**, and Stage 5 explicitly left the exact algorithm undecided.
 
-**What was NOT settled, and is therefore a Stage 6C ruling, not a citation**: the generation algorithm. `CheckoutService` generates `(string) Str::ulid()` — a 128-bit, collision-resistant, time-sortable identifier. This is a **proposed ruling**, not silently finalized: it satisfies the frozen per-store uniqueness scope with a collision probability low enough that no retry-on-conflict loop is needed (proven empirically below, not merely asserted), and it matches this codebase's own established use of ULID-family identifiers elsewhere. **Owner confirmation requested** before treating this as settled; an alternative (e.g., a human-readable sequential format) would need its own concurrency-safe allocation design, which does not currently exist and was not built speculatively.
+**Owner ruling (APPROVED, final)** — three deliberately distinct identifiers, never conflated:
 
-**Concurrent-checkout collision proof**: `CheckoutServiceConcurrencyTest::test_concurrent_different_key_checkouts_produce_distinct_transaction_and_invoice_numbers` runs two genuinely separate OS processes finalizing different sales for the same terminal at approximately the same instant and asserts their `transaction_number`s are distinct — proving the per-store uniqueness constraint is never violated under real concurrency, not merely under sequential test calls.
+```text
+Sale.id               = UUIDv7  (HasUuids)     = internal/public resource identity
+Sale.transaction_number = "T-" + ULID          = operational transaction reference
+Invoice.invoice_number  = 000001, 000002, ...  = BIR accountable-document serial (InvoiceSeries)
+```
+
+`transaction_number` format is `T-` followed by a genuine 26-character ULID (`'T-'.Str::ulid()`), generated server-side only, inside the same authoritative execution `IdempotencyService::execute()` wraps — never supplied by the request, never derived from `sale.id`, and never manufactured again on a replay (a replay returns the original `Sale`, and therefore its original `transaction_number`, unchanged). It is not a fiscal counter, promises no gaplessness, and its lexical (time) order is not authoritative financial chronology — `sold_at` and `InvoiceSeries` remain authoritative for that. The `T-` prefix is a deliberate visual distinction from `invoice_number` ("000123") in logs, receipts, and support conversations.
+
+The frozen `UNIQUE(store_id, transaction_number)` scope from Stage 5 is preserved unchanged — the generator's much stronger effective uniqueness is not used as a reason to relax or silently change that relational contract.
+
+**Three required tests, all passing**:
+1. **Shape**: `CheckoutServiceTest::test_transaction_number_has_the_ruled_shape` — regex `^T-[0-9A-HJKMNP-TV-Z]{26}$`, the ULID portion independently validated via `Str::isUlid()`, and an explicit assertion that `transaction_number !== sale.id`.
+2. **High-volume concurrency**: `CheckoutServiceConcurrencyTest::test_high_volume_concurrent_checkouts_produce_unique_transaction_numbers` — 10 genuinely separate OS processes (matching `InvoiceSeriesAllocatorConcurrencyTest`'s established stress pattern) finalize 10 distinct sales simultaneously; all 10 `transaction_number`s are unique. This proves the implementation behaves correctly under real contention — per the owner's own caveat, it does not and cannot mathematically prove ULIDs can never collide; `sales_store_transaction_number_unique` remains the final enforcement layer regardless.
+3. **Idempotent replay**: `CheckoutServiceTest::test_replayed_request_returns_the_same_sale_without_creating_another` (extended) — a replay of the same request returns the same `transaction_number`, not merely another collision-free one.
 
 ### Gate 2 — Tax-registration resolution rigor
 
@@ -245,4 +258,4 @@ SaleController → CheckoutService(trustedTerminalId, trustedCashierId, validate
 
 `CheckoutService::finalize(string $terminalId, string $cashierId, ...)` accepting these as plain parameters is correct at the service layer precisely because the service has no way to enforce how its caller obtained them — that enforcement is the controller's job, once Module A exists to make it possible. This document makes the expectation explicit so a future controller cannot satisfy Stage 6C's contract by doing the equivalent of `$checkoutService->finalize($request->terminal_id, $request->cashier_id, ...)`.
 
-**Disposition**: **Checkout domain/service layer — VERIFIED.** `POST /sales` production readiness remains **BLOCKED ON MODULE A**. Not frozen or tagged — the actual `POST /sales` contract cannot be verified end-to-end while its authentication dependency is unbuilt, and Stage 6C is not sealed until that full path exists and passes review.
+**Disposition**: **Checkout domain/service layer — VERIFIED.** All four gates closed, including Gate 1's `transaction_number` ruling, now owner-confirmed with no open items (`T-` + ULID, distinct from `sale.id` and `invoice_number`, three dedicated tests passing). `POST /sales` production readiness remains **BLOCKED ON MODULE A** — not on any of these four gates. Not frozen or tagged — the actual `POST /sales` contract cannot be verified end-to-end while its authentication dependency is unbuilt, and Stage 6C is not sealed until that full path exists and passes review.

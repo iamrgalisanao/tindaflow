@@ -158,6 +158,35 @@ class CheckoutServiceConcurrencyTest extends TestCase
         $this->assertSame(2, $series->current_number);
     }
 
+    /**
+     * Gate 1's third required test (owner ruling on transaction_number):
+     * a high-volume concurrency stress, matching the "10 workers"
+     * pattern already established by InvoiceSeriesAllocatorConcurrencyTest.
+     * Ten genuinely separate OS processes finalize ten distinct sales
+     * for the same terminal/product at approximately the same instant;
+     * this does not mathematically prove ULIDs can never collide (the
+     * owner's own caveat) -- it proves the implementation behaves
+     * correctly under real contention, with the database's
+     * UNIQUE(store_id, transaction_number) constraint remaining the
+     * final enforcement layer regardless.
+     */
+    public function test_high_volume_concurrent_checkouts_produce_unique_transaction_numbers(): void
+    {
+        $workerCount = 10;
+        $keys = array_map(fn () => (string) Str::uuid(), range(1, $workerCount));
+
+        $results = $this->raceN($workerCount, $keys);
+
+        $succeeded = array_filter($results, fn ($r) => $r['outcome'] === 'success');
+        $this->assertCount($workerCount, $succeeded, 'all workers must succeed -- got: '.json_encode($results));
+
+        $transactionNumbers = array_map(fn ($r) => $r['transaction_number'], $succeeded);
+        $this->assertCount($workerCount, array_unique($transactionNumbers), 'every concurrent checkout must receive a distinct transaction_number');
+
+        $this->assertSame($workerCount, Sale::count());
+        $this->assertSame($workerCount, DB::table('sales')->distinct()->count('transaction_number'));
+    }
+
     /** @return array{0: array, 1: array} */
     private function race(string $keyA, string $keyB): array
     {
@@ -194,5 +223,44 @@ class CheckoutServiceConcurrencyTest extends TestCase
             json_decode(file_get_contents($outA), true),
             json_decode(file_get_contents($outB), true),
         ];
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function raceN(int $count, array $keys): array
+    {
+        $workerScript = base_path('tests/Database/support/checkout_worker.php');
+        $ready = [];
+        $out = [];
+        $processes = [];
+
+        for ($i = 0; $i < $count; $i++) {
+            $ready[$i] = $this->scratchDir."/ready_{$i}";
+            $out[$i] = $this->scratchDir."/out_{$i}.json";
+        }
+        $go = $this->scratchDir.'/go';
+
+        for ($i = 0; $i < $count; $i++) {
+            $processes[$i] = Process::start([PHP_BINARY, $workerScript, $this->terminalId, $this->cashierId, $keys[$i], $this->productId, $ready[$i], $go, $out[$i], self::DATABASE]);
+        }
+
+        $deadline = microtime(true) + 15;
+        while (count(array_filter($ready, fn ($f) => file_exists($f))) < $count) {
+            if (microtime(true) > $deadline) {
+                $this->fail('not all worker processes became ready within the timeout');
+            }
+            usleep(1000);
+        }
+
+        file_put_contents($go, '1');
+
+        $results = [];
+        for ($i = 0; $i < $count; $i++) {
+            $result = $processes[$i]->wait();
+            $this->assertTrue($result->successful(), "worker {$i} process failed: {$result->errorOutput()}");
+            $this->assertFileExists($out[$i], "worker {$i} did not write an output file");
+            $results[] = json_decode(file_get_contents($out[$i]), true);
+        }
+
+        return $results;
     }
 }

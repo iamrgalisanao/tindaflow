@@ -236,6 +236,32 @@ class CheckoutServiceTest extends PostgresSchemaTestCase
 
         $this->assertSame($first->id, $second->id);
         $this->assertSame(1, Sale::count());
+        // A replay must return the ORIGINAL transaction_number, never
+        // manufacture a second one (Stage 6C ruling, SS7 gate 1).
+        $this->assertSame($first->transaction_number, $second->transaction_number);
+        $this->assertSame(1, DB::table('sales')->distinct()->count('transaction_number'));
+    }
+
+    public function test_transaction_number_has_the_ruled_shape(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+
+        $sale = $this->checkoutService->finalize(
+            $shift->terminal_id,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'payments' => [['method' => 'CASH', 'amount' => '112.00']],
+            ]
+        );
+
+        // "T-" + a genuine 26-character ULID (Stage 6C ruling, SS7 gate 1)
+        // -- distinct in shape from invoices.invoice_number ("000123")
+        // and never derived from sale.id (a UUIDv7).
+        $this->assertMatchesRegularExpression('/^T-[0-9A-HJKMNP-TV-Z]{26}$/', $sale->transaction_number);
+        $this->assertTrue(Str::isUlid(substr($sale->transaction_number, 2)));
+        $this->assertNotSame($sale->id, $sale->transaction_number);
     }
 
     public function test_shift_required_when_none_is_open(): void

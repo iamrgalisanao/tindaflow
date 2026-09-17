@@ -182,10 +182,23 @@ final class CheckoutService
             'fiscal_day_id' => $fiscalDay->id,
             'shift_id' => $shift->id,
             'cashier_id' => $cashierId,
-            // Stage 5 instruction §64 left the exact generation format
-            // undecided beyond "unique per store" -- a ULID satisfies
-            // that uniqueness scope and needs no retry-on-conflict logic.
-            'transaction_number' => (string) Str::ulid(),
+            // Stage 6C ruling (stage-6c-sale-finalization.md SS7 gate 1,
+            // APPROVED): transaction_number is a separate operational
+            // reference, never derived from sale.id (a UUIDv7 via
+            // HasUuids serves database identity; these are deliberately
+            // different identifiers for different purposes). Format is
+            // "T-" + a ULID -- the prefix keeps this visually
+            // unmistakable from invoices.invoice_number ("000123") in
+            // logs, receipts, and support conversations. Generated
+            // exactly once per genuine execution, inside this same
+            // authoritative transaction (never on a replay -- see
+            // finalize()'s idempotency wrapping); satisfies the frozen
+            // UNIQUE(store_id, transaction_number) scope (Stage 5
+            // instruction §64) without a retry-on-conflict loop, and is
+            // never a fiscal counter or a chronology guarantee --
+            // sold_at/database timestamps and InvoiceSeries remain
+            // authoritative for those.
+            'transaction_number' => 'T-'.Str::ulid(),
             'sold_at' => $soldAt,
             'subtotal' => $calculation->subtotal->toApiString(),
             'order_level_discount_amount' => $calculation->orderLevelDiscountAmount->toApiString(),
