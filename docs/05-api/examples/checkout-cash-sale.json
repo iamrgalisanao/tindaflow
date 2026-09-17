@@ -1,0 +1,31 @@
+{
+  "_comment": "Simple cash-only sale, single VATABLE item, no discount. The everyday case.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/sales",
+    "headers": { "Idempotency-Key": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d" },
+    "body": {
+      "items": [ { "product_id": "prod-canned-goods-1", "quantity": "3.000" } ],
+      "payments": [ { "method": "CASH", "amount": "200.00" } ]
+    }
+  },
+  "response_201": {
+    "id": "sale-cash-1",
+    "transaction_number": "T-000482",
+    "invoice_number": "000218",
+    "terminal_id": "terminal-1",
+    "fiscal_day_id": "fd-2026-09-16-terminal-1",
+    "shift_id": "shift-2026-09-16-terminal-1-a",
+    "cashier_id": "user-cashier-1",
+    "sold_at": "2026-09-16T14:30:05+08:00",
+    "status": "COMPLETED",
+    "subtotal": "185.50",
+    "order_level_discount_amount": "0.00",
+    "discount_total": "0.00",
+    "tax_summary": { "taxable_sales": "165.63", "vat_exempt_sales": "0.00", "zero_rated_sales": "0.00", "vat_amount": "19.87", "non_vat_sales": "0.00" },
+    "grand_total": "185.50",
+    "amount_tendered": "200.00",
+    "change": "14.50",
+    "invoice": { "id": "inv-218", "invoice_number": "000218", "issued_at": "2026-09-16T14:30:05+08:00", "schema_version": 1 }
+  }
+}

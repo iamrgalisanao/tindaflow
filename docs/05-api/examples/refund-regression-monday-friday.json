@@ -1,0 +1,74 @@
+{
+  "_comment": "Regression example proving the Monday-sale / Friday-refund scenario: the refund references Monday's Sale unchanged, but is attributed to Friday's own processing FiscalDay/Shift — never inserted into Monday's (closed) FiscalDay. Demonstrates Stage 2 invariants #67-70.",
+
+  "original_sale_monday": {
+    "id": "sale-monday-1",
+    "transaction_number": "T-000410",
+    "invoice_number": "000190",
+    "terminal_id": "terminal-1",
+    "fiscal_day_id": "fd-2026-09-14-terminal-1",
+    "shift_id": "shift-2026-09-14-terminal-1-a",
+    "cashier_id": "user-cashier-1",
+    "sold_at": "2026-09-14T10:15:00+08:00",
+    "status": "COMPLETED",
+    "grand_total": "100.00",
+    "items": [
+      {
+        "id": "si-monday-1",
+        "line_number": 1,
+        "product_id": "prod-item-x",
+        "quantity": "2.000",
+        "unit_price_snapshot": "50.00",
+        "gross_line_amount": "100.00",
+        "allocated_order_discount_amount": "0.00",
+        "net_line_amount": "100.00",
+        "tax_classification_snapshot": "VATABLE",
+        "taxable_base": "89.29",
+        "tax_amount": "10.71"
+      }
+    ],
+    "_note": "fd-2026-09-14-terminal-1 is now CLOSED (Monday's Z-Reading was generated at end of day)."
+  },
+
+  "refund_request_friday": {
+    "method": "POST",
+    "path": "/api/v1/sales/sale-monday-1/refunds",
+    "headers": { "Idempotency-Key": "7c8d9e0f-1a2b-4c3d-9e0f-1a2b3c4d5e6f" },
+    "body": {
+      "items": [ { "sale_item_id": "si-monday-1", "quantity": "1.000", "disposition": "RETURN_TO_STOCK" } ],
+      "settlements": [ { "payment_method": "CASH", "amount": "50.00" } ],
+      "reason": "Customer returned one unit, unopened"
+    }
+  },
+
+  "refund_response_201": {
+    "id": "refund-friday-1",
+    "sale_id": "sale-monday-1",
+    "status": "COMPLETED",
+    "reason": "Customer returned one unit, unopened",
+    "refund_total": "50.00",
+    "refunded_at": "2026-09-18T16:40:00+08:00",
+    "terminal_id": "terminal-1",
+    "fiscal_day_id": "fd-2026-09-18-terminal-1",
+    "shift_id": "shift-2026-09-18-terminal-1-b",
+    "_context_note": "terminal_id happens to be the same physical terminal, but fiscal_day_id and shift_id are FRIDAY's own OPEN fiscal day/shift (fd-2026-09-18-...), completely distinct from Monday's fd-2026-09-14-terminal-1, which remains CLOSED and untouched.",
+    "items": [
+      {
+        "id": "ri-1",
+        "sale_item_id": "si-monday-1",
+        "quantity_returned": "1.000",
+        "disposition": "RETURN_TO_STOCK",
+        "unit_refund_amount": "50.00",
+        "_calc": "owed_after_this_event = round(100.00 * 1/2, 2) = 50.00; minus SUM(prior refund_item amounts for si-monday-1) = 0.00 -> this event = 50.00 (Stage 2 cumulative-recompute-then-subtract rule)."
+      }
+    ],
+    "settlements": [
+      { "id": "rs-1", "payment_method": "CASH", "amount": "50.00", "processed_at": "2026-09-18T16:40:00+08:00" }
+    ],
+    "sale": { "id": "sale-monday-1", "status": "PARTIALLY_REFUNDED", "grand_total": "100.00" },
+    "remaining_refundable": [
+      { "sale_item_id": "si-monday-1", "remaining_quantity": "1.000", "remaining_amount": "50.00" }
+    ],
+    "_settlement_reconciliation": "SUM(settlements.amount) = 50.00 = refund.refund_total exactly (Stage 2 invariant #70). CASH settlement reduces shift-friday-1-b's expected drawer cash (invariant #71); Monday's original sale, its terminal_id/fiscal_day_id/shift_id, and its SALE-type stock_movement are all completely untouched."
+  }
+}

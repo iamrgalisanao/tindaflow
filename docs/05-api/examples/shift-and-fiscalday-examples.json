@@ -1,0 +1,162 @@
+{
+  "shift_open": {
+    "request": {
+      "method": "POST", "path": "/api/v1/shifts/open",
+      "headers": { "Idempotency-Key": "3c4d5e6f-7a8b-4c9d-0e1f-2a3b4c5d6e7f" },
+      "body": { "opening_cash": "2000.00" }
+    },
+    "response_201": {
+      "shift": {
+        "id": "shift-2026-09-16-terminal-1-a",
+        "terminal_id": "terminal-1",
+        "fiscal_day_id": "fd-2026-09-16-terminal-1",
+        "cashier_id": "user-cashier-1",
+        "opening_cash": "2000.00",
+        "opened_at": "2026-09-16T08:00:00+08:00",
+        "status": "OPEN"
+      },
+      "fiscal_day": { "id": "fd-2026-09-16-terminal-1", "terminal_id": "terminal-1", "business_date": "2026-09-16", "opened_at": "2026-09-16T08:00:00+08:00", "status": "OPEN" },
+      "fiscal_day_was_opened": true,
+      "_note": "true because terminal-1 had no OPEN fiscal_day yet this business day -- V1 auto-open-on-first-shift policy (TindaFlow operating policy, not a BIR statutory requirement)."
+    }
+  },
+
+  "cash_out": {
+    "request": {
+      "method": "POST", "path": "/api/v1/shifts/shift-2026-09-16-terminal-1-a/cash-movements",
+      "headers": { "Idempotency-Key": "4d5e6f7a-8b9c-4d0e-1f2a-3b4c5d6e7f8a" },
+      "body": { "type": "CASH_OUT", "amount": "500.00", "reason": "Bank deposit run" }
+    },
+    "response_201": {
+      "id": "cm-1", "shift_id": "shift-2026-09-16-terminal-1-a", "type": "CASH_OUT",
+      "amount": "500.00", "reason": "Bank deposit run", "authorized_by": "user-manager-1",
+      "created_at": "2026-09-16T12:00:00+08:00"
+    }
+  },
+
+  "stock_adjustment": {
+    "request": {
+      "method": "POST", "path": "/api/v1/inventory/adjustments",
+      "headers": { "Idempotency-Key": "5e6f7a8b-9c0d-4e1f-2a3b-4c5d6e7f8a9b" },
+      "body": { "product_id": "prod-item-x", "quantity": "3.000", "movement_type": "DAMAGE", "reason": "Shelf collapse, 3 units broken" }
+    },
+    "response_201": {
+      "id": "sm-1", "product_id": "prod-item-x", "location_id": "loc-default",
+      "terminal_id": "terminal-1", "movement_type": "DAMAGE", "quantity": "3.000",
+      "reason": "Shelf collapse, 3 units broken", "created_by": "user-manager-1",
+      "occurred_at": "2026-09-16T13:10:00+08:00"
+    }
+  },
+
+  "shift_close": {
+    "request": {
+      "method": "POST", "path": "/api/v1/shifts/shift-2026-09-16-terminal-1-a/close",
+      "headers": { "Idempotency-Key": "6f7a8b9c-0d1e-4f2a-3b4c-5d6e7f8a9b0c" },
+      "body": { "declared_cash": "1745.50" }
+    },
+    "response_200": {
+      "shift": {
+        "id": "shift-2026-09-16-terminal-1-a", "status": "CLOSED",
+        "opening_cash": "2000.00", "declared_cash": "1745.50",
+        "expected_cash": "1760.00",
+        "variance": "-14.50",
+        "cash_sales": "260.00", "non_cash_sales": "200.00",
+        "refunds_total": "0.00", "cash_in_total": "0.00", "cash_out_total": "500.00",
+        "closed_at": "2026-09-16T20:00:00+08:00",
+        "_note": "expected_cash = opening_cash(2000.00) + cash_sales(260.00) - cash_out_total(500.00) + cash_in_total(0) - cash_refunds(0) = 1760.00. cash_sales counts only the CASH portion of the still-COMPLETED mixed-tax sale (260.00); the cash-sale example (INV-000218, 185.50) is excluded because it was voided earlier in this shift and its cash impact does not count toward end-of-day totals. declared_cash(1745.50) - expected_cash(1760.00) = variance(-14.50), computed server-side (Stage 2 invariant #37), never accepted from the client."
+      },
+      "x_reading": {
+        "id": "xr-1", "terminal_id": "terminal-1", "shift_id": "shift-2026-09-16-terminal-1-a",
+        "cashier_id": "user-cashier-1", "from_at": "2026-09-16T08:00:00+08:00", "to_at": "2026-09-16T20:00:00+08:00",
+        "generated_at": "2026-09-16T20:00:00+08:00", "generated_by": "user-cashier-1",
+        "is_closing_reading": true,
+        "totals_snapshot": {
+          "opening_cash": "2000.00",
+          "expected_cash": "1760.00",
+          "cash_sales": "260.00",
+          "non_cash_sales": "200.00",
+          "payment_breakdown": { "CASH": "260.00", "GCASH": "200.00" },
+          "refunds_total": "0.00",
+          "cash_in_total": "0.00",
+          "cash_out_total": "500.00",
+          "variance": "-14.50",
+          "transaction_count": 2
+        }
+      },
+      "_interim_xreading_note": "An interim (non-closing) X-Reading pulled mid-shift would look identical in shape but omit 'variance' (null) and have is_closing_reading=false -- it never changes shift.status or resets any total (Stage 2 invariant #43)."
+    }
+  },
+
+  "fiscal_day_close": {
+    "request": {
+      "method": "POST", "path": "/api/v1/fiscal-days/fd-2026-09-16-terminal-1/close",
+      "headers": { "Idempotency-Key": "7a8b9c0d-1e2f-4a3b-4c5d-6e7f8a9b0c1d" }
+    },
+    "precondition_failure_409": {
+      "description": "Attempted while a shift is still OPEN on this terminal",
+      "response": {
+        "error": {
+          "code": "FISCAL_DAY_HAS_OPEN_SHIFT",
+          "message": "Cannot close the fiscal day while a shift is still open on this terminal.",
+          "details": { "open_shift_id": "shift-2026-09-16-terminal-1-b" },
+          "request_id": "8b9c0d1e-2f3a-4b4c-5d6e-7f8a9b0c1d2e"
+        }
+      }
+    },
+    "response_200": {
+      "fiscal_day": { "id": "fd-2026-09-16-terminal-1", "terminal_id": "terminal-1", "business_date": "2026-09-16", "status": "CLOSED", "closed_at": "2026-09-16T21:00:00+08:00" },
+      "z_reading": {
+        "id": "zr-1", "terminal_id": "terminal-1", "fiscal_day_id": "fd-2026-09-16-terminal-1",
+        "business_date": "2026-09-16", "from_at": "2026-09-16T08:00:00+08:00", "to_at": "2026-09-16T21:00:00+08:00",
+        "generated_at": "2026-09-16T21:00:00+08:00", "generated_by": "user-manager-1",
+        "totals_snapshot": {
+          "accumulated_grand_total_sales_before": "45230187.65",
+          "accumulated_grand_total_sales_after": "45230647.65",
+          "gross_sales": "460.00",
+          "taxable_sales": "111.23",
+          "vat_exempt_sales": "239.58",
+          "zero_rated_sales": "95.84",
+          "vat_amount": "13.35",
+          "non_vat_sales": "0.00",
+          "payment_breakdown": { "CASH": "260.00", "GCASH": "200.00" },
+          "void_total": "185.50",
+          "refund_total": "0.00",
+          "z_counter": 47,
+          "reset_counter": 0
+        }
+      },
+      "_note": "gross_sales/tax figures reflect only the still-COMPLETED mixed-tax sale (460.00); the voided cash-sale (INV-000218, 185.50) is excluded from gross_sales and reported separately under void_total for audit transparency. accumulated_grand_total_sales_after (45230647.65) = accumulated_grand_total_sales_before (45230187.65) + gross_sales (460.00) exactly -- this field uses AccumulatedMoney, not Money, specifically because it must support well beyond a single transaction's magnitude over a terminal's lifetime (RMO 24-2023's >=12-digit-including-decimals capacity requirement). z_counter is this terminal's 47th Z-Reading, ever-incrementing; reset_counter remains 0 because TindaFlow provides no user-facing reset function. All totals derived server-side from committed Sale/Payment/Void/Refund/CashMovement records for this fiscal_day_id -- never accepted from the browser (architecture.md section 46)."
+    }
+  },
+  "fiscal_day_close_non_vat_store": {
+    "_comment": "Added 2026-09-17 (Stage 6A NON_VAT gap, domain-model.md 4a). Same close operation, but the store's effective TaxRegistration is NON_VAT for this fiscal day -- every underlying sale (e.g. checkout-non-vat-sale.json) was finalized with tax_classification_snapshot = NON_VAT, so all four VAT-specific totals are '0.00' and non_vat_sales carries the day's entire gross_sales.",
+    "request": {
+      "method": "POST", "path": "/api/v1/fiscal-days/fd-2026-09-17-terminal-2/close",
+      "headers": { "Idempotency-Key": "9c0d1e2f-3a4b-4c5d-6e7f-8a9b0c1d2e3f" }
+    },
+    "response_200": {
+      "fiscal_day": { "id": "fd-2026-09-17-terminal-2", "terminal_id": "terminal-2", "business_date": "2026-09-17", "status": "CLOSED", "closed_at": "2026-09-17T21:00:00+08:00" },
+      "z_reading": {
+        "id": "zr-2", "terminal_id": "terminal-2", "fiscal_day_id": "fd-2026-09-17-terminal-2",
+        "business_date": "2026-09-17", "from_at": "2026-09-17T08:00:00+08:00", "to_at": "2026-09-17T21:00:00+08:00",
+        "generated_at": "2026-09-17T21:00:00+08:00", "generated_by": "user-manager-1",
+        "totals_snapshot": {
+          "accumulated_grand_total_sales_before": "1250.00",
+          "accumulated_grand_total_sales_after": "1500.00",
+          "gross_sales": "250.00",
+          "taxable_sales": "0.00",
+          "vat_exempt_sales": "0.00",
+          "zero_rated_sales": "0.00",
+          "vat_amount": "0.00",
+          "non_vat_sales": "250.00",
+          "payment_breakdown": { "CASH": "250.00" },
+          "void_total": "0.00",
+          "refund_total": "0.00",
+          "z_counter": 1,
+          "reset_counter": 0
+        }
+      },
+      "_reconciliation_check": "non_vat_sales (250.00) = gross_sales (250.00); taxable_sales + vat_exempt_sales + zero_rated_sales + vat_amount = 0.00 (TAX-NV-003)."
+    }
+  }
+}

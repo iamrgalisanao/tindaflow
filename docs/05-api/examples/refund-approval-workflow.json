@@ -1,0 +1,130 @@
+{
+  "_comment": "The REQUESTED -> APPROVED/REJECTED lifecycle for a cashier-created refund, added in Stage 4 remediation pass 3. Complements refund-regression-monday-friday.json (which shows an immediate-execution refund). Symmetric to void-approval-workflow.json.",
+
+  "step_1_cashier_requests": {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/sales/sale-cash-11/refunds",
+      "headers": { "Idempotency-Key": "b2c3d4e5-1111-4b2c-9d1e-2f3a4b5c6d7e" },
+      "body": {
+        "items": [ { "sale_item_id": "si-cash-11-1", "quantity": "1.000", "disposition": "RETURN_TO_STOCK" } ],
+        "settlements": [ { "payment_method": "CASH", "amount": "65.00" } ],
+        "reason": "Item was defective"
+      }
+    },
+    "response_201": {
+      "id": "refund-11",
+      "sale_id": "sale-cash-11",
+      "status": "REQUESTED",
+      "reason": "Item was defective",
+      "requested_by": "user-cashier-1",
+      "approved_by": null,
+      "requested_at": "2026-09-16T16:35:00+08:00",
+      "resolved_at": null,
+      "refund_total": "65.00",
+      "refunded_at": null,
+      "terminal_id": null,
+      "fiscal_day_id": null,
+      "shift_id": null,
+      "items": [],
+      "settlements": [],
+      "sale": { "id": "sale-cash-11", "status": "COMPLETED", "grand_total": "195.00" },
+      "remaining_refundable": [ { "sale_item_id": "si-cash-11-1", "remaining_quantity": "1.000", "remaining_amount": "65.00" } ]
+    },
+    "_note": "items/settlements are empty arrays at REQUESTED time -- refund_item/refund_settlement rows are only created at APPROVED -> COMPLETED (state-machines.md SS3). The disposition/quantity/payment_method/amount given here are retained pending execution but are not yet committed domain rows, so they cannot yet carry the ids a RefundItem/RefundSettlement schema requires."
+  },
+
+  "step_2_manager_finds_it": {
+    "request": { "method": "GET", "path": "/api/v1/refunds?status=REQUESTED" },
+    "response_200": {
+      "data": [
+        { "id": "refund-11", "sale_id": "sale-cash-11", "status": "REQUESTED", "reason": "Item was defective", "requested_by": "user-cashier-1", "approved_by": null, "requested_at": "2026-09-16T16:35:00+08:00", "resolved_at": null, "refund_total": "65.00", "refunded_at": null, "terminal_id": null, "fiscal_day_id": null, "shift_id": null }
+      ],
+      "meta": { "page": 1, "per_page": 25, "total": 1, "last_page": 1 }
+    }
+  },
+
+  "step_3_manager_approves": {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/refunds/refund-11/approve",
+      "headers": { "Idempotency-Key": "b2c3d4e5-2222-4b2c-9d1e-2f3a4b5c6d7e" }
+    },
+    "response_200": {
+      "id": "refund-11",
+      "sale_id": "sale-cash-11",
+      "status": "COMPLETED",
+      "reason": "Item was defective",
+      "requested_by": "user-cashier-1",
+      "approved_by": "user-manager-1",
+      "requested_at": "2026-09-16T16:35:00+08:00",
+      "resolved_at": "2026-09-16T16:40:00+08:00",
+      "refund_total": "65.00",
+      "refunded_at": "2026-09-16T16:40:00+08:00",
+      "terminal_id": "terminal-2",
+      "fiscal_day_id": "fd-2026-09-16-terminal-2",
+      "shift_id": "shift-2026-09-16-terminal-2-a",
+      "items": [
+        { "id": "ri-11-1", "sale_item_id": "si-cash-11-1", "quantity_returned": "1.000", "disposition": "RETURN_TO_STOCK", "unit_refund_amount": "65.00" }
+      ],
+      "settlements": [
+        { "id": "rs-11-1", "payment_method": "CASH", "amount": "65.00", "processed_at": "2026-09-16T16:40:00+08:00", "external_reference": null }
+      ],
+      "sale": { "id": "sale-cash-11", "status": "PARTIALLY_REFUNDED", "grand_total": "195.00" },
+      "remaining_refundable": [ { "sale_item_id": "si-cash-11-1", "remaining_quantity": "0.000", "remaining_amount": "0.00" } ]
+    },
+    "_note": "terminal_id/fiscal_day_id/shift_id are the APPROVING manager's own currently-open terminal/fiscal_day/shift -- terminal-2, distinct from the original sale's terminal-1 (the Monday-sale/Friday-refund pattern from refund-regression-monday-friday.json, here compressed to the same day for brevity). items/settlements are populated only now, using exactly the disposition/quantity/payment_method/amount supplied at step_1 -- never re-solicited at approval time."
+  },
+
+  "step_3b_manager_rejects_instead": {
+    "_comment": "Alternative to step_3 -- shown for completeness.",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/refunds/refund-11/reject",
+      "headers": { "Idempotency-Key": "b2c3d4e5-3333-4b2c-9d1e-2f3a4b5c6d7e" },
+      "body": { "reason": "Item shows normal wear, not a manufacturing defect; declined per store policy" }
+    },
+    "response_200": {
+      "id": "refund-11",
+      "sale_id": "sale-cash-11",
+      "status": "REJECTED",
+      "reason": "Item was defective",
+      "requested_by": "user-cashier-1",
+      "approved_by": "user-manager-1",
+      "requested_at": "2026-09-16T16:35:00+08:00",
+      "resolved_at": "2026-09-16T16:42:00+08:00",
+      "refund_total": "65.00",
+      "refunded_at": null,
+      "terminal_id": null,
+      "fiscal_day_id": null,
+      "shift_id": null,
+      "items": [],
+      "settlements": [],
+      "sale": { "id": "sale-cash-11", "status": "COMPLETED", "grand_total": "195.00" }
+    }
+  },
+
+  "conflict_example_409": {
+    "description": "Approve attempted against a refund that already resolved (COMPLETED, REJECTED, or already re-approved by a concurrent request)",
+    "response": {
+      "error": {
+        "code": "REFUND_NOT_PENDING_APPROVAL",
+        "message": "This refund has already been resolved and is no longer pending approval.",
+        "details": { "refund_id": "refund-11", "current_status": "COMPLETED" },
+        "request_id": "f6a7b8c9-d0e1-42f3-a405-b6c7d8e9f0a1"
+      }
+    }
+  },
+
+  "execution_time_condition_example_409": {
+    "description": "Approve attempted while the approving manager's own terminal has no open fiscal_day/shift right now -- unlike Void, Refund does not auto-downgrade to REJECTED on this condition (see refundApprove's description in openapi.yaml); it fails with the same error the original request-time endpoint already documents.",
+    "response": {
+      "error": {
+        "code": "SHIFT_NOT_OPEN",
+        "message": "The approving terminal has no open shift; open a shift before approving this refund.",
+        "details": { "refund_id": "refund-11", "terminal_id": "terminal-2" },
+        "request_id": "a7b8c9d0-e1f2-4304-b516-c7d8e9f0a1b2"
+      }
+    }
+  }
+}

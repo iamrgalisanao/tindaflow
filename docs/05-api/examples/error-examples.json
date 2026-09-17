@@ -1,0 +1,24 @@
+{
+  "standard_409_conflict": {
+    "scenario": "Refund attempted against a sale that a concurrent request already voided",
+    "response": {
+      "error": {
+        "code": "REFUND_NOT_ALLOWED",
+        "message": "This sale has been voided and is not a valid refund target.",
+        "details": { "sale_id": "sale-cash-1", "sale_status": "VOIDED" },
+        "request_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+      }
+    }
+  },
+  "standard_422_unprocessable": {
+    "scenario": "Stock adjustment submitted without a reason",
+    "response": {
+      "error": {
+        "code": "STOCK_ADJUSTMENT_REASON_REQUIRED",
+        "message": "A reason is required for STOCK_ADJUSTMENT_IN, STOCK_ADJUSTMENT_OUT, DAMAGE, and EXPIRED movements.",
+        "details": { "field": "reason" },
+        "request_id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e"
+      }
+    }
+  }
+}

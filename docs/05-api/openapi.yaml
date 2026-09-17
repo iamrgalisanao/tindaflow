@@ -1,0 +1,2979 @@
+openapi: 3.1.0
+info:
+  title: TindaFlow POS API
+  version: 1.0.0-draft
+  description: 'TindaFlow POS HTTP API (Stage 4 contract). Implements the frozen Stage 2 domain (tag stage-2-baseline, commit 2bc8885) and Stage 3 architecture (tag stage-3-baseline, commit c8a8bbe) without redesigning either. Same-origin session-authenticated SPA API for a self-hosted, LAN-first deployment. This is a design-time contract; no implementation exists yet.'
+  contact: {name: ABBADev IT Solutions}
+servers:
+- {url: /api/v1, description: Same-origin relative base path (store LAN server or VPS)}
+tags:
+- {name: Auth}
+- {name: Terminal}
+- {name: Catalog}
+- {name: Inventory}
+- {name: Sales}
+- {name: Invoices}
+- {name: Shifts}
+- {name: FiscalDay}
+- {name: Reports}
+- {name: StoreSettings}
+- {name: FiscalInstallation}
+- {name: Audit}
+- {name: ElectronicJournal}
+- {name: Users}
+security:
+- cookieAuth: []
+paths:
+  # ---------------------------------------------------------------- Auth
+  /auth/login:
+    post:
+      operationId: authLogin
+      tags: [Auth]
+      summary: Authenticate a user and establish a session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: {type: string, format: email}
+                password: {type: string, format: password, writeOnly: true}
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UserSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /auth/logout:
+    post:
+      operationId: authLogout
+      tags: [Auth]
+      summary: Terminate the current session
+      responses:
+        '204': {description: Session terminated}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /auth/me:
+    get:
+      operationId: authMe
+      tags: [Auth]
+      summary: Current authenticated user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UserSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  # ------------------------------------------------------------ Terminal
+  /terminal-enrollment-tokens:
+    post:
+      operationId: terminalCreateEnrollmentToken
+      tags: [Terminal]
+      x-capability: TERMINAL_MANAGE
+      summary: Generate a one-time enrollment token for a terminal (ADR-011)
+      description: 'Requires TERMINAL_MANAGE. Does not itself require an enrolled terminal, since this is administered from an already-authenticated back-office session (which may or may not be running on an enrolled terminal browser).'
+      security:
+      - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [terminal_id]
+              properties:
+                terminal_id: {type: string, format: uuid}
+      responses:
+        '201':
+          description: Enrollment token created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TerminalEnrollmentToken'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /terminal/enroll:
+    post:
+      operationId: terminalEnroll
+      tags: [Terminal]
+      x-capability: TERMINAL_MANAGE
+      summary: Bind this browser to a Terminal using a one-time token (ADR-011)
+      description: 'Requires an authenticated administrative session on this workstation. On success, the server establishes an HttpOnly terminal credential on this browser; the one-time token is invalidated immediately.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: {type: string}
+      responses:
+        '200':
+          description: Terminal credential established for this browser
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TerminalSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409':
+          description: Token already used, expired, or revoked
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /terminal/current:
+    get:
+      operationId: terminalCurrent
+      tags: [Terminal]
+      summary: The terminal this browser is currently enrolled as
+      responses:
+        '200':
+          description: Current terminal
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TerminalSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403':
+          description: This browser is not enrolled as any terminal
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /terminals:
+    get:
+      operationId: terminalList
+      tags: [Terminal]
+      x-capability: TERMINAL_MANAGE
+      summary: List terminals for the store
+      security:
+      - cookieAuth: []
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: status
+        in: query
+        schema: {$ref: '#/components/schemas/TerminalStatus'}
+      responses:
+        '200':
+          description: Paginated terminal list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/TerminalSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /terminals/{terminalId}:
+    get:
+      operationId: terminalGet
+      tags: [Terminal]
+      x-capability: TERMINAL_MANAGE
+      summary: Get a terminal
+      parameters:
+      - {$ref: '#/components/parameters/TerminalIdPath'}
+      responses:
+        '200':
+          description: Terminal
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TerminalSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /terminals/{terminalId}/revoke:
+    post:
+      operationId: terminalRevoke
+      tags: [Terminal]
+      x-capability: TERMINAL_MANAGE
+      summary: Revoke a terminal's enrolled credential
+      parameters:
+      - {$ref: '#/components/parameters/TerminalIdPath'}
+      responses:
+        '200':
+          description: Terminal revoked
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TerminalSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  # ------------------------------------------------------------- Catalog
+  /products:
+    get:
+      operationId: productList
+      tags: [Catalog]
+      summary: List products
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: category_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: active
+        in: query
+        schema: {type: boolean}
+      - name: search
+        in: query
+        description: Matches name or SKU (not barcode — use the barcode lookup operation for that)
+        schema: {type: string}
+      - name: sort
+        in: query
+        schema:
+          type: string
+          enum: [name, -name, sku, -sku, created_at, -created_at]
+      responses:
+        '200':
+          description: Paginated product list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/Product'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      operationId: productCreate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: Create a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProductInput'}
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Product'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /products/{productId}:
+    get:
+      operationId: productGet
+      tags: [Catalog]
+      summary: Get a product
+      parameters:
+      - {$ref: '#/components/parameters/ProductIdPath'}
+      responses:
+        '200':
+          description: Product
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Product'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      operationId: productUpdate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: Update a product's catalog attributes
+      description: 'Updates current catalog data only (name, price, tax class, etc.). Never affects historical sale_item snapshots, which are immutable per Stage 2. There is no DELETE for products — see productDeactivate.'
+      parameters:
+      - {$ref: '#/components/parameters/ProductIdPath'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProductInput'}
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Product'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /products/{productId}/activate:
+    post:
+      operationId: productActivate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: Reactivate a product
+      parameters:
+      - {$ref: '#/components/parameters/ProductIdPath'}
+      responses:
+        '200':
+          description: Product activated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Product'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /products/{productId}/deactivate:
+    post:
+      operationId: productDeactivate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: Deactivate a product (retirement mechanism — never DELETE)
+      description: 'Deactivated products are excluded from barcode lookup and catalog listings by default but remain fully referenceable by historical sale_item rows, satisfying Stage 2''s "reference only, never a live dependency" rule.
+
+        '
+      parameters:
+      - {$ref: '#/components/parameters/ProductIdPath'}
+      responses:
+        '200':
+          description: Product deactivated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Product'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /products/by-barcode/{barcode}:
+    get:
+      operationId: productLookupByBarcode
+      tags: [Catalog]
+      summary: Low-latency barcode lookup for cashier scanning
+      description: 'Returns current saleable-product data for cart preview only. The returned price/tax data is NOT authoritative for checkout — sale finalization always recalculates server-side from current authoritative data at the moment of finalization (Stage 2 invariant #4; architecture.md §11).'
+      parameters:
+      - name: barcode
+        in: path
+        required: true
+        schema: {type: string}
+      responses:
+        '200':
+          description: Product found
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Product'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404':
+          description: BARCODE_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /categories:
+    get:
+      operationId: categoryList
+      tags: [Catalog]
+      summary: List categories
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      responses:
+        '200':
+          description: Paginated category list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/Category'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      operationId: categoryCreate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: Create a category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+      responses:
+        '201':
+          description: Category created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Category'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /brands:
+    get:
+      operationId: brandList
+      tags: [Catalog]
+      summary: List brands
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      responses:
+        '200':
+          description: Paginated brand list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/Brand'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      operationId: brandCreate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: Create a brand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+      responses:
+        '201':
+          description: Brand created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Brand'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /products/import:
+    post:
+      operationId: productImport
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: Bulk-import products from CSV
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: {type: string, format: binary}
+      responses:
+        '202':
+          description: Import accepted; result summary returned synchronously for V1's expected catalog size
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /products/export:
+    get:
+      operationId: productExport
+      tags: [Catalog]
+      summary: Export the product catalog as CSV
+      responses:
+        '200':
+          description: CSV export
+          content:
+            text/csv:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  # ----------------------------------------------------------- Inventory
+  /inventory/stock:
+    get:
+      operationId: inventoryStockList
+      tags: [Inventory]
+      summary: Stock on hand (derived StockBalance projection)
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: product_id
+        in: query
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Paginated stock balances
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/StockBalance'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /inventory/low-stock:
+    get:
+      operationId: inventoryLowStockList
+      tags: [Inventory]
+      summary: Products at or below their reorder level
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      responses:
+        '200':
+          description: Paginated low-stock list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/StockBalance'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /inventory/movements:
+    get:
+      operationId: inventoryMovementList
+      tags: [Inventory]
+      summary: Append-only stock movement ledger
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: product_id
+        in: query
+        schema: {type: string, format: uuid}
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: movement_type
+        in: query
+        schema: {$ref: '#/components/schemas/StockMovementType'}
+      responses:
+        '200':
+          description: Paginated stock movements
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/StockMovement'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /inventory/receipts:
+    post:
+      operationId: inventoryReceiptCreate
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: Receive stock (PURCHASE_RECEIPT / OPENING_STOCK movement)
+      parameters:
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, quantity, movement_type]
+              properties:
+                product_id: {type: string, format: uuid}
+                quantity: {$ref: '#/components/schemas/Quantity'}
+                movement_type:
+                  type: string
+                  enum: [OPENING_STOCK, PURCHASE_RECEIPT]
+                unit_cost: {$ref: '#/components/schemas/Money'}
+                note: {type: string}
+      responses:
+        '201':
+          description: Stock movement recorded
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockMovement'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /inventory/adjustments:
+    post:
+      operationId: inventoryAdjustmentCreate
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: Record a stock adjustment (reason required — Stage 2 invariant
+      parameters:
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, quantity, movement_type, reason]
+              properties:
+                product_id: {type: string, format: uuid}
+                quantity: {$ref: '#/components/schemas/Quantity'}
+                movement_type:
+                  type: string
+                  enum: [STOCK_ADJUSTMENT_IN, STOCK_ADJUSTMENT_OUT, DAMAGE, EXPIRED]
+                reason: {type: string, minLength: 1, description: Required — STOCK_ADJUSTMENT_REASON_REQUIRED if omitted}
+                note: {type: string}
+      responses:
+        '201':
+          description: Stock movement recorded
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockMovement'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # --------------------------------------------------------------- Sales
+  /sales:
+    get:
+      operationId: saleList
+      tags: [Sales]
+      summary: Search sales history
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: invoice_number
+        in: query
+        schema: {type: string}
+      - name: transaction_number
+        in: query
+        schema: {type: string}
+      - name: cashier_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: terminal_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: product_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: payment_method
+        in: query
+        schema: {$ref: '#/components/schemas/PaymentMethod'}
+      - name: status
+        in: query
+        schema: {$ref: '#/components/schemas/SaleStatus'}
+      - name: sort
+        in: query
+        schema:
+          type: string
+          enum: [sold_at, -sold_at, grand_total, -grand_total]
+      responses:
+        '200':
+          description: Paginated sales
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/SaleSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      operationId: saleFinalize
+      tags: [Sales]
+      summary: Finalize a Sale (checkout) — the single most important operation
+      description: 'A Sale does not exist before this call succeeds (Stage 2 §2.7: no persisted DRAFT). Terminal, cashier, shift, fiscal_day are resolved server-side and can never be overridden by the request body (architecture.md §5/§11, Stage 2 invariant #3/#4). Server recomputes every monetary/tax/discount figure via the FinancialCalculator (ADR-012) regardless of any client-submitted preview values.'
+      parameters:
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SaleFinalizeRequest'}
+      responses:
+        '201':
+          description: Sale finalized
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SaleDetail'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /sales/{saleId}:
+    get:
+      operationId: saleGet
+      tags: [Sales]
+      summary: Get full Sale detail
+      parameters:
+      - {$ref: '#/components/parameters/SaleIdPath'}
+      responses:
+        '200':
+          description: Sale detail
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SaleDetail'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /sales/{saleId}/void:
+    post:
+      operationId: saleVoid
+      tags: [Sales]
+      x-capability: SALE_VOID
+      summary: Execute a Void (Stage 2 §2.8 — five-condition eligibility gate + processing-context precondition)
+      description: 'No processing terminal/shift/fiscal_day field is accepted in the request body — those are resolved from the authenticated terminal context at execution (Stage 2 invariants #67–#69). Requires SALE_VOID capability. If the requester already holds SALE_VOID_APPROVE, the REQUESTED → APPROVED → VOIDED transitions all happen immediately within this same call (state-machines.md §2, "or immediate, if requester already holds SALE_VOID_APPROVE"). Otherwise the response reflects status REQUESTED, and the void remains pending until a separate actor calls POST /voids/{voidId}/approve or POST /voids/{voidId}/reject — see the Voids section below (added in remediation pass 3 to make that transition reachable).
+
+        '
+      parameters:
+      - {$ref: '#/components/parameters/SaleIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 1}
+      responses:
+        '201':
+          description: Void executed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VoidResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /sales/{saleId}/refunds:
+    post:
+      operationId: saleRefund
+      tags: [Sales]
+      x-capability: SALE_REFUND
+      summary: Finalize a Refund (Stage 2 §2.9 — full or partial)
+      description: 'No authoritative refund totals are accepted from the client — the server derives remaining refundable quantity/consideration from the frozen sale_item snapshot (net_line_amount, DISC-004) and validates SUM(settlements.amount) equals the derived refund total (Stage 2 invariant #70). Processing terminal/shift/fiscal_day are resolved server-side, never from the request body (invariants #67–#69). If the requester already holds SALE_REFUND_APPROVE, the REQUESTED → APPROVED → COMPLETED transitions all happen immediately within this same call (state-machines.md §3). Otherwise the response reflects status REQUESTED — the requested items/settlements are recorded but not yet executed — and the refund remains pending until a separate actor calls POST /refunds/{refundId}/approve or POST /refunds/{refundId}/reject — see the Refunds section below (added in remediation pass 3 to make that transition reachable).'
+      parameters:
+      - {$ref: '#/components/parameters/SaleIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefundRequest'}
+      responses:
+        '201':
+          description: Refund finalized
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RefundResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # ---------------------------------------------------- Void approval (new, pass 3)
+  /voids:
+    get:
+      operationId: voidList
+      tags: [Sales]
+      summary: 'List Voids (added remediation pass 3 — backs the Stage 1 sitemap''s /back-office/void-refund/approvals screen)'
+      description: 'The only way to discover a REQUESTED void pending approval — sale.status stays COMPLETED while its void is REQUESTED (state-machines.md §1/§2), so a REQUESTED void is never visible through GET /sales'' own status filter. Visibility mirrors GET /sales/{saleId} (any authenticated session, no dedicated capability), consistent with V1 having no per-user data siloing beyond store scope.'
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: status
+        in: query
+        description: Filter to a single lifecycle status, e.g. ?status=REQUESTED for the pending-approval queue.
+        schema: {type: string, enum: [REQUESTED, APPROVED, REJECTED, VOIDED]}
+      - name: sale_id
+        in: query
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Paginated voids
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/VoidSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /voids/{voidId}:
+    get:
+      operationId: voidGet
+      tags: [Sales]
+      summary: Get full Void detail (backs the Stage 1 sitemap's /back-office/void-refund/:id screen)
+      parameters:
+      - {$ref: '#/components/parameters/VoidIdPath'}
+      responses:
+        '200':
+          description: Void detail
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VoidResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /voids/{voidId}/approve:
+    post:
+      operationId: voidApprove
+      tags: [Sales]
+      x-capability: SALE_VOID_APPROVE
+      summary: 'Approve a REQUESTED Void — this IS the fiscal execution point, not a permission grant (state-machines.md §2)'
+      description: 'CONFIRMED FISCAL EXECUTION COMMAND, not mere authorization: Stage 2''s void state diagram shows APPROVED immediately followed by system-executed reversal ("APPROVED --> VOIDED: system executes reversal"), with no separately-persisted resting state between them, and invariant #24 names exactly three void audit events — SALE_VOID_REQUESTED, SALE_VOIDED, SALE_VOID_REJECTED — with no fourth "SALE_VOID_APPROVED" event, confirming Stage 2 never treats APPROVED as its own independently-loggable, fiscally-effective moment. This operation therefore performs REQUESTED → APPROVED → VOIDED atomically, in one database transaction, exactly mirroring what already happens inline in POST /sales/{saleId}/void when the original requester holds SALE_VOID_APPROVE. On success, this single transaction: resolves the authenticated approver from the session (never client-supplied); resolves the enrolled executing terminal (ADR-011) and its own currently-OPEN fiscal_day/shift — independent of the original requester''s or the original sale''s terminal/shift/fiscal_day (Stage 2 amendment pass 3; invariants #67/#69) — failing the call (see below) if none is open right now; locks and re-validates the referenced void row is still REQUESTED and the originating sale still meets void eligibility (Stage 2 §2.8''s five conditions, re-checked, not read from the original request-time result); creates the full-quantity SALE_RETURN stock_movement per sale_item (invariant #22); populates void.terminal_id/fiscal_day_id/shift_id from the executing context; transitions sale.status to VOIDED; and writes a single SALE_VOIDED audit_event plus its corresponding electronic_journal_entry (event_type=VOID) — all committed atomically, or none of it. A REQUESTED-time processing context is never reused: this call always resolves and uses the context that exists right now, at execution, never a context captured or frozen when the void was originally requested. FAILED APPROVAL IS NOT AUTOMATIC REJECTION (Stage 2 amendment pass 4, correcting state-machines.md §2''s previous wording): if the void''s eligibility no longer holds at execution time (any of the five request-time conditions, e.g. the originating sale''s own fiscal_day has since Z-closed), this call fails with `409 SALE_NOT_VOIDABLE` and the void row is left completely unchanged — still REQUESTED, no stock_movement, no audit_event, no electronic_journal_entry, no processing-context fields populated. Likewise, if the executing terminal itself has no open fiscal_day/shift right now, this call fails with `409 FISCAL_DAY_CLOSED`/`SHIFT_NOT_OPEN` and the void stays REQUESTED, unchanged — never silently reattributed to whatever context happens to be open. A failed execution attempt is never itself an authorized decision that the request should not proceed; only an explicit call to POST /voids/{voidId}/reject (a human, capability-holding decision) or a later, successful call to this same endpoint ever resolves a REQUESTED void. The 409 below for VOID_NOT_PENDING_APPROVAL is reserved for a structurally invalid call — the void was not in REQUESTED status when this call arrived (already VOIDED/REJECTED by a concurrent request) — which, like every other failure path here, never touches the ledger. Idempotent (ADR-010), with an important refinement for failure paths: a retry with the same Idempotency-Key after a SUCCESSFUL execution returns the original VOIDED result verbatim, never re-executing the reversal. A retry after a FAILED attempt (409, no fiscal mutation committed) is different: no idempotency_record is durably resolved for an attempt that committed nothing, so the SAME Idempotency-Key MAY be reused for a fresh attempt once the caller corrects the precondition (e.g. opens a shift) — this is treated as a new attempt of the same logical operation, not a cached-failure replay, and a new key is not required.'
+      parameters:
+      - {$ref: '#/components/parameters/VoidIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      responses:
+        '200':
+          description: Void executed — status is VOIDED. A failed attempt never reaches this response; see 409 below.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VoidResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: VOID_NOT_PENDING_APPROVAL (already resolved by a concurrent request) — or SALE_NOT_VOIDABLE (eligibility no longer holds, e.g. the originating sale's fiscal_day has since closed) — or FISCAL_DAY_CLOSED/SHIFT_NOT_OPEN (the executing terminal has no open fiscal_day/shift right now). In every case the void remains REQUESTED, unchanged; the same Idempotency-Key may be reused for a fresh attempt once the underlying condition is corrected.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /voids/{voidId}/reject:
+    post:
+      operationId: voidReject
+      tags: [Sales]
+      x-capability: SALE_VOID_APPROVE
+      summary: Reject a REQUESTED Void — a human decision, never a fiscal mutation (state-machines.md §2)
+      description: 'NOT a fiscal mutation, by design: REQUESTED → REJECTED only. Resolves the authenticated rejecting actor from the session (never client-supplied) and persists reason/rejected_at/rejected_by (via approved_by/resolved_at on VoidSummary — the same fields approve uses, since exactly one of the two ever resolves a REQUESTED void). Never executes a reversal, never creates a stock_movement, never touches Sale (sale.status stays COMPLETED), and never touches invoice_series. Writes SALE_VOID_REJECTED to audit_event ONLY — never electronic_journal_entry, since a rejected void never becomes the fiscal fact the VOID journal event_type represents (see voidApprove''s description for the full reasoning). No processing-context fields (terminal_id/fiscal_day_id/shift_id) are populated on this path, because Stage 2 only defines those as being set during APPROVED → VOIDED execution — so, unlike approve, this operation does not require an enrolled terminal or an OPEN shift/fiscal_day; nothing in Stage 2 ties declining a request to the rejecting actor''s own processing context. Requires SALE_VOID_APPROVE — the same capability that can approve can decline. Idempotent (ADR-010): a retry with the same Idempotency-Key returns the original rejection result verbatim.'
+      parameters:
+      - {$ref: '#/components/parameters/VoidIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: Void rejected
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VoidResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: VOID_NOT_PENDING_APPROVAL — the void is no longer in REQUESTED status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # -------------------------------------------------- Refund approval (new, pass 3)
+  /refunds:
+    get:
+      operationId: refundList
+      tags: [Sales]
+      summary: 'List Refunds (added remediation pass 3 — backs the Stage 1 sitemap''s /back-office/void-refund/approvals screen)'
+      description: 'The only way to discover a REQUESTED refund pending approval, symmetric to GET /voids. Visibility mirrors GET /sales/{saleId} (any authenticated session, no dedicated capability).'
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: status
+        in: query
+        description: Filter to a single lifecycle status, e.g. ?status=REQUESTED for the pending-approval queue.
+        schema: {type: string, enum: [REQUESTED, APPROVED, REJECTED, COMPLETED]}
+      - name: sale_id
+        in: query
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Paginated refunds
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/RefundSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /refunds/{refundId}:
+    get:
+      operationId: refundGet
+      tags: [Sales]
+      summary: Get full Refund detail (backs the Stage 1 sitemap's /back-office/void-refund/:id screen)
+      parameters:
+      - {$ref: '#/components/parameters/RefundIdPath'}
+      responses:
+        '200':
+          description: Refund detail
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RefundResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /refunds/{refundId}/approve:
+    post:
+      operationId: refundApprove
+      tags: [Sales]
+      x-capability: SALE_REFUND_APPROVE
+      summary: 'Approve a REQUESTED Refund — this IS the fiscal execution point, not a permission grant (state-machines.md §3)'
+      description: 'CONFIRMED FISCAL EXECUTION COMMAND, not mere authorization — same determination as voidApprove (see its description for the full frozen-text citation: state-machines.md''s APPROVED→COMPLETED arrow, no separately-persisted resting state, no distinct "SALE_REFUND_APPROVED" event name). Performs REQUESTED → APPROVED → COMPLETED atomically, in one database transaction. On success: resolves the authenticated approver from the session; resolves the enrolled executing terminal (ADR-011) and its own currently-OPEN fiscal_day/shift, independent of the original requester''s or original sale''s terminal/shift/fiscal_day (Stage 2 amendment pass 3; invariants #67/#69) — never the context that existed when the refund was originally requested; locks the referenced refund row and the referenced sale_item row(s), re-confirming the refund is still REQUESTED; **re-validates the cumulative quantity/amount cap against every refund_item that exists right now** (invariants #27/#28 — "checked server-side... never trusted from client input" applies at the moment rows are actually created, not only at the original request, precisely because a *different* refund against the same sale_item could have been approved in the interim); validates `SUM(settlements.amount)` still equals the derived refund total (invariant #70); creates `refund_item` rows (with disposition, from the values supplied at request time — never re-solicited here) and `refund_settlement` rows (from the settlement detail supplied at request time); creates a restocking `stock_movement` only for `RETURN_TO_STOCK` lines (invariant #30); recomputes `sale.status`; populates `refund.terminal_id`/`fiscal_day_id`/`shift_id` from the executing context; and writes a single fiscal-completion audit_event plus its corresponding `electronic_journal_entry` (event_type=REFUND) — all committed atomically, or none of it. FAILED APPROVAL IS NOT AUTOMATIC REJECTION, symmetric with voidApprove (Stage 2 amendment pass 4): if the originally-requested quantity/amount no longer fits (a concurrent refund against the same sale_item was approved first), this call fails with `422 REFUND_EXCEEDS_REMAINING_QUANTITY`/`REFUND_EXCEEDS_REMAINING_AMOUNT` (the same codes the original request-time check uses); if the executing terminal has no open fiscal_day/shift at this moment, this call fails with `409 FISCAL_DAY_CLOSED`/`SHIFT_NOT_OPEN` (the same codes `POST /sales/{saleId}/refunds` itself already documents for that condition). In every failure case the refund row is left completely unchanged — still REQUESTED, no refund_item/refund_settlement/stock_movement/audit_event/electronic_journal_entry, no processing-context fields populated — requiring a human decision (a fresh approve attempt, or an explicit reject) rather than silently completing an over-limit refund or silently producing a REJECTED result. (Refund and Void now share the same failure-handling shape; the only remaining difference is which specific conditions each re-checks, not what happens when a check fails — see api-design.md §12.1.) Idempotent (ADR-010), with the same refinement as voidApprove: a retry with the same Idempotency-Key after a SUCCESSFUL execution returns the original COMPLETED result verbatim. A retry after a FAILED attempt (409/422, no fiscal mutation committed) may reuse the same Idempotency-Key for a fresh attempt once the underlying condition is corrected — no idempotency_record is durably resolved for an attempt that committed nothing, so this is treated as a new attempt, not a cached-failure replay.'
+      parameters:
+      - {$ref: '#/components/parameters/RefundIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      responses:
+        '200':
+          description: Refund executed — status is COMPLETED. A failed attempt never reaches this response; see 409/422 below.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RefundResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: REFUND_NOT_PENDING_APPROVAL (already resolved by a concurrent request) — or FISCAL_DAY_CLOSED/SHIFT_NOT_OPEN (the executing terminal has no open fiscal_day/shift right now). In every case the refund remains REQUESTED, unchanged; the same Idempotency-Key may be reused for a fresh attempt once the underlying condition is corrected.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422':
+          description: REFUND_EXCEEDS_REMAINING_QUANTITY/REFUND_EXCEEDS_REMAINING_AMOUNT — a concurrent refund against the same sale_item(s) was approved first, so the originally-requested amount no longer fits. The refund remains REQUESTED, unchanged, for a human re-decision; the same Idempotency-Key may be reused for a fresh attempt if the underlying quantity/amount later becomes available again (e.g. a sibling refund is rejected instead).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /refunds/{refundId}/reject:
+    post:
+      operationId: refundReject
+      tags: [Sales]
+      x-capability: SALE_REFUND_APPROVE
+      summary: Reject a REQUESTED Refund — a human decision, never a fiscal mutation (state-machines.md §3)
+      description: 'NOT a fiscal mutation, by design: REQUESTED → REJECTED only. Resolves the authenticated rejecting actor from the session (never client-supplied) and persists it to RefundSummary.approved_by, sets resolved_at to now (both added this pass — see their schema descriptions), and leaves refunded_at null (it only ever reflects COMPLETED, never REJECTED). Never executes, never creates a refund_item/refund_settlement/stock_movement, and never touches Sale (sale.status stays whatever it already was). Writes a rejection audit_event ONLY — never electronic_journal_entry, since a rejected refund never becomes the fiscal fact the REFUND journal event_type represents (same reasoning as voidReject). No processing-context fields are populated, because Stage 2 only defines those as being set during APPROVED → COMPLETED execution — so, unlike approve, this operation does not require an enrolled terminal or an OPEN shift/fiscal_day. Requires SALE_REFUND_APPROVE. Idempotent (ADR-010): a retry with the same Idempotency-Key returns the original rejection result verbatim.'
+      parameters:
+      - {$ref: '#/components/parameters/RefundIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: Refund rejected
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RefundResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: REFUND_NOT_PENDING_APPROVAL — the refund is no longer in REQUESTED status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # ------------------------------------------------------------ Invoices
+  /invoices/{invoiceId}:
+    get:
+      operationId: invoiceGet
+      tags: [Invoices]
+      summary: Get an Invoice, rendered from its immutable snapshot (ADR-006)
+      parameters:
+      - {$ref: '#/components/parameters/InvoiceIdPath'}
+      responses:
+        '200':
+          description: Invoice
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InvoiceDetail'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /invoices/{invoiceId}/reprints:
+    post:
+      operationId: invoiceReprint
+      tags: [Invoices]
+      summary: Reprint an Invoice (never allocates a new number — Stage 2 invariant
+      description: 'Renders exclusively from invoice_snapshot_json (never today''s StoreSettings/FiscalInstallation, ADR-006). Never creates a new Sale or Invoice row, and never mutates invoice_number, invoice_snapshot_json, the Sale, invoice_series, or any FiscalDay/Z-Reading total. Creates an INVOICE_REPRINTED audit event and electronic_journal_entry. Idempotency-Key required to prevent a network retry from creating duplicate reprint audit events. Returns InvoiceReprintResult, not InvoiceDetail — the reprint occurrence (this call''s own id/timestamp/actor) is a distinct, independently-auditable wrapper around the unchanged Invoice, never a property of the Invoice resource itself (an Invoice may be reprinted any number of times).
+
+        '
+      parameters:
+      - {$ref: '#/components/parameters/InvoiceIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      responses:
+        '201':
+          description: Reprint recorded; rendered document returned
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InvoiceReprintResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  # -------------------------------------------------------------- Shifts
+  /shifts/current:
+    get:
+      operationId: shiftCurrentGet
+      tags: [Shifts]
+      summary: The current terminal's open Shift, if any
+      responses:
+        '200':
+          description: Open shift
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Shift'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404':
+          description: SHIFT_NOT_OPEN
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /shifts/open:
+    post:
+      operationId: shiftOpen
+      tags: [Shifts]
+      summary: Open a Shift
+      description: 'Terminal comes from enrolled terminal context; cashier from the authenticated user. If the terminal has no currently OPEN FiscalDay, one is opened atomically as part of this same transaction before the Shift (V1 operating policy — see api-design.md §"FiscalDay opening policy"; not a BIR statutory requirement). Fails with SHIFT_ALREADY_OPEN if this cashier or this terminal already has an open shift (Stage 2 invariants #33/#34).'
+      parameters:
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [opening_cash]
+              properties:
+                opening_cash: {$ref: '#/components/schemas/Money'}
+      responses:
+        '201':
+          description: Shift opened (and FiscalDay resolved/opened if needed)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ShiftOpenResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /shifts/{shiftId}:
+    get:
+      operationId: shiftGet
+      tags: [Shifts]
+      summary: Get a Shift
+      parameters:
+      - {$ref: '#/components/parameters/ShiftIdPath'}
+      responses:
+        '200':
+          description: Shift
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Shift'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /shifts:
+    get:
+      operationId: shiftList
+      tags: [Shifts]
+      summary: List shifts (history)
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: terminal_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: cashier_id
+        in: query
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Paginated shifts
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/Shift'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /shifts/{shiftId}/cash-movements:
+    post:
+      operationId: shiftCashMovementCreate
+      tags: [Shifts]
+      summary: Record a cash movement (CASH_IN or CASH_OUT)
+      description: 'CASH_OUT above a configurable threshold requires the CASH_OUT capability (architecture.md §16/Stage 2 invariant #39). No generic PATCH of Shift cash balances exists.'
+      parameters:
+      - {$ref: '#/components/parameters/ShiftIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, amount, reason]
+              properties:
+                type:
+                  type: string
+                  enum: [CASH_IN, CASH_OUT]
+                amount: {$ref: '#/components/schemas/Money'}
+                reason: {type: string, minLength: 1}
+      responses:
+        '201':
+          description: Cash movement recorded
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CashMovement'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /shifts/{shiftId}/x-readings:
+    get:
+      operationId: shiftXReadingList
+      tags: [Shifts]
+      summary: List X-Readings generated for this shift (append-only, zero or more)
+      parameters:
+      - {$ref: '#/components/parameters/ShiftIdPath'}
+      responses:
+        '200':
+          description: X-Readings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/XReading'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      operationId: shiftXReadingCreate
+      tags: [Shifts]
+      summary: Generate an on-demand X-Reading (does not close or reset anything — Stage 2 invariant
+      parameters:
+      - {$ref: '#/components/parameters/ShiftIdPath'}
+      responses:
+        '201':
+          description: X-Reading generated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/XReading'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /shifts/{shiftId}/close:
+    post:
+      operationId: shiftClose
+      tags: [Shifts]
+      summary: Close a Shift (atomically generates the closing X-Reading)
+      description: 'Accepts declared_cash only. expected_cash, variance, cash_sales, cash_refunds, cash_in/out totals are computed server-side from the authoritative ledger and are never accepted from the client (Stage 2 invariant #37/#40; architecture.md §46).'
+      parameters:
+      - {$ref: '#/components/parameters/ShiftIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [declared_cash]
+              properties:
+                declared_cash: {$ref: '#/components/schemas/Money'}
+      responses:
+        '200':
+          description: Shift closed; X-Reading generated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ShiftCloseResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # ---------------------------------------------------------- FiscalDay
+  /fiscal-days/current:
+    get:
+      operationId: fiscalDayCurrentGet
+      tags: [FiscalDay]
+      summary: The current terminal's open FiscalDay, if any
+      responses:
+        '200':
+          description: Open fiscal day
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FiscalDay'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404':
+          description: FISCAL_DAY_NOT_OPEN
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /fiscal-days:
+    get:
+      operationId: fiscalDayList
+      tags: [FiscalDay]
+      summary: List fiscal days (history)
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: terminal_id
+        in: query
+        schema: {type: string, format: uuid}
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      responses:
+        '200':
+          description: Paginated fiscal days
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/FiscalDay'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /fiscal-days/{fiscalDayId}:
+    get:
+      operationId: fiscalDayGet
+      tags: [FiscalDay]
+      summary: Get a FiscalDay
+      parameters:
+      - {$ref: '#/components/parameters/FiscalDayIdPath'}
+      responses:
+        '200':
+          description: FiscalDay
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FiscalDay'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /fiscal-days/{fiscalDayId}/z-reading:
+    get:
+      operationId: fiscalDayZReadingGet
+      tags: [FiscalDay]
+      summary: Retrieve the Z-Reading for a closed FiscalDay
+      parameters:
+      - {$ref: '#/components/parameters/FiscalDayIdPath'}
+      responses:
+        '200':
+          description: Z-Reading
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ZReading'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404':
+          description: Not found — either the FiscalDay doesn't exist, or it hasn't closed yet
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /fiscal-days/{fiscalDayId}/close:
+    post:
+      operationId: fiscalDayClose
+      tags: [FiscalDay]
+      x-capability: FISCAL_DAY_CLOSE
+      summary: Close a FiscalDay and generate its Z-Reading (architecture.md §8, exactly once — Stage 2 invariant
+      description: 'Rejects with FISCAL_DAY_HAS_OPEN_SHIFT if any Shift referencing this FiscalDay is still OPEN (Stage 2 invariant #36). All Z-Reading totals are derived server-side from authoritative committed records — never accepted from the browser (architecture.md §46).'
+      parameters:
+      - {$ref: '#/components/parameters/FiscalDayIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      responses:
+        '200':
+          description: FiscalDay closed; Z-Reading generated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FiscalDayCloseResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  # ------------------------------------------------------------- Reports
+  /reports/daily-sales-summary:
+    get:
+      operationId: reportDailySalesSummary
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Daily Sales Summary
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/sales-by-date-range:
+    get:
+      operationId: reportSalesByDateRange
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Sales by Date Range
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/sales-by-product:
+    get:
+      operationId: reportSalesByProduct
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Sales by Product
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: product_id
+        in: query
+        schema: {type: string, format: uuid}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/sales-by-category:
+    get:
+      operationId: reportSalesByCategory
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Sales by Category
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: category_id
+        in: query
+        schema: {type: string, format: uuid}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/sales-by-cashier:
+    get:
+      operationId: reportSalesByCashier
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Sales by Cashier
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: cashier_id
+        in: query
+        schema: {type: string, format: uuid}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/sales-by-payment-method:
+    get:
+      operationId: reportSalesByPaymentMethod
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Sales by Payment Method
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/tax-breakdown:
+    get:
+      operationId: reportTaxBreakdown
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: 'Tax breakdown (preserves VATable / VAT-exempt / zero-rated / VAT amount separately for a VAT-registered store, per current BIR invoicing guidance; reports Non-VAT sales as a distinct non_vat_sales figure for a NON_VAT-registered store, added 2026-09-17 -- see domain-model.md 4a. Not VAT-only: Non-VAT sales are never folded into vat_exempt_sales.)'
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/voids:
+    get:
+      operationId: reportVoids
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Void Report
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/refunds:
+    get:
+      operationId: reportRefunds
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Refund Report
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/discounts:
+    get:
+      operationId: reportDiscounts
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Discount Report
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/inventory-on-hand:
+    get:
+      operationId: reportInventoryOnHand
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Inventory On Hand
+      parameters:
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/low-stock:
+    get:
+      operationId: reportLowStock
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Low Stock report
+      parameters:
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/inventory-movement:
+    get:
+      operationId: reportInventoryMovement
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Inventory Movement report
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/shifts:
+    get:
+      operationId: reportShifts
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Shift Report
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/cash-variance:
+    get:
+      operationId: reportCashVariance
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: Cash Variance Report
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  # -------------------------------------------------------- StoreSettings
+  /store-settings:
+    get:
+      operationId: storeSettingsGet
+      tags: [StoreSettings]
+      summary: Get current store settings
+      responses:
+        '200':
+          description: Store settings
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StoreSettings'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    patch:
+      operationId: storeSettingsUpdate
+      tags: [StoreSettings]
+      x-capability: STORE_SETTINGS_MANAGE
+      summary: Update current store settings
+      description: 'Updates current configuration only. Never mutates any historical invoice_snapshot_json (ADR-006) — a name/address/footer change here has no effect on already-issued invoices.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StoreSettingsInput'}
+      responses:
+        '200':
+          description: Store settings updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StoreSettings'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /tax-registrations:
+    get:
+      operationId: taxRegistrationList
+      tags: [StoreSettings]
+      summary: Effective-dated tax registration history
+      responses:
+        '200':
+          description: Tax registration history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/TaxRegistration'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      operationId: taxRegistrationCreate
+      tags: [StoreSettings]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: Register a new effective-dated tax registration (never overwrites history — Stage 2 invariant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [registration_type, effective_from]
+              properties:
+                registration_type: {$ref: '#/components/schemas/TaxRegistrationType'}
+                effective_from: {type: string, format: date}
+      responses:
+        '201':
+          description: New tax registration created; prior one closed as of the new effective_from
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaxRegistration'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # ---------------------------------------------------- FiscalInstallation
+  /fiscal-installations:
+    get:
+      operationId: fiscalInstallationList
+      tags: [FiscalInstallation]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: List fiscal installations
+      description: 'Administrative surface only. Entering values here does not itself constitute BIR accreditation — TindaFlow V1 is not accredited (architecture.md §12/ADR-009).'
+      responses:
+        '200':
+          description: Fiscal installations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/FiscalInstallation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: fiscalInstallationCreate
+      tags: [FiscalInstallation]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: Record a fiscal installation (accreditation and PTU tracked as independent effective-dated facts — ADR-009)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FiscalInstallationInput'}
+      responses:
+        '201':
+          description: Fiscal installation recorded
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FiscalInstallation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /fiscal-installations/{fiscalInstallationId}:
+    get:
+      operationId: fiscalInstallationGet
+      tags: [FiscalInstallation]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: Get a fiscal installation
+      parameters:
+      - name: fiscalInstallationId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Fiscal installation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FiscalInstallation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  # --------------------------------------------------------------- Audit
+  /audit-events:
+    get:
+      operationId: auditEventList
+      tags: [Audit]
+      x-capability: AUDIT_VIEW
+      summary: Search the audit event log (read-only — no create/update/delete endpoint exists)
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: event_type
+        in: query
+        schema: {type: string}
+      - name: actor_user_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: entity_type
+        in: query
+        schema: {type: string}
+      - name: entity_id
+        in: query
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Paginated audit events
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/AuditEvent'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /audit-events/{auditEventId}:
+    get:
+      operationId: auditEventGet
+      tags: [Audit]
+      x-capability: AUDIT_VIEW
+      summary: Get a single audit event
+      parameters:
+      - name: auditEventId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Audit event
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuditEvent'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  # ----------------------------------------------------- ElectronicJournal
+  /electronic-journal-entries:
+    get:
+      operationId: journalEntryList
+      tags: [ElectronicJournal]
+      x-capability: JOURNAL_VIEW
+      summary: Search the electronic journal (read-only — no create/update/delete endpoint exists)
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: event_type
+        in: query
+        schema: {$ref: '#/components/schemas/ElectronicJournalEventType'}
+      - name: terminal_id
+        in: query
+        schema: {type: string, format: uuid}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200':
+          description: Paginated (or CSV-exported) journal entries
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/ElectronicJournalEntry'}
+            text/csv:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /electronic-journal-entries/{journalEntryId}:
+    get:
+      operationId: journalEntryGet
+      tags: [ElectronicJournal]
+      x-capability: JOURNAL_VIEW
+      summary: Get a single journal entry
+      parameters:
+      - name: journalEntryId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Journal entry
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ElectronicJournalEntry'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  # --------------------------------------------------------------- Users
+  /users:
+    get:
+      operationId: userList
+      tags: [Users]
+      x-capability: USER_MANAGE
+      summary: List users
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: role
+        in: query
+        schema: {$ref: '#/components/schemas/UserRole'}
+      - name: active
+        in: query
+        schema: {type: boolean}
+      responses:
+        '200':
+          description: Paginated users
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/UserSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: userCreate
+      tags: [Users]
+      x-capability: USER_MANAGE
+      summary: Create a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UserInput'}
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UserSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /users/{userId}:
+    get:
+      operationId: userGet
+      tags: [Users]
+      x-capability: USER_MANAGE
+      summary: Get a user
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UserSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      operationId: userUpdate
+      tags: [Users]
+      x-capability: USER_MANAGE
+      summary: Update a user
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UserInput'}
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UserSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /users/{userId}/deactivate:
+    post:
+      operationId: userDeactivate
+      tags: [Users]
+      x-capability: USER_MANAGE
+      summary: Deactivate a user (no DELETE — users are referenced by historical audit/sale records)
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: User deactivated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UserSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+components:
+  securitySchemes:
+    cookieAuth: {type: apiKey, in: cookie, name: tindaflow_session, description: 'Laravel-compatible session cookie (HttpOnly, Secure, SameSite=Strict). All state-changing requests additionally require a valid CSRF token via the standard Laravel double-submit-cookie mechanism (X-XSRF-TOKEN header sourced from the XSRF-TOKEN cookie); this is enforced by global middleware and is not repeated as a parameter on every operation in this document — see api-design.md, Authentication.'}
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema: {type: integer, minimum: 1, default: 1}
+    PerPageParam:
+      name: per_page
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+    FromParam:
+      name: from
+      in: query
+      description: Inclusive start of a date range (YYYY-MM-DD)
+      schema: {type: string, format: date}
+    ToParam:
+      name: to
+      in: query
+      description: Inclusive end of a date range (YYYY-MM-DD)
+      schema: {type: string, format: date}
+    AcceptFormatHeader:
+      name: Accept
+      in: header
+      description: application/json (default) or text/csv for CSV export
+      schema:
+        type: string
+        enum: [application/json, text/csv]
+        default: application/json
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 'Client-generated UUIDv4, scoped to (authenticated terminal, key) per ADR-010. The terminal component is resolved server-side from the enrolled terminal credential, never from this header or the request body. Reused across retries of the same attempt; never reused for a genuinely new attempt.'
+      schema: {type: string, format: uuid, example: 0f3c9b1a-6e2d-4c7a-9a2e-1b4d5f6a7c8b}
+    TerminalIdPath:
+      name: terminalId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ProductIdPath:
+      name: productId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    SaleIdPath:
+      name: saleId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    VoidIdPath:
+      name: voidId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    RefundIdPath:
+      name: refundId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    InvoiceIdPath:
+      name: invoiceId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ShiftIdPath:
+      name: shiftId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    FiscalDayIdPath:
+      name: fiscalDayId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    BadRequest:
+      description: BAD_REQUEST — malformed request / protocol error
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Unauthorized:
+      description: AUTHENTICATION_REQUIRED
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Forbidden:
+      description: AUTHORIZATION_DENIED or TERMINAL_NOT_ENROLLED/TERMINAL_REVOKED
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    NotFound:
+      description: Resource does not exist
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Conflict:
+      description: Current-resource-state conflict, concurrency conflict, or idempotency-key reuse with a different payload
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    UnprocessableEntity:
+      description: Structurally valid request containing invalid field/domain input
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    ReportOk:
+      description: Report result (JSON by default; text/csv if requested via Accept)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ReportResult'}
+        text/csv:
+          schema: {type: string, format: binary}
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: {type: string, description: Stable machine-readable code — see error-catalog.md}
+            message: {type: string}
+            details: {type: object, additionalProperties: true}
+            request_id: {type: string}
+    PaginationMeta:
+      type: object
+      required: [page, per_page, total, last_page]
+      properties:
+        page: {type: integer}
+        per_page: {type: integer}
+        total: {type: integer}
+        last_page: {type: integer}
+    PaginatedResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: {}
+        meta: {$ref: '#/components/schemas/PaginationMeta'}
+    Money: {type: string, description: 'Decimal string, always exactly 2 places, never a binary float. Sized for a single transaction/line/ledger amount (matches the NUMERIC(12,2) storage decision in architecture.md §3.1) — do not reuse this schema for a lifetime/accumulated total; see AccumulatedMoney for that.', pattern: '^-?\d+\.\d{2}$', example: '1250.50'}
+    AccumulatedMoney: {type: string, description: 'Decimal string, always exactly 2 places — used specifically for cumulative/lifetime fiscal totals (e.g. ZReading''s accumulated grand total sales) where RMO 24-2023 requires at least 12 digits of capacity inclusive of the 2 decimal places (i.e. at least 10 integer digits; the floor is exercised by the 9999999999.99 boundary test). Corrected in Stage 4 remediation pass 3: this schema previously claimed "no artificial digit cap," but that let the contract accept values the frozen NUMERIC(18,2) storage decision (architecture.md §3.1) cannot persist. The pattern now caps at exactly NUMERIC(18,2)''s own maximum — 16 integer digits + 2 fractional digits, i.e. up to 9999999999999999.99 — so the contract can never promise a value the database is guaranteed to reject. This remains a schema distinct from Money (which is capped far lower, at NUMERIC(12,2)) so a future per-transaction constraint tightened on Money can never be silently inherited by an accumulated total, and vice versa.
+
+        ', pattern: '^(?:0|[1-9][0-9]{0,15})\.[0-9]{2}$', example: '9999999999999999.99'}
+    Quantity: {type: string, description: 'Decimal string, up to 3 places (Stage 2 Quantity value object, NUMERIC(10,3)). Example "1.000" or "0.500".', pattern: '^\d+(\.\d{1,3})?$', example: '1.000'}
+    TaxClassification:
+      type: string
+      enum: [VATABLE, VAT_EXEMPT, ZERO_RATED, NON_VAT]
+    TaxRegistrationType:
+      type: string
+      enum: [VAT, NON_VAT]
+    PaymentMethod:
+      type: string
+      enum: [CASH, GCASH, MAYA, CARD, OTHER]
+    SaleStatus:
+      type: string
+      enum: [COMPLETED, VOIDED, PARTIALLY_REFUNDED, REFUNDED]
+    StockMovementType:
+      type: string
+      enum: [OPENING_STOCK, PURCHASE_RECEIPT, SALE, SALE_RETURN, STOCK_ADJUSTMENT_IN, STOCK_ADJUSTMENT_OUT, DAMAGE, EXPIRED, TRANSFER_IN, TRANSFER_OUT]
+    RefundDisposition:
+      type: string
+      enum: [RETURN_TO_STOCK, DAMAGED, EXPIRED, DISPOSED]
+    ElectronicJournalEventType:
+      type: string
+      description: Matches Stage 2's electronic_journal_entry.event_type catalog (domain-model.md §2.10) exactly.
+      enum: [INVOICE, VOID, REFUND, X_READING, Z_READING, SHIFT_OPENED, SHIFT_CLOSED, CASH_IN, CASH_OUT, STOCK_ADJUSTED]
+    TerminalStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE, DECOMMISSIONED]
+    UserRole:
+      type: string
+      enum: [ADMIN, MANAGER, CASHIER]
+    Capability:
+      type: string
+      description: 'The full Stage 2 capability catalog (domain-model.md §2.2), including the six additions synced back into Stage 2 during Stage 4 remediation pass 2 (2026-09-16) — CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE — so this enum and Stage 2''s canonical list never drift again. This is a fixed enum of string constants, not a dynamic/configurable permission system — see api-design.md §4 for the role→capability mapping and rationale.
+
+        '
+      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE]
+    UserSummary:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        email: {type: string, format: email}
+        role: {$ref: '#/components/schemas/UserRole'}
+        capabilities:
+          type: array
+          items: {$ref: '#/components/schemas/Capability'}
+        active: {type: boolean}
+    UserInput:
+      type: object
+      required: [name, email, role]
+      properties:
+        name: {type: string}
+        email: {type: string, format: email}
+        role: {$ref: '#/components/schemas/UserRole'}
+        password: {type: string, format: password, writeOnly: true}
+    TerminalEnrollmentToken:
+      type: object
+      properties:
+        token: {type: string}
+        terminal_id: {type: string, format: uuid}
+        expires_at: {type: string, format: date-time}
+    TerminalSummary:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        terminal_code: {type: string}
+        status: {$ref: '#/components/schemas/TerminalStatus'}
+        activated_at: {type: string, format: date-time}
+    Category:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+    Brand:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+    Product:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        sku: {type: string}
+        barcode:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        name: {type: string}
+        description:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        category_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        brand_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        unit_of_measure: {type: string}
+        cost: {$ref: '#/components/schemas/Money'}
+        selling_price: {$ref: '#/components/schemas/Money'}
+        tax_class: {$ref: '#/components/schemas/TaxClassification'}
+        track_inventory: {type: boolean}
+        reorder_level: {type: integer}
+        active: {type: boolean}
+        note: {type: string, readOnly: true, description: 'selling_price/tax_class here are current catalog values for cashier preview only — never authoritative for a historical sale_item, which carries its own immutable snapshot.'}
+    ProductInput:
+      type: object
+      required: [sku, name, unit_of_measure, selling_price, tax_class]
+      properties:
+        sku: {type: string}
+        barcode:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        name: {type: string}
+        description:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        category_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        brand_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        unit_of_measure: {type: string}
+        cost: {$ref: '#/components/schemas/Money'}
+        selling_price: {$ref: '#/components/schemas/Money'}
+        tax_class: {$ref: '#/components/schemas/TaxClassification'}
+        track_inventory: {type: boolean, default: true}
+        reorder_level: {type: integer, default: 0}
+    ImportResult:
+      type: object
+      properties:
+        created: {type: integer}
+        updated: {type: integer}
+        failed: {type: integer}
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              row: {type: integer}
+              message: {type: string}
+    StockBalance:
+      type: object
+      properties:
+        product_id: {type: string, format: uuid}
+        location_id: {type: string, format: uuid}
+        quantity_on_hand: {$ref: '#/components/schemas/Quantity'}
+        updated_at: {type: string, format: date-time}
+    StockMovement:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        product_id: {type: string, format: uuid}
+        location_id: {type: string, format: uuid}
+        terminal_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        movement_type: {$ref: '#/components/schemas/StockMovementType'}
+        quantity: {$ref: '#/components/schemas/Quantity'}
+        reference_type:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        reference_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        reason:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        unit_cost: {$ref: '#/components/schemas/Money'}
+        created_by: {type: string, format: uuid}
+        occurred_at: {type: string, format: date-time}
+    TaxSummary:
+      type: object
+      description: 'Preserved as separate values per current BIR invoicing guidance for mixed-category sales. `non_vat_sales` (added 2026-09-17, see domain-model.md 4a) carries the finalized consideration of a sale governed by a NON_VAT store registration; for a VAT-registered sale it is always "0.00", and for a NON_VAT-registered sale the other four fields are always "0.00" while non_vat_sales equals the sale grand total -- the two groups are never both nonzero on the same TaxSummary.'
+      properties:
+        taxable_sales: {$ref: '#/components/schemas/Money'}
+        vat_exempt_sales: {$ref: '#/components/schemas/Money'}
+        zero_rated_sales: {$ref: '#/components/schemas/Money'}
+        vat_amount: {$ref: '#/components/schemas/Money'}
+        non_vat_sales: {$ref: '#/components/schemas/Money'}
+    SaleItemInput:
+      type: object
+      required: [product_id, quantity]
+      properties:
+        product_id: {type: string, format: uuid}
+        quantity: {$ref: '#/components/schemas/Quantity'}
+        line_discount_amount: {$ref: '#/components/schemas/Money'}
+        order_discount_eligible: {type: boolean, default: true}
+        override_reason: {type: string, description: Required when a PRICE_OVERRIDE/DISCOUNT_OVERRIDE capability check applies}
+    PaymentInput:
+      type: object
+      required: [method, amount]
+      properties:
+        method: {$ref: '#/components/schemas/PaymentMethod'}
+        amount: {$ref: '#/components/schemas/Money'}
+        external_reference:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+    SaleFinalizeRequest:
+      type: object
+      required: [items, payments]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/SaleItemInput'}
+        order_level_discount_amount: {$ref: '#/components/schemas/Money'}
+        payments:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/PaymentInput'}
+        buyer_name:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        buyer_address:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        buyer_tin:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        buyer_business_style:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        client_expected_grand_total:
+          allOf:
+          - {$ref: '#/components/schemas/Money'}
+          description: 'NON-AUTHORITATIVE. Optional client-computed preview total, compared server-side only to surface a UI mismatch warning; the server''s own recomputation always governs the finalized Sale (Stage 2 invariant #4; architecture.md §46).
+
+            '
+    SaleItem:
+      type: object
+      description: Immutable per-line financial snapshot (Stage 2 domain-model.md §2.7).
+      properties:
+        id: {type: string, format: uuid}
+        line_number: {type: integer}
+        product_id: {type: string, format: uuid}
+        product_name_snapshot: {type: string}
+        sku_snapshot: {type: string}
+        barcode_snapshot:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        unit_of_measure_snapshot: {type: string}
+        quantity: {$ref: '#/components/schemas/Quantity'}
+        unit_price_snapshot: {$ref: '#/components/schemas/Money'}
+        gross_line_amount: {$ref: '#/components/schemas/Money'}
+        line_discount_amount: {$ref: '#/components/schemas/Money'}
+        order_discount_eligible: {type: boolean}
+        allocated_order_discount_amount: {$ref: '#/components/schemas/Money'}
+        net_line_amount: {$ref: '#/components/schemas/Money'}
+        tax_classification_snapshot: {$ref: '#/components/schemas/TaxClassification'}
+        tax_rate_snapshot: {type: string}
+        taxable_base: {$ref: '#/components/schemas/Money'}
+        tax_amount: {$ref: '#/components/schemas/Money'}
+    Payment:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        method: {$ref: '#/components/schemas/PaymentMethod'}
+        amount: {$ref: '#/components/schemas/Money'}
+        reference_note:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        recorded_at: {type: string, format: date-time}
+    SaleSummary:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        uuid: {type: string, format: uuid}
+        transaction_number: {type: string, description: 'TindaFlow''s internal human-readable identifier — a distinct namespace from invoice_number, never interchangeable (RMO 24-2023 series-separation requirement).'}
+        invoice_number:
+          anyOf:
+          - {type: string, description: 'The accountable fiscal serial itself — digits only, minimum six, leading zeroes preserved (RMO 24-2023). Deliberately excludes any invoice_series.prefix/series_code (Stage 2 domain-model.md §2.6 already keeps those as separate invoice_series fields); a future need to display a series prefix alongside this serial must add an explicit separate field, never concatenate it into this one. See InvoiceSummary.invoice_number for the full rationale.', pattern: '^[0-9]{6,}$', example: '000103'}
+          - {type: 'null'}
+        store_id: {type: string, format: uuid}
+        terminal_id: {type: string, format: uuid}
+        fiscal_day_id: {type: string, format: uuid}
+        shift_id: {type: string, format: uuid}
+        cashier_id: {type: string, format: uuid}
+        sold_at: {type: string, format: date-time}
+        grand_total: {$ref: '#/components/schemas/Money'}
+        status: {$ref: '#/components/schemas/SaleStatus'}
+    SaleDetail:
+      allOf:
+      - {$ref: '#/components/schemas/SaleSummary'}
+      - type: object
+        properties:
+          subtotal: {$ref: '#/components/schemas/Money'}
+          order_level_discount_amount: {$ref: '#/components/schemas/Money'}
+          discount_total: {$ref: '#/components/schemas/Money'}
+          tax_summary: {$ref: '#/components/schemas/TaxSummary'}
+          idempotency_key:
+            anyOf:
+            - {type: string, format: uuid}
+            - {type: 'null'}
+          buyer_name:
+            anyOf:
+            - {type: string}
+            - {type: 'null'}
+          buyer_address:
+            anyOf:
+            - {type: string}
+            - {type: 'null'}
+          buyer_tin:
+            anyOf:
+            - {type: string}
+            - {type: 'null'}
+          buyer_business_style:
+            anyOf:
+            - {type: string}
+            - {type: 'null'}
+          items:
+            type: array
+            items: {$ref: '#/components/schemas/SaleItem'}
+          payments:
+            type: array
+            items: {$ref: '#/components/schemas/Payment'}
+          amount_tendered: {$ref: '#/components/schemas/Money'}
+          change: {$ref: '#/components/schemas/Money'}
+          invoice: {$ref: '#/components/schemas/InvoiceSummary'}
+          void:
+            anyOf:
+            - allOf:
+              - {$ref: '#/components/schemas/VoidSummary'}
+            - {type: 'null'}
+          refunds:
+            type: array
+            items: {$ref: '#/components/schemas/RefundSummary'}
+    InvoiceSummary:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        invoice_number: {type: string, description: 'The accountable fiscal serial (invoice_series.current_number), always a STRING — never modeled as integer/number, because RMO 24-2023 requires a minimum six-digit running serial with leading zeroes preserved (e.g. "000001", "000103"). A JSON number would silently drop leading zeroes; a string never does. Digits only — no series prefix/code is embedded here, deliberately: Stage 2 domain-model.md §2.6 already models invoice_series.prefix/series_code as fields distinct from current_number, so this field represents the serial alone. If a future release needs to display a prefixed/composed invoice number, that must be an explicit additional field (e.g. display_invoice_number), never a looser pattern on this one. Never interchangeable with Sale.transaction_number, which is a separate internal identifier drawn from a distinct namespace/series (RMO 24-2023''s series-separation requirement) and may carry its own human-readable prefix.
+
+            ', example: '000103', pattern: '^[0-9]{6,}$'}
+        issued_at: {type: string, format: date-time}
+        schema_version: {type: integer}
+    InvoiceDetail:
+      allOf:
+      - {$ref: '#/components/schemas/InvoiceSummary'}
+      - type: object
+        properties:
+          sale_id: {type: string, format: uuid}
+          invoice_series_id: {type: string, format: uuid}
+          terminal_id: {type: string, format: uuid}
+          fiscal_installation_id:
+            anyOf:
+            - {type: string, format: uuid}
+            - {type: 'null'}
+          seller_registered_name_snapshot: {type: string}
+          tax_registration_type_snapshot: {$ref: '#/components/schemas/TaxRegistrationType'}
+          terminal_code_snapshot: {type: string}
+          render_html: {type: string, description: 'Server-rendered, print-optimized HTML for the 80mm thermal layout, produced by the versioned renderer matching schema_version (ADR-006). Rendered exclusively from invoice_snapshot_json. Carries no reprint marker of its own — GET /invoices/{invoiceId} always renders the plain original document; see InvoiceReprintResult for the watermarked reprint rendering.'}
+    InvoiceReprintResult:
+      type: object
+      description: 'The response shape for POST /invoices/{invoiceId}/reprints only. An Invoice is an immutable resource that may be reprinted any number of times (Stage 2 invariant #11 — the invoice_number/invoice_snapshot_json/issued_at never change), so "is this a reprint, and when" is a property of one reprint occurrence, never a property of the Invoice resource itself — it does not appear on InvoiceDetail. GET /invoices/{invoiceId} always returns the plain InvoiceDetail with no knowledge that a reprint ever happened.'
+      properties:
+        reprint_event_id: {type: string, format: uuid, description: 'Identifies this specific reprint occurrence — the id of the INVOICE_REPRINTED audit_event row created for this call (Stage 2 §2.11; no new Stage 2 entity was introduced for this). Distinct on every call, including idempotent retries that return the original stored result.'}
+        invoice: {$ref: '#/components/schemas/InvoiceDetail'}
+        is_reprint: {type: boolean, enum: [true], description: 'Always true — this schema only ever describes a reprint occurrence. render_html inside `invoice` carries a visible "REPRINT"/"COPY" watermark whenever it was produced via this endpoint (ADR-007), even though the underlying `invoice` payload is otherwise identical to the original.'}
+        reprinted_at: {type: string, format: date-time, description: 'The date/time of this specific reprint event — never the original invoice.issued_at.'}
+        requested_by: {type: string, format: uuid, description: 'The authenticated user who performed this reprint (resolved server-side from the session, never client-supplied).'}
+    VoidSummary:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        status:
+          type: string
+          enum: [REQUESTED, APPROVED, REJECTED, VOIDED]
+        reason: {type: string}
+        requested_by: {type: string, format: uuid}
+        approved_by:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        requested_at: {type: string, format: date-time}
+        resolved_at:
+          anyOf:
+          - {type: string, format: date-time}
+          - {type: 'null'}
+        terminal_id:
+          anyOf:
+          - {type: string, format: uuid, description: 'Processing context, populated at execution — independent of the original sale''s terminal_id (Stage 2 invariant'}
+          - {type: 'null'}
+        fiscal_day_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        shift_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+    VoidResult:
+      allOf:
+      - {$ref: '#/components/schemas/VoidSummary'}
+      - type: object
+        properties:
+          sale: {$ref: '#/components/schemas/SaleSummary'}
+    RefundItemInput:
+      type: object
+      required: [sale_item_id, quantity, disposition]
+      properties:
+        sale_item_id: {type: string, format: uuid}
+        quantity: {$ref: '#/components/schemas/Quantity'}
+        disposition: {$ref: '#/components/schemas/RefundDisposition'}
+    RefundSettlementInput:
+      type: object
+      required: [payment_method, amount]
+      properties:
+        payment_method: {$ref: '#/components/schemas/PaymentMethod'}
+        amount: {$ref: '#/components/schemas/Money'}
+        external_reference:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+    RefundRequest:
+      type: object
+      required: [items, settlements, reason]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/RefundItemInput'}
+        settlements:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/RefundSettlementInput'}
+        reason: {type: string, minLength: 1}
+    RefundItem:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        sale_item_id: {type: string, format: uuid}
+        quantity_returned: {$ref: '#/components/schemas/Quantity'}
+        disposition: {$ref: '#/components/schemas/RefundDisposition'}
+        unit_refund_amount: {$ref: '#/components/schemas/Money'}
+    RefundSettlement:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        payment_method: {$ref: '#/components/schemas/PaymentMethod'}
+        amount: {$ref: '#/components/schemas/Money'}
+        processed_at: {type: string, format: date-time}
+        external_reference:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+    RefundSummary:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        sale_id: {type: string, format: uuid}
+        status:
+          type: string
+          enum: [REQUESTED, APPROVED, REJECTED, COMPLETED]
+        reason: {type: string}
+        requested_by: {type: string, format: uuid, description: 'Added Stage 4 remediation pass 4 — the authenticated user who created this refund request. Symmetric with VoidSummary.requested_by; the original draft omitted it (VoidSummary always had it), a gap only surfaced when refundApprove/refundReject needed to state explicitly who resolved a request they did not create.'}
+        approved_by:
+          anyOf:
+          - {type: string, format: uuid, description: 'The user who resolved this refund — via approve OR reject (exactly one ever applies to a given REQUESTED refund). Null while still REQUESTED. Named approved_by for symmetry with VoidSummary even when the actual resolution was a rejection, matching VoidSummary''s own established convention.'}
+          - {type: 'null'}
+        refund_total: {$ref: '#/components/schemas/Money'}
+        requested_at: {type: string, format: date-time, description: 'Added Stage 4 remediation pass 4, symmetric with VoidSummary.requested_at — this request''s own creation timestamp, distinct from refunded_at/resolved_at below.'}
+        resolved_at:
+          anyOf:
+          - {type: string, format: date-time, description: 'Added Stage 4 remediation pass 4, symmetric with VoidSummary.resolved_at — set once, whenever approve OR reject resolves this refund (whichever happens). Null while still REQUESTED.'}
+          - {type: 'null'}
+        refunded_at:
+          anyOf:
+          - {type: string, format: date-time, description: 'Set only on the COMPLETED outcome (equal to resolved_at in that case) — kept as its own field, distinct from resolved_at, specifically so a REJECTED refund is never described as having a "refunded_at" moment it never had.'}
+          - {type: 'null'}
+        terminal_id:
+          anyOf:
+          - {type: string, format: uuid, description: 'Processing context — may differ from the original sale''s terminal/fiscal_day (e.g. a Friday refund against a Monday sale), per Stage 2 invariant'}
+          - {type: 'null'}
+        fiscal_day_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        shift_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+    RefundResult:
+      allOf:
+      - {$ref: '#/components/schemas/RefundSummary'}
+      - type: object
+        properties:
+          items:
+            type: array
+            items: {$ref: '#/components/schemas/RefundItem'}
+          settlements:
+            type: array
+            items: {$ref: '#/components/schemas/RefundSettlement'}
+          sale: {$ref: '#/components/schemas/SaleSummary'}
+          remaining_refundable:
+            type: array
+            description: Non-authoritative convenience projection of remaining refundable quantity/amount per sale_item, for UI display only — always re-derived server-side on the next refund attempt, never trusted from a prior response.
+            items:
+              type: object
+              properties:
+                sale_item_id: {type: string, format: uuid}
+                remaining_quantity: {$ref: '#/components/schemas/Quantity'}
+                remaining_amount: {$ref: '#/components/schemas/Money'}
+    CashMovement:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        shift_id: {type: string, format: uuid}
+        type:
+          type: string
+          enum: [CASH_IN, CASH_OUT]
+        amount: {$ref: '#/components/schemas/Money'}
+        reason: {type: string}
+        authorized_by:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        created_at: {type: string, format: date-time}
+    Shift:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        terminal_id: {type: string, format: uuid}
+        fiscal_day_id: {type: string, format: uuid}
+        cashier_id: {type: string, format: uuid}
+        opening_cash: {$ref: '#/components/schemas/Money'}
+        opened_at: {type: string, format: date-time}
+        status:
+          type: string
+          enum: [OPEN, CLOSED]
+        expected_cash:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/Money'}
+          - {type: 'null'}
+        declared_cash:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/Money'}
+          - {type: 'null'}
+        variance:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/Money'}
+          - {type: 'null'}
+        cash_sales:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/Money'}
+          - {type: 'null'}
+        non_cash_sales:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/Money'}
+          - {type: 'null'}
+        refunds_total:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/Money'}
+          - {type: 'null'}
+        cash_in_total:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/Money'}
+          - {type: 'null'}
+        cash_out_total:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/Money'}
+          - {type: 'null'}
+        closed_at:
+          anyOf:
+          - {type: string, format: date-time}
+          - {type: 'null'}
+    ShiftOpenResult:
+      type: object
+      properties:
+        shift: {$ref: '#/components/schemas/Shift'}
+        fiscal_day: {$ref: '#/components/schemas/FiscalDay'}
+        fiscal_day_was_opened: {type: boolean, description: True if this request also opened a new FiscalDay (V1 auto-open-on-first-shift policy — see api-design.md).}
+    ShiftCloseResult:
+      type: object
+      properties:
+        shift: {$ref: '#/components/schemas/Shift'}
+        x_reading: {$ref: '#/components/schemas/XReading'}
+    XReadingTotalsSnapshot:
+      type: object
+      description: 'Cashier''s Accountability / End-of-Shift Report figures (RMO 24-2023). Deliberately narrower than ZReadingTotalsSnapshot — X-Reading is a drawer/shift accountability document, not a fiscal closure document; it carries no accumulated-grand-total or Z/reset-counter fields (those belong to Z-Reading only). All values are computed server-side from Sale/Payment/CashMovement records for this shift — never accepted from the browser. Reviewed 2026-09-17 alongside the Stage 6A NON_VAT gap (domain-model.md 4a): this object intentionally carries no tax-category breakdown at all (no taxable_sales/vat_exempt_sales/zero_rated_sales/vat_amount either) — it reports cash-drawer accountability only, keyed by payment method, never by tax classification or registration type. `non_vat_sales` is therefore deliberately not added here; it belongs on ZReadingTotalsSnapshot, the fiscal-closure-scoped object.
+
+        '
+      required: [opening_cash, expected_cash, cash_sales, non_cash_sales, payment_breakdown, refunds_total, cash_in_total, cash_out_total, transaction_count]
+      properties:
+        opening_cash: {$ref: '#/components/schemas/Money'}
+        expected_cash: {$ref: '#/components/schemas/Money'}
+        cash_sales: {$ref: '#/components/schemas/Money'}
+        non_cash_sales: {$ref: '#/components/schemas/Money'}
+        payment_breakdown:
+          type: object
+          description: 'Keyed by PaymentMethod, e.g. {"CASH": "260.00", "GCASH": "200.00"}.'
+          additionalProperties: {$ref: '#/components/schemas/Money'}
+        refunds_total: {$ref: '#/components/schemas/Money'}
+        cash_in_total: {$ref: '#/components/schemas/Money'}
+        cash_out_total: {$ref: '#/components/schemas/Money'}
+        variance:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/Money'}
+            description: Only present once the shift has closed (the closing X-Reading); null for an interim, on-demand reading.
+          - {type: 'null'}
+        transaction_count: {type: integer}
+    XReading:
+      type: object
+      description: 'Immutable, append-only, generated accountability snapshot (Stage 2 invariant #41). A shift may have multiple management-requested XReadings in addition to the automatic one generated at shift close (Stage 2 §2.5, invariant #43) — generating an interim XReading never closes or resets the shift. Re-viewing/reprinting a previously generated XReading is a plain GET of this same resource (see shiftXReadingList) — it never creates a new row, since an X-Reading carries no BIR-mandated reprint-audit requirement of its own (unlike Invoice reprint, ADR-006).'
+      properties:
+        id: {type: string, format: uuid}
+        terminal_id: {type: string, format: uuid}
+        shift_id: {type: string, format: uuid}
+        cashier_id: {type: string, format: uuid}
+        from_at: {type: string, format: date-time}
+        to_at: {type: string, format: date-time}
+        generated_at: {type: string, format: date-time}
+        generated_by: {type: string, format: uuid}
+        is_closing_reading: {type: boolean, description: 'True for the reading automatically generated at shift close; false for an on-demand, management-requested interim reading.'}
+        totals_snapshot: {$ref: '#/components/schemas/XReadingTotalsSnapshot'}
+    FiscalDay:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        store_id: {type: string, format: uuid}
+        terminal_id: {type: string, format: uuid}
+        business_date: {type: string, format: date}
+        opened_at: {type: string, format: date-time}
+        closed_at:
+          anyOf:
+          - {type: string, format: date-time}
+          - {type: 'null'}
+        status:
+          type: string
+          enum: [OPEN, CLOSED]
+    FiscalDayCloseResult:
+      type: object
+      properties:
+        fiscal_day: {$ref: '#/components/schemas/FiscalDay'}
+        z_reading: {$ref: '#/components/schemas/ZReading'}
+    ZReadingTotalsSnapshot:
+      type: object
+      description: 'End-of-Day Report figures (RMO 24-2023) — the fiscal-closure breakdown, distinct from XReadingTotalsSnapshot''s shift- accountability focus. All values are computed server-side from Sale/Payment/Void/Refund/CashMovement records for this fiscal day — never accepted from the browser (architecture.md §8/§46).
+
+        '
+      required: [accumulated_grand_total_sales_before, accumulated_grand_total_sales_after, gross_sales, taxable_sales, vat_exempt_sales, zero_rated_sales, vat_amount, non_vat_sales, payment_breakdown, void_total, refund_total, z_counter, reset_counter]
+      properties:
+        accumulated_grand_total_sales_before:
+          allOf:
+          - {$ref: '#/components/schemas/AccumulatedMoney'}
+          description: This terminal's accumulated grand total sales immediately before this Z-Reading (RMO 24-2023's non-resettable running total).
+        accumulated_grand_total_sales_after:
+          allOf:
+          - {$ref: '#/components/schemas/AccumulatedMoney'}
+          description: This terminal's accumulated grand total sales immediately after this Z-Reading (accumulated_before + this day's gross_sales).
+        gross_sales:
+          allOf:
+          - {$ref: '#/components/schemas/Money'}
+          description: This fiscal day's completed (non-voided) sales total.
+        taxable_sales: {$ref: '#/components/schemas/Money'}
+        vat_exempt_sales: {$ref: '#/components/schemas/Money'}
+        zero_rated_sales: {$ref: '#/components/schemas/Money'}
+        vat_amount: {$ref: '#/components/schemas/Money'}
+        non_vat_sales:
+          allOf:
+          - {$ref: '#/components/schemas/Money'}
+          description: 'Added 2026-09-17 (Stage 6A NON_VAT gap, see domain-model.md 4a). "0.00" for a fiscal day closed under a VAT-registered store; equals this fiscal day''s gross_sales for a fiscal day closed under a NON_VAT-registered store, since a NON_VAT sale has no taxable_sales/vat_exempt_sales/zero_rated_sales/vat_amount contribution. Uses the same Money precision as its peer tax-category fields on this object, not AccumulatedMoney -- only the running accumulated-grand-total fields use that type.'
+        payment_breakdown:
+          type: object
+          description: 'Keyed by PaymentMethod, e.g. {"CASH": "260.00", "GCASH": "200.00"}.'
+          additionalProperties: {$ref: '#/components/schemas/Money'}
+        void_total:
+          allOf:
+          - {$ref: '#/components/schemas/Money'}
+          description: Sum of grand_total for sales voided on this fiscal day, reported for audit transparency — excluded from gross_sales.
+        refund_total: {$ref: '#/components/schemas/Money'}
+        z_counter: {type: integer, description: 'This terminal''s running Z-Reading sequence number (RMO 24-2023 Z Counter requirement) — increments by exactly one per closure, never reused.'}
+        reset_counter: {type: integer, default: 0, description: 'Number of times the accumulated grand total has been reset. TindaFlow''s architecture provides no user-facing reset function (architecture.md §4/Stage 2 invariant #4 on fiscal_day/z_reading design) — this field is expected to remain 0 for the life of a terminal and exists to satisfy RMO 24-2023''s accreditation-demonstration checklist item, not because a reset path exists in the product.
+
+            '}
+    ZReading:
+      type: object
+      description: 'Immutable, append-only, generated fiscal-closure snapshot. Exactly one ZReading exists per FiscalDay, created atomically with its OPEN→CLOSED transition (Stage 2 invariant #42) — there is no "regenerate Z-Reading" operation. Historical retrieval (fiscalDayZReadingGet) always returns the stored totals_snapshot exactly as generated, never recomputed under today''s configuration.
+
+        '
+      properties:
+        id: {type: string, format: uuid}
+        terminal_id: {type: string, format: uuid}
+        fiscal_day_id: {type: string, format: uuid}
+        business_date: {type: string, format: date}
+        from_at: {type: string, format: date-time}
+        to_at: {type: string, format: date-time}
+        generated_at: {type: string, format: date-time}
+        generated_by: {type: string, format: uuid}
+        totals_snapshot: {$ref: '#/components/schemas/ZReadingTotalsSnapshot'}
+    ReportResult:
+      type: object
+      properties:
+        generated_at: {type: string, format: date-time}
+        filters_applied: {type: object, additionalProperties: true}
+        rows:
+          type: array
+          items: {type: object, additionalProperties: true}
+        summary: {type: object, additionalProperties: true, description: 'Report-specific aggregate totals (e.g. grand_total, vat_amount) — always Money-schema decimal strings where monetary.'}
+    StoreSettings:
+      type: object
+      properties:
+        business_name: {type: string}
+        registered_name: {type: string}
+        business_address: {type: string}
+        tin: {type: string}
+        branch_code:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        invoice_header:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        invoice_footer:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        telephone:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        email:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        current_tax_registration: {$ref: '#/components/schemas/TaxRegistration'}
+    StoreSettingsInput:
+      type: object
+      properties:
+        business_name: {type: string}
+        registered_name: {type: string}
+        business_address: {type: string}
+        tin: {type: string}
+        branch_code:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        invoice_header:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        invoice_footer:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        telephone:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        email:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+    TaxRegistration:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        registration_type: {$ref: '#/components/schemas/TaxRegistrationType'}
+        effective_from: {type: string, format: date}
+        effective_to:
+          anyOf:
+          - {type: string, format: date}
+          - {type: 'null'}
+    Accreditation:
+      type: object
+      description: 'Supplier/software-level accreditation status — independently effective-dated from PermitToUse per ADR-009 (RMC 72-2025: an expiring Certificate of Accreditation does not itself expire the taxpayer''s PTU). All fields nullable/empty until a real accreditation exists — entering values here does not itself constitute BIR accreditation.
+
+        '
+      properties:
+        number:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        date:
+          anyOf:
+          - {type: string, format: date}
+          - {type: 'null'}
+        effective_from:
+          anyOf:
+          - {type: string, format: date}
+          - {type: 'null'}
+        effective_to:
+          anyOf:
+          - {type: string, format: date, description: Null = currently in effect}
+          - {type: 'null'}
+    PermitToUse:
+      type: object
+      description: 'Taxpayer/installation-level Permit to Use status — independently effective-dated from Accreditation per ADR-009. Carries the Machine Identification Number (MIN), which is a PTU-lifecycle concept per domain-model.md §2.1, not an accreditation-lifecycle one.'
+      properties:
+        number:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        min:
+          anyOf:
+          - {type: string, description: Machine Identification Number}
+          - {type: 'null'}
+        date:
+          anyOf:
+          - {type: string, format: date}
+          - {type: 'null'}
+        effective_from:
+          anyOf:
+          - {type: string, format: date}
+          - {type: 'null'}
+        effective_to:
+          anyOf:
+          - {type: string, format: date, description: Null = currently in effect}
+          - {type: 'null'}
+    FiscalInstallationInput:
+      type: object
+      required: [deployment_model, software_version]
+      properties:
+        deployment_model:
+          type: string
+          enum: [STANDALONE, SERVER_CONNECTED]
+        machine_serial_number:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        software_version: {type: string}
+        accreditation:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/Accreditation'}
+          - {type: 'null'}
+        permit_to_use:
+          anyOf:
+          - allOf:
+            - {$ref: '#/components/schemas/PermitToUse'}
+          - {type: 'null'}
+    FiscalInstallation:
+      description: 'Accreditation and PermitToUse are represented as distinct nested objects, never collapsed into one generic "compliance_status" field — they are independent lifecycles (ADR-009/BIR-012) even though V1''s underlying database representation (two column-pairs vs. two child tables) remains a Stage 5 decision that this HTTP shape does not need to anticipate further.
+
+        '
+      allOf:
+      - {$ref: '#/components/schemas/FiscalInstallationInput'}
+      - type: object
+        properties:
+          id: {type: string, format: uuid}
+          store_id: {type: string, format: uuid}
+          installed_at: {type: string, format: date-time}
+          superseded_at:
+            anyOf:
+            - {type: string, format: date-time}
+            - {type: 'null'}
+          terminals:
+            type: array
+            items: {type: string, format: uuid}
+            description: Terminals currently associated via terminal_fiscal_installation (supports both STANDALONE and SERVER_CONNECTED deployment models, ADR-009/BIR-013).
+    AuditEvent:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        event_type: {type: string}
+        actor_user_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        terminal_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        entity_type:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        entity_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        before_metadata:
+          anyOf:
+          - {type: object, additionalProperties: true}
+          - {type: 'null'}
+        after_metadata:
+          anyOf:
+          - {type: object, additionalProperties: true}
+          - {type: 'null'}
+        reason:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        request_id:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        occurred_at: {type: string, format: date-time}
+    ElectronicJournalEntry:
+      type: object
+      description: 'A projection of an authoritative domain event (ADR-005) — never an independently-editable second ledger. RMO 24-2023 requires the POS electronic journal to represent principal and supplementary documents/adjustments (invoices, voids, refunds) and X/Z-Readings; every one of those event types is retrievable here via event_type filtering, and no browser client can create, update, or delete a journal entry directly (journalEntryList/ journalEntryGet are the only two operations on this resource).'
+      properties:
+        id: {type: string, format: uuid}
+        store_id: {type: string, format: uuid}
+        terminal_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        event_type: {$ref: '#/components/schemas/ElectronicJournalEventType'}
+        source_type: {type: string, description: 'The authoritative originating table (e.g. "sale", "void", "refund", "x_reading", "z_reading", "shift", "cash_movement", "stock_movement").'}
+        source_id: {type: string, format: uuid}
+        audit_event_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        payload_json: {type: object, additionalProperties: true}
+        occurred_at: {type: string, format: date-time}

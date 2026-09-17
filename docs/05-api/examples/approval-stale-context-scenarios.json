@@ -1,0 +1,136 @@
+{
+  "_comment": "Five scenarios, corrected in Stage 4 remediation pass 5 (Stage 2 amendment pass 4). FAILED APPROVAL IS NOT AUTOMATIC REJECTION: an approve call that cannot execute fails with a stable domain-conflict error and leaves the request REQUESTED, unchanged -- it never silently transitions to REJECTED. Only an explicit POST .../reject (a human, capability-holding decision) moves a request to REJECTED. This corrects the previous version of this file, which had voidApprove auto-downgrade to REJECTED on an execution-time eligibility-recheck failure -- state-machines.md SS2 said exactly that, and has itself been corrected (Stage 2 amendment pass 4) to match: a failed execution attempt is not an authorized decision that the request should never proceed.",
+
+  "scenario_A_no_current_open_shift_at_approval": {
+    "_comment": "Tests the EXECUTING terminal's own current shift/fiscal_day (state-machines.md SS2's condition 6 -- transient/operational, unrelated to which specific fiscal day the original sale belongs to). Two outcomes for the SAME request, depending on what's true at the moment approve is called.",
+
+    "timeline": [
+      "17:55 -- POST /sales/sale-cash-20/void (terminal-1, shift-A open) -> void-20 REQUESTED",
+      "18:00 -- POST /shifts/shift-A/close -- shift-A is now CLOSED",
+      "18:10 -- POST /voids/void-20/approve attempted"
+    ],
+
+    "sub_case_1_no_shift_reopened_yet": {
+      "description": "By 18:10, terminal-1 has no OPEN shift at all. voidApprove's execution-time recheck of the executing terminal's own context fails. This is a 409, not a 200 -- the void is left completely unchanged, still REQUESTED. The manager can open a new shift and retry with the SAME Idempotency-Key.",
+      "request": { "method": "POST", "path": "/api/v1/voids/void-20/approve", "headers": { "Idempotency-Key": "c1d2e3f4-1111-4a1b-8c1d-1e2f3a4b5c6d" } },
+      "response_409": {
+        "error": {
+          "code": "SHIFT_NOT_OPEN",
+          "message": "The approving terminal has no open shift; open a shift before approving this void.",
+          "details": { "void_id": "void-20", "terminal_id": "terminal-1" },
+          "request_id": "a1b2c3d4-e5f6-4708-9819-2a3b4c5d6e7f"
+        }
+      },
+      "_note": "void-20 is untouched: status is still REQUESTED, requested_by/requested_at unchanged, approved_by/resolved_at still null, no stock_movement, no audit_event, no electronic_journal_entry. Retrying this exact call (same Idempotency-Key) after opening a shift is the intended path -- no fiscal mutation was committed, so no idempotency_record permanently consumed the key."
+    },
+
+    "sub_case_2_a_new_shift_opened_by_approval_time": {
+      "description": "By 18:10, terminal-1 has since opened shift-B (a new cashier's shift, same calendar day). This condition is satisfied now, so voidApprove proceeds -- using shift-B/its fiscal_day, the CURRENT context at execution, never shift-A. (Contrast with scenario B: this succeeds only because the ORIGINAL SALE's own fiscal_day is unaffected here -- shift-A and shift-B belong to the SAME still-open fiscal_day. If the fiscal_day itself had Z-closed and reopened as a new fiscal_day, see scenario B instead.)",
+      "request": { "method": "POST", "path": "/api/v1/voids/void-20/approve", "headers": { "Idempotency-Key": "c1d2e3f4-2222-4a1b-8c1d-1e2f3a4b5c6d" } },
+      "response_200": {
+        "id": "void-20", "status": "VOIDED", "reason": "Customer requested cancellation before pickup",
+        "requested_by": "user-cashier-3", "approved_by": "user-manager-1",
+        "requested_at": "2026-09-16T17:55:00+08:00", "resolved_at": "2026-09-16T18:10:00+08:00",
+        "terminal_id": "terminal-1", "fiscal_day_id": "fd-2026-09-16-terminal-1", "shift_id": "shift-B",
+        "sale": { "id": "sale-cash-20", "status": "VOIDED", "grand_total": "220.00" }
+      },
+      "_note": "shift_id is shift-B, not shift-A -- proving the request-time shift is never reserved or frozen for later approval; only the shift open AT THE MOMENT of this approve call is ever used."
+    }
+  },
+
+  "scenario_B_voids_originating_fiscal_day_closed": {
+    "_comment": "Tests the ORIGINAL SALE's own fiscal_day (state-machines.md SS1's REQUESTED guard / SS2's re-checked eligibility condition -- 'sale's fiscal_day.status=OPEN'). Unlike scenario A, this is PERMANENT, not transient: once the sale's own fiscal_day Z-closes, RMO 24-2023 treats that business day's adjustments as closed -- no later fiscal_day, however valid, can ever make this void executable again. The void stays REQUESTED indefinitely unless explicitly rejected.",
+    "timeline": [
+      "Day 1, 19:50 -- POST /sales/sale-cash-24/void (terminal-1, fiscal_day fd-day1 open) -> void-24 REQUESTED",
+      "Day 1, 21:00 -- POST /fiscal-days/fd-day1/close -- Day 1's Z-Reading generated; fd-day1 now CLOSED (sale-cash-24's own originating fiscal_day)",
+      "Day 2, 09:20 -- terminal-1 opens shift-C, which opens Day 2's fiscal_day fd-day2 -- a perfectly valid, OPEN current context",
+      "Day 2, 09:25 -- POST /voids/void-24/approve attempted, from terminal-1, with fd-day2/shift-C open"
+    ],
+    "request": { "method": "POST", "path": "/api/v1/voids/void-24/approve", "headers": { "Idempotency-Key": "d2e3f4a5-1111-4b2c-9d1e-2f3a4b5c6d7e" } },
+    "response_409": {
+      "error": {
+        "code": "SALE_NOT_VOIDABLE",
+        "message": "The originating sale's fiscal day has since closed; this sale can no longer be voided.",
+        "details": { "void_id": "void-24", "sale_id": "sale-cash-24", "originating_fiscal_day_id": "fd-day1", "originating_fiscal_day_status": "CLOSED" },
+        "request_id": "b2c3d4e5-f6a7-4809-9a1b-3c4d5e6f7a8b"
+      }
+    },
+    "_note": "fd-day2/shift-C being open does NOT help -- this failure is about sale-cash-24's OWN originating fiscal_day (fd-day1), a condition entirely independent of the executing terminal's current context (scenario A's concern). void-24 is never attributed to fd-day2 merely to make it executable; it is left REQUESTED, permanently unable to succeed via approve again (every future approve attempt against void-24 will fail identically, since fd-day1 can never reopen). The only way to resolve void-24 now is an explicit POST /voids/void-24/reject by an authorized actor. This is exactly why Void requires the *original* sale's fiscal_day to still be open (state-machines.md SS1/SS2) while Refund does not (SS3) -- see scenario C."
+  },
+
+  "scenario_C_refund_against_old_sale_succeeds_in_later_fiscal_day": {
+    "_comment": "Refund has NO eligibility condition tying to the ORIGINAL sale's fiscal_day (state-machines.md SS3: 'Unlike Void, Refund has no eligibility condition requiring the original sale's fiscal day to still be open') -- only to the EXECUTING terminal's own fiscal_day right now. This is the Monday-sale/Friday-refund pattern, applied here to request-vs-approval instead of sale-vs-refund.",
+    "timeline": [
+      "Mon 19:50 -- POST /sales/sale-cash-21/refunds -> refund-21 REQUESTED (Monday's fiscal_day fd-mon still open)",
+      "Mon 21:00 -- POST /fiscal-days/fd-mon/close -- Monday's Z-Reading generated; fd-mon now CLOSED",
+      "Tue 09:15 -- terminal-1 opens shift-C, which auto-opens Tuesday's fiscal_day fd-tue",
+      "Tue 09:20 -- POST /refunds/refund-21/approve attempted"
+    ],
+    "request": { "method": "POST", "path": "/api/v1/refunds/refund-21/approve", "headers": { "Idempotency-Key": "e3f4a5b6-1111-4c3d-8e9f-0a1b2c3d4e5f" } },
+    "response_200": {
+      "id": "refund-21", "sale_id": "sale-cash-21", "status": "COMPLETED",
+      "reason": "Wrong size, exchanged same day",
+      "requested_by": "user-cashier-3", "approved_by": "user-manager-1",
+      "requested_at": "2026-09-15T19:50:00+08:00", "resolved_at": "2026-09-16T09:20:00+08:00",
+      "refund_total": "150.00", "refunded_at": "2026-09-16T09:20:00+08:00",
+      "terminal_id": "terminal-1", "fiscal_day_id": "fd-2026-09-16-terminal-1", "shift_id": "shift-C",
+      "items": [ { "id": "ri-21-1", "sale_item_id": "si-cash-21-1", "quantity_returned": "1.000", "disposition": "RETURN_TO_STOCK", "unit_refund_amount": "150.00" } ],
+      "settlements": [ { "id": "rs-21-1", "payment_method": "CASH", "amount": "150.00", "processed_at": "2026-09-16T09:20:00+08:00", "external_reference": null } ],
+      "sale": { "id": "sale-cash-21", "status": "REFUNDED", "grand_total": "150.00" }
+    },
+    "_note": "fiscal_day_id is fd-2026-09-16-terminal-1 (Tuesday's), never Monday's already-closed fd-mon. The refund PERMANENTLY REFERENCES the original sale/sale_items from Monday's fiscal_day (sale_id: sale-cash-21, unchanged) while its own PROCESSING CONTEXT is Tuesday's terminal/shift/fiscal_day -- both stay visible and distinct in this response, exactly why Void/Refund processing context is independent of the original sale's context (Stage 2 amendment pass 3). Contrast directly with scenario B: the same 'original day closed, later day open' shape succeeds here for Refund and permanently fails for Void, because Stage 2 deliberately gives them different eligibility rules, not because of any Stage 4 API inconsistency."
+  },
+
+  "scenario_D_concurrent_refund_consumes_quantity": {
+    "_comment": "Two refund requests against the SAME sale_item are both pending simultaneously -- both pass request-time validation, because neither has produced refund_item rows yet (state-machines.md SS3: refund_item rows are only created at APPROVED -> COMPLETED). Whichever gets approved FIRST consumes the quantity; the second approval attempt must re-validate against what NOW exists, not what existed at ITS OWN request time.",
+    "setup": "sale_item si-cash-22-1: quantity 2.000, net_line_amount 200.00 (unit_refund_amount 100.00/unit). Two refunds requested independently: refund-22a (quantity 1.500) and refund-22b (quantity 1.000) -- 1.500 + 1.000 = 2.500 > 2.000 available, but neither request was rejected at REQUEST time because no refund_item existed yet for either check to see.",
+
+    "step_1_refund_22a_approved_first": {
+      "request": { "method": "POST", "path": "/api/v1/refunds/refund-22a/approve", "headers": { "Idempotency-Key": "e3f4a5b6-1111-4c3d-8e9f-0a1b2c3d4e5f" } },
+      "response_200": {
+        "id": "refund-22a", "sale_id": "sale-cash-22", "status": "COMPLETED",
+        "reason": "Damaged on inspection", "requested_by": "user-cashier-3", "approved_by": "user-manager-1",
+        "requested_at": "2026-09-16T14:00:00+08:00", "resolved_at": "2026-09-16T14:05:00+08:00",
+        "refund_total": "150.00", "refunded_at": "2026-09-16T14:05:00+08:00",
+        "terminal_id": "terminal-1", "fiscal_day_id": "fd-2026-09-16-terminal-1", "shift_id": "shift-2026-09-16-terminal-1-a",
+        "items": [ { "id": "ri-22a-1", "sale_item_id": "si-cash-22-1", "quantity_returned": "1.500", "disposition": "DAMAGED", "unit_refund_amount": "150.00" } ],
+        "settlements": [ { "id": "rs-22a-1", "payment_method": "CASH", "amount": "150.00", "processed_at": "2026-09-16T14:05:00+08:00", "external_reference": null } ],
+        "sale": { "id": "sale-cash-22", "status": "PARTIALLY_REFUNDED", "grand_total": "200.00" },
+        "remaining_refundable": [ { "sale_item_id": "si-cash-22-1", "remaining_quantity": "0.500", "remaining_amount": "50.00" } ]
+      },
+      "_note": "0.500 remains (2.000 - 1.500) -- less than refund-22b's originally-requested 1.000."
+    },
+
+    "step_2_refund_22b_approval_now_fails": {
+      "request": { "method": "POST", "path": "/api/v1/refunds/refund-22b/approve", "headers": { "Idempotency-Key": "e3f4a5b6-2222-4c3d-8e9f-0a1b2c3d4e5f" } },
+      "response_422": {
+        "error": {
+          "code": "REFUND_EXCEEDS_REMAINING_QUANTITY",
+          "message": "Requested refund quantity (1.000) exceeds what remains for sale_item si-cash-22-1 (0.500), because a concurrent refund was approved first.",
+          "details": { "refund_id": "refund-22b", "sale_item_id": "si-cash-22-1", "requested_quantity": "1.000", "remaining_quantity": "0.500" },
+          "request_id": "b8c9d0e1-f2a3-4405-9526-c7d8e9f0a1b2"
+        }
+      },
+      "_note": "refund-22b is left completely unchanged -- still REQUESTED, no refund_item/refund_settlement/stock_movement created, no processing-context fields populated. A human must now explicitly reject it, or approve it again later if the customer's return is instead reduced to fit 0.500 via a NEW, separate refund request (this exact refund-22b row keeps its original 1.000 request). This is exactly why remaining-quantity/amount is re-validated at approval time, not trusted from the original request-time check (invariants #27/#28)."
+    }
+  },
+
+  "scenario_E_refund_completes_before_void_approval": {
+    "_comment": "Cashier requests a Void; before a manager approves it, a Refund against the SAME sale is separately approved and completed. Void's execution-time eligibility recheck (state-machines.md SS2's own motivating example for re-checking at execution time: '...because... a refund could be separately approved, in the window between a void being requested and being approved') catches this -- one of the same three original eligibility conditions as scenario B, just a different one of the three ('no COMPLETED refund exists against the sale' rather than 'sale's fiscal_day still OPEN'). Same corrected outcome as scenario B: a stable conflict, not an automatic rejection.",
+    "timeline": [
+      "10:00 -- POST /sales/sale-cash-23/void -> void-23 REQUESTED (sale-cash-23 still COMPLETED, no refund yet)",
+      "10:05 -- a separate Refund against sale-cash-23 is requested and immediately approved (requester held SALE_REFUND_APPROVE) -> sale-cash-23 now PARTIALLY_REFUNDED",
+      "10:10 -- POST /voids/void-23/approve attempted"
+    ],
+    "request": { "method": "POST", "path": "/api/v1/voids/void-23/approve", "headers": { "Idempotency-Key": "f4a5b6c7-1111-4d3e-8f9a-0b1c2d3e4f5a" } },
+    "response_409": {
+      "error": {
+        "code": "SALE_NOT_VOIDABLE",
+        "message": "A refund has already been completed against this sale; it can no longer be voided.",
+        "details": { "void_id": "void-23", "sale_id": "sale-cash-23", "sale_status": "PARTIALLY_REFUNDED" },
+        "request_id": "c9d0e1f2-a3b4-4506-9637-d8e9f0a1b2c3"
+      }
+    },
+    "_note": "void-23 is left completely unchanged -- still REQUESTED. sale.status is PARTIALLY_REFUNDED, proving the void never executed. Like scenario B, this is a PERMANENT failure for THIS void row (the completed refund never un-completes), resolvable only by an authorized actor explicitly calling POST /voids/void-23/reject -- never by the approve endpoint silently deciding the request is over."
+  }
+}

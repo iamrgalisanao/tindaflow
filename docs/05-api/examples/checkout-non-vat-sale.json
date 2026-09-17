@@ -1,0 +1,49 @@
+{
+  "_comment": "Added 2026-09-17 (Stage 6A NON_VAT gap, see domain-model.md 4a). Store's effective TaxRegistration is NON_VAT at finalization: every SaleItem's finalized tax classification snapshot is NON_VAT, all four VAT-specific tax_summary buckets are '0.00', and non_vat_sales carries the entire finalized consideration. Contrast with checkout-cash-sale.json/checkout-mixed-tax-and-payment.json, both finalized under a VAT-registered store, where non_vat_sales is always '0.00'.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/sales",
+    "headers": { "Idempotency-Key": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f" },
+    "body": {
+      "items": [ { "product_id": "prod-sari-sari-item-1", "quantity": "1.000" } ],
+      "payments": [ { "method": "CASH", "amount": "250.00" } ]
+    }
+  },
+  "response_201": {
+    "id": "sale-non-vat-1",
+    "transaction_number": "T-000483",
+    "invoice_number": "000219",
+    "terminal_id": "terminal-1",
+    "fiscal_day_id": "fd-2026-09-17-terminal-1",
+    "shift_id": "shift-2026-09-17-terminal-1-a",
+    "cashier_id": "user-cashier-1",
+    "sold_at": "2026-09-17T09:15:00+08:00",
+    "status": "COMPLETED",
+    "subtotal": "250.00",
+    "order_level_discount_amount": "0.00",
+    "discount_total": "0.00",
+    "tax_summary": { "taxable_sales": "0.00", "vat_exempt_sales": "0.00", "zero_rated_sales": "0.00", "vat_amount": "0.00", "non_vat_sales": "250.00" },
+    "grand_total": "250.00",
+    "amount_tendered": "250.00",
+    "change": "0.00",
+    "items": [
+      {
+        "id": "si-nv-1",
+        "product_id": "prod-sari-sari-item-1",
+        "line_number": 1,
+        "quantity": "1.000",
+        "unit_price_snapshot": "250.00",
+        "gross_line_amount": "250.00",
+        "line_discount_amount": "0.00",
+        "allocated_order_discount_amount": "0.00",
+        "net_line_amount": "250.00",
+        "tax_classification_snapshot": "NON_VAT",
+        "tax_rate_snapshot": "0.00",
+        "taxable_base": "250.00",
+        "tax_amount": "0.00"
+      }
+    ],
+    "invoice": { "id": "inv-219", "invoice_number": "000219", "issued_at": "2026-09-17T09:15:00+08:00", "schema_version": 1 },
+    "_reconciliation_check": "non_vat_sales (250.00) = grand_total (250.00); taxable_sales + vat_exempt_sales + zero_rated_sales + vat_amount = 0.00 (TAX-NV-003)."
+  }
+}

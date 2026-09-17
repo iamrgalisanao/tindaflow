@@ -1,0 +1,29 @@
+{
+  "_comment": "Reprint of the invoice from checkout-cash-sale.json, requested by a different user than the original cashier. Demonstrates InvoiceReprintResult (remediation pass 2): the wrapped `invoice` is byte-for-byte the same InvoiceDetail that GET /invoices/{invoiceId} would return, unaffected by how many times it has been reprinted; only the wrapper fields describe this one reprint occurrence.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/invoices/inv-218/reprints",
+    "headers": { "Idempotency-Key": "7c8d9e0f-1a2b-4c3d-8e9f-0a1b2c3d4e5f" }
+  },
+  "response_201": {
+    "reprint_event_id": "reprint-evt-1",
+    "invoice": {
+      "id": "inv-218",
+      "invoice_number": "000218",
+      "issued_at": "2026-09-16T14:30:05+08:00",
+      "schema_version": 1,
+      "sale_id": "sale-cash-1",
+      "invoice_series_id": "series-1",
+      "terminal_id": "terminal-1",
+      "fiscal_installation_id": null,
+      "seller_registered_name_snapshot": "ABBADev Sari-Sari Store",
+      "tax_registration_type_snapshot": "VAT",
+      "terminal_code_snapshot": "T1",
+      "render_html": "<div class=\"invoice reprint\">... REPRINT / COPY watermark ...</div>"
+    },
+    "is_reprint": true,
+    "reprinted_at": "2026-09-20T09:05:00+08:00",
+    "requested_by": "user-manager-1"
+  },
+  "_note": "A second reprint of the same invoice (e.g. 2026-09-20T15:30:00+08:00) would return the identical `invoice` block with a new reprint_event_id/reprinted_at/requested_by -- confirming reprint occurrence state never mutates the underlying Invoice (Stage 2 invariant #11)."
+}

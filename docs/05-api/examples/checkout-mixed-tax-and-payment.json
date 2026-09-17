@@ -1,0 +1,121 @@
+{
+  "_comment": "Regression example: one VAT-registered sale with a VATABLE + VAT_EXEMPT + ZERO_RATED mix, an order-level discount allocated across all three lines, and a split cash/GCash payment. Demonstrates DISC-001..006 and the sum-then-decompose tax policy with real numbers.",
+
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/sales",
+    "headers": {
+      "Idempotency-Key": "6f2a8c11-2b3d-4e5f-9a1b-7c8d9e0f1a2b"
+    },
+    "body": {
+      "items": [
+        { "product_id": "prod-softdrink-1.5l", "quantity": "2.000" },
+        { "product_id": "prod-rice-5kg-exempt", "quantity": "1.000" },
+        { "product_id": "prod-zero-rated-item", "quantity": "1.000" }
+      ],
+      "order_level_discount_amount": "20.00",
+      "payments": [
+        { "method": "CASH", "amount": "260.00" },
+        { "method": "GCASH", "amount": "200.00", "external_reference": "GC-2026091601" }
+      ]
+    }
+  },
+
+  "response_201": {
+    "id": "sale-9e1f2a3b",
+    "uuid": "9e1f2a3b-0000-4000-8000-000000000001",
+    "transaction_number": "T-000481",
+    "invoice_number": "000217",
+    "store_id": "store-1",
+    "terminal_id": "terminal-1",
+    "fiscal_day_id": "fd-2026-09-16-terminal-1",
+    "shift_id": "shift-2026-09-16-terminal-1-a",
+    "cashier_id": "user-cashier-1",
+    "sold_at": "2026-09-16T14:22:10+08:00",
+    "status": "COMPLETED",
+    "subtotal": "480.00",
+    "order_level_discount_amount": "20.00",
+    "discount_total": "20.00",
+    "tax_summary": {
+      "taxable_sales": "111.23",
+      "vat_exempt_sales": "239.58",
+      "zero_rated_sales": "95.84",
+      "vat_amount": "13.35",
+      "non_vat_sales": "0.00"
+    },
+    "grand_total": "460.00",
+    "amount_tendered": "460.00",
+    "change": "0.00",
+    "items": [
+      {
+        "id": "si-1",
+        "line_number": 1,
+        "product_id": "prod-softdrink-1.5l",
+        "product_name_snapshot": "Softdrink 1.5L",
+        "sku_snapshot": "SKU-SOFTDRINK-15L",
+        "unit_of_measure_snapshot": "bottle",
+        "quantity": "2.000",
+        "unit_price_snapshot": "65.00",
+        "gross_line_amount": "130.00",
+        "line_discount_amount": "0.00",
+        "order_discount_eligible": true,
+        "allocated_order_discount_amount": "5.42",
+        "net_line_amount": "124.58",
+        "tax_classification_snapshot": "VATABLE",
+        "tax_rate_snapshot": "0.12",
+        "taxable_base": "111.23",
+        "tax_amount": "13.35",
+        "_comment": "5.42 not 5.41: exact share was 5.41666..., tied at the largest-remainder step with line 2, resolved by ascending line_number (Stage 2 DISC-005)."
+      },
+      {
+        "id": "si-2",
+        "line_number": 2,
+        "product_id": "prod-rice-5kg-exempt",
+        "product_name_snapshot": "Rice 5kg",
+        "sku_snapshot": "SKU-RICE-5KG",
+        "unit_of_measure_snapshot": "sack",
+        "quantity": "1.000",
+        "unit_price_snapshot": "250.00",
+        "gross_line_amount": "250.00",
+        "line_discount_amount": "0.00",
+        "order_discount_eligible": true,
+        "allocated_order_discount_amount": "10.42",
+        "net_line_amount": "239.58",
+        "tax_classification_snapshot": "VAT_EXEMPT",
+        "tax_rate_snapshot": "0.00",
+        "taxable_base": "239.58",
+        "tax_amount": "0.00"
+      },
+      {
+        "id": "si-3",
+        "line_number": 3,
+        "product_id": "prod-zero-rated-item",
+        "product_name_snapshot": "Zero-Rated Sample Item",
+        "sku_snapshot": "SKU-ZERO-RATED",
+        "unit_of_measure_snapshot": "unit",
+        "quantity": "1.000",
+        "unit_price_snapshot": "100.00",
+        "gross_line_amount": "100.00",
+        "line_discount_amount": "0.00",
+        "order_discount_eligible": true,
+        "allocated_order_discount_amount": "4.16",
+        "net_line_amount": "95.84",
+        "tax_classification_snapshot": "ZERO_RATED",
+        "tax_rate_snapshot": "0.00",
+        "taxable_base": "95.84",
+        "tax_amount": "0.00"
+      }
+    ],
+    "payments": [
+      { "id": "pay-1", "method": "CASH", "amount": "260.00", "recorded_at": "2026-09-16T14:22:10+08:00" },
+      { "id": "pay-2", "method": "GCASH", "amount": "200.00", "reference_note": "GC-2026091601", "recorded_at": "2026-09-16T14:22:10+08:00" }
+    ],
+    "invoice": {
+      "id": "inv-217",
+      "invoice_number": "000217",
+      "issued_at": "2026-09-16T14:22:10+08:00",
+      "schema_version": 1
+    },
+    "_reconciliation_check": "124.58 + 239.58 + 95.84 = 460.00 = grand_total (DISC-006); 111.23 + 13.35 + 239.58 + 95.84 = 460.00 (tax_summary reconciles to grand_total too)."
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "_comment": "The REQUESTED -> APPROVED/REJECTED lifecycle for a cashier-created void, added in Stage 4 remediation pass 3. Complements void-example.json, which only covers the immediate-execution case (requester already holds SALE_VOID_APPROVE). Here the requester is a plain Cashier -- the void sits pending until a separate Manager acts on it, potentially at a different terminal/session, per personas.md's explicit 'avoid doing anything that requires calling the manager mid-transaction' design goal.",
+
+  "step_1_cashier_requests": {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/sales/sale-cash-9/void",
+      "headers": { "Idempotency-Key": "a1b2c3d4-1111-4a1b-8c1d-1e2f3a4b5c6d" },
+      "body": { "reason": "Customer changed their mind before leaving the store" }
+    },
+    "response_201": {
+      "id": "void-9",
+      "status": "REQUESTED",
+      "reason": "Customer changed their mind before leaving the store",
+      "requested_by": "user-cashier-2",
+      "approved_by": null,
+      "requested_at": "2026-09-16T15:02:00+08:00",
+      "resolved_at": null,
+      "terminal_id": null,
+      "fiscal_day_id": null,
+      "shift_id": null,
+      "sale": { "id": "sale-cash-9", "status": "COMPLETED", "grand_total": "310.00" }
+    },
+    "_note": "sale.status stays COMPLETED -- it only becomes VOIDED at the APPROVED -> VOIDED execution step. This is exactly why GET /sales's own status filter can never surface a pending void; GET /voids?status=REQUESTED is the only way to find it."
+  },
+
+  "step_2_manager_finds_it": {
+    "request": { "method": "GET", "path": "/api/v1/voids?status=REQUESTED" },
+    "response_200": {
+      "data": [
+        { "id": "void-9", "status": "REQUESTED", "reason": "Customer changed their mind before leaving the store", "requested_by": "user-cashier-2", "approved_by": null, "requested_at": "2026-09-16T15:02:00+08:00", "resolved_at": null, "terminal_id": null, "fiscal_day_id": null, "shift_id": null }
+      ],
+      "meta": { "page": 1, "per_page": 25, "total": 1, "last_page": 1 }
+    }
+  },
+
+  "step_3a_manager_approves": {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/voids/void-9/approve",
+      "headers": { "Idempotency-Key": "a1b2c3d4-2222-4a1b-8c1d-1e2f3a4b5c6d" }
+    },
+    "response_200": {
+      "id": "void-9",
+      "status": "VOIDED",
+      "reason": "Customer changed their mind before leaving the store",
+      "requested_by": "user-cashier-2",
+      "approved_by": "user-manager-1",
+      "requested_at": "2026-09-16T15:02:00+08:00",
+      "resolved_at": "2026-09-16T15:07:00+08:00",
+      "terminal_id": "terminal-2",
+      "fiscal_day_id": "fd-2026-09-16-terminal-2",
+      "shift_id": "shift-2026-09-16-terminal-2-a",
+      "sale": { "id": "sale-cash-9", "status": "VOIDED", "grand_total": "310.00" }
+    },
+    "_note": "terminal_id/fiscal_day_id/shift_id are the APPROVING manager's own currently-open terminal/fiscal_day/shift -- terminal-2, not the cashier's original terminal-1 -- populated only now, at APPROVED -> VOIDED execution (Stage 2 amendment pass 3)."
+  },
+
+  "step_3b_manager_rejects_instead": {
+    "_comment": "Alternative to step_3a -- shown for completeness, not a continuation of the same void (void-9 can only resolve once, invariants.md #21).",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/voids/void-9/reject",
+      "headers": { "Idempotency-Key": "a1b2c3d4-3333-4a1b-8c1d-1e2f3a4b5c6d" },
+      "body": { "reason": "Item was already bagged and the customer left with it; not a valid void case, use refund workflow instead" }
+    },
+    "response_200": {
+      "id": "void-9",
+      "status": "REJECTED",
+      "reason": "Customer changed their mind before leaving the store",
+      "requested_by": "user-cashier-2",
+      "approved_by": "user-manager-1",
+      "requested_at": "2026-09-16T15:02:00+08:00",
+      "resolved_at": "2026-09-16T15:07:00+08:00",
+      "terminal_id": null,
+      "fiscal_day_id": null,
+      "shift_id": null,
+      "sale": { "id": "sale-cash-9", "status": "COMPLETED", "grand_total": "310.00" }
+    },
+    "_note": "A human REJECTED decision (this endpoint) never populates terminal_id/fiscal_day_id/shift_id -- those are execution-only fields. REJECTED is reached ONLY through this explicit endpoint -- see approval-stale-context-scenarios.json for what happens when approve itself cannot execute (a 409, never an automatic REJECTED; corrected Stage 4 remediation pass 5 / Stage 2 amendment pass 4)."
+  },
+
+  "conflict_example_409": {
+    "description": "Approve attempted a second time against a void that already resolved (VOIDED, REJECTED, or already re-approved by a concurrent request)",
+    "response": {
+      "error": {
+        "code": "VOID_NOT_PENDING_APPROVAL",
+        "message": "This void has already been resolved and is no longer pending approval.",
+        "details": { "void_id": "void-9", "current_status": "VOIDED" },
+        "request_id": "e5f6a7b8-c9d0-41e2-93f4-a5b6c7d8e9f0"
+      }
+    }
+  }
+}

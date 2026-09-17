@@ -1,0 +1,52 @@
+{
+  "login": {
+    "request": {
+      "method": "POST", "path": "/api/v1/auth/login",
+      "body": { "email": "cashier1@storelocal.tindaflow", "password": "********" }
+    },
+    "response_200": {
+      "id": "user-cashier-1", "name": "Juana Dela Cruz", "email": "cashier1@storelocal.tindaflow",
+      "role": "CASHIER", "capabilities": [], "active": true
+    }
+  },
+  "barcode_lookup": {
+    "request": { "method": "GET", "path": "/api/v1/products/by-barcode/4800016641234" },
+    "response_200": {
+      "id": "prod-canned-goods-1", "sku": "SKU-CANNED-1", "barcode": "4800016641234",
+      "name": "Corned Beef 150g", "unit_of_measure": "can", "cost": "35.00",
+      "selling_price": "61.83", "tax_class": "VATABLE", "track_inventory": true,
+      "reorder_level": 24, "active": true,
+      "note": "selling_price/tax_class here are current catalog values for cashier preview only -- checkout always recalculates authoritative figures server-side at finalization (Stage 2 invariant #4)."
+    },
+    "not_found_404": {
+      "error": {
+        "code": "BARCODE_NOT_FOUND",
+        "message": "No product matches this barcode.",
+        "details": { "barcode": "0000000000000" },
+        "request_id": "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f"
+      }
+    }
+  },
+  "refund_with_non_cash_settlement": {
+    "_comment": "Variant of the refund example where the store returns money via GCash instead of cash -- demonstrates the settlement.payment_method distinction and that a non-CASH settlement does not affect physical drawer cash (Stage 2 invariant #71).",
+    "request": {
+      "method": "POST", "path": "/api/v1/sales/sale-monday-1/refunds",
+      "headers": { "Idempotency-Key": "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a" },
+      "body": {
+        "items": [ { "sale_item_id": "si-monday-1", "quantity": "1.000", "disposition": "RETURN_TO_STOCK" } ],
+        "settlements": [ { "payment_method": "GCASH", "amount": "50.00", "external_reference": "GC-REFUND-889021" } ],
+        "reason": "Customer preferred a GCash refund"
+      }
+    },
+    "response_201": {
+      "id": "refund-friday-2",
+      "sale_id": "sale-monday-1",
+      "status": "COMPLETED",
+      "refund_total": "50.00",
+      "settlements": [
+        { "id": "rs-2", "payment_method": "GCASH", "amount": "50.00", "external_reference": "GC-REFUND-889021", "processed_at": "2026-09-18T17:00:00+08:00" }
+      ],
+      "_note": "This settlement does NOT reduce the processing shift's expected physical drawer cash -- only a CASH-method settlement does (Stage 2 invariant #71). It still counts toward the store's overall Refund Report."
+    }
+  }
+}
