@@ -2,21 +2,34 @@
 
 ## Status
 
-DRAFT — Stage 6B, awaiting owner review. Implements the concurrency-safe
-allocation of accountable invoice serials against PostgreSQL, per
-ADR-004 and invariants.md's Invoice numbering section (#11–19), plus two
-implementation-discovered frozen-corpus amendments (§8/§9 below), applied
-after owner review. **No Sale finalization, no controllers, no printing,
-no catalog CRUD, no InvoiceSnapshot generation** — those remain Stage 6C
-and later, per the owner's explicit scope instruction.
+**FROZEN — Stage 6B is approved and tagged `stage-6b-baseline`.** Implements
+the concurrency-safe allocation of accountable invoice serials against
+PostgreSQL, per ADR-004 and invariants.md's Invoice numbering section
+(#11–19), plus two implementation-discovered frozen-corpus amendments
+(§8/§9 below), applied after owner review. **No Sale finalization, no
+controllers, no printing, no catalog CRUD, no InvoiceSnapshot
+generation** — those remain Stage 6C and later, per the owner's explicit
+scope instruction.
 
-**Not yet retagged.** The concurrency/rollback machinery is accepted and
-unchanged throughout all three review passes below. Frozen inputs as of
-the third review pass: `stage-2-baseline` @ `b7ef8fd`,
-`stage-3-baseline` @ `c8a8bbe`, `stage-4-baseline` @ `515e2db`,
-`stage-5-baseline` @ `8c8fe32`, `stage-6a-baseline` @ `47baddf` — **all
-five still unmoved**; the amendments described here are prepared and
-disclosed for review, not yet folded into a new baseline tag.
+**Retagging history (superseded by the final linearization below).** The
+"Not yet retagged" / "all five still unmoved" note that originally stood
+here described the state after the third review pass, before any baseline
+surgery. Two internal reconciliation attempts followed (documented in
+§8/§9), the second of which the owner rejected for a real structural
+defect: it produced correct file content but incorrect ancestry
+(`stage-2-baseline` still had Stage 3/4/5 as git ancestors). A **full
+baseline history linearization** was then performed, rebuilding Stages
+1–6B as a strictly ordered, mutually isolated chain — see
+`docs/PROJECT-MANIFEST.md`'s Git baseline history and Revision log for
+the complete record. Current baseline hashes (post-linearization):
+`stage-1-baseline` @ `d93a813`, `stage-2-baseline` @ `5a7382a`,
+`stage-3-baseline` @ `78a190c`, `stage-4-baseline` @ `2313a16`,
+`stage-5-baseline` @ `4c16ee0`, `stage-6a-baseline` @ `47fa84d`,
+`stage-6b-baseline` @ `b335a7a`. The hashes named throughout the rest of
+this document (`b7ef8fd`, `c8a8bbe`, `515e2db`, `8c8fe32`, `47baddf`) are
+preserved as the historical record of what was reviewed and approved at
+each pass — they are superseded tags, not current ones; the manifest is
+the authoritative source for current baseline hashes.
 
 **Third review pass, 2026-09-17 — migration upgrade safety.** The
 domain direction (counter bootstrap model, FiscalInstallation binding)
