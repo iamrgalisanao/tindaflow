@@ -378,12 +378,133 @@ it wrong has direct penal/tax exposure for the store owner. Store Settings'
 
 ---
 
+### BIR-012
+**Requirement:** A POS/CRM software developer/dealer/supplier whose
+Certificate of Accreditation expires within the covered period must apply
+for a new accreditation following RMO No. 24-2023. Separately — and this is
+the operative clarification — an existing taxpayer's **Permit to Use (PTU)
+does not automatically expire solely because the software's Certificate of
+Accreditation expires.** Accreditation (a supplier/software-level status)
+and PTU (a taxpayer/installation-level status) are confirmed as
+independent lifecycles, not one collapsed status.
+
+**Source:** RMC No. 72-2025.
+
+**Source section:** RMC 72-2025, full text (owner-supplied citation:
+https://bir-cdn.bir.gov.ph/BIR/pdf/RMC%20NO.%2072-2025.pdf).
+
+**Confidence:** HIGH — independently verified by the product owner against
+the primary RMC 72-2025 text (bir-cdn.bir.gov.ph), confirming the substance
+recorded above.
+
+**System implication:** Reinforces the Stage 2 decision (domain-model.md
+§2.1) to keep `fiscal_installation` (accreditation-related fields) as its
+own entity, separate from any taxpayer-level PTU concept. **Stage 3 should
+review** whether `fiscal_installation` needs independently effective-dated
+sub-histories for accreditation identity/status/validity versus PTU
+identity/status, rather than a single flat field set — see the forward
+note in [erd.md](../03-architecture/erd.md). This is a Stage 3 architecture
+question; it does not change the Stage 2 aggregate boundaries.
+
+**Status:** DOCUMENTED — informational for Stage 3; no Stage 2 domain
+behavior changed based on this entry alone.
+
+**Implementation reference:** N/A for V1 (TindaFlow is not accredited);
+forward-looking reference for Stage 3 `fiscal_installation` design and
+Phase 3 accreditation preparation.
+
+**Needs professional confirmation?** NO for the substance recorded here
+(independently verified against primary text); YES only at the point of an
+actual accreditation/PTU filing, as a final currency check.
+
+---
+
+### BIR-013
+**Requirement:** BIR's eAccReg system currently exposes distinct
+registration/deployment patterns for POS systems, including "POS
+Standalone" and "POS with SERVERCONS" (server-connected terminals) —
+confirming that a single accredited installation can legitimately serve
+multiple physical terminals under a server-connected deployment model.
+
+**Source:** BIR eAccReg system (help/reference pages).
+
+**Source section:** eAccReg help documentation (owner-supplied citation:
+https://eaccreg.bir.gov.ph/ACCREG/help.html).
+
+**Confidence:** HIGH for the substance (the two deployment labels currently
+exposed in the live eAccReg help system, confirmed by the product owner) —
+still MEDIUM as a *regulatory citation* in the strict sense, since this is
+operational system documentation rather than a numbered issuance and could
+change if BIR updates the system; re-verify against the live system if a
+future regulatory issuance formalizes or changes these categories.
+
+**System implication:** Directly supports the Stage 2 decision (revision 1
+of this correction) to model `fiscal_installation` as `store`-scoped and
+associated with one or more `terminal`s via `terminal_fiscal_installation`,
+rather than forcing a 1:1 `terminal`↔`fiscal_installation` relationship —
+see [domain-model.md §2.1](../02-domain/domain-model.md). No further
+Stage 2 change needed; this citation confirms the existing decision rather
+than requiring a new one.
+
+**Status:** CONFIRMED — supports an already-made Stage 2 decision.
+
+**Implementation reference:** `fiscal_installation.deployment_model`
+(`STANDALONE`|`SERVER_CONNECTED`), `terminal_fiscal_installation` join
+table.
+
+**Needs professional confirmation?** NO for the Stage 2 modeling decision
+this supports; re-verify against the live eAccReg system if it is ever
+superseded by a formal numbered issuance, or before Stage 5 designs the
+concrete registration/onboarding flow.
+
+---
+
+### BIR-014
+**Requirement:** The Z-Reading must cover the entirety of the sales
+operation/business day, and transactions or adjustments for that same
+operation date must not occur after that Z-Reading has been generated.
+
+**Source:** RMO No. 24-2023.
+
+**Source section:** RMO 24-2023 (Z-Reading/end-of-day closure provisions),
+independently verified by the product owner.
+
+**Confidence:** HIGH — independently verified by the product owner against
+the primary text.
+
+**System implication:** Directly confirms the Stage 2
+`fiscal_day → z_reading` closure semantics — see
+[domain-model.md §2.5](../02-domain/domain-model.md) and
+[invariants.md](../02-domain/invariants.md) #36 ("a fiscal day cannot close
+while it has an open shift") and #42 ("exactly one Z-Reading per fiscal
+day"). No Stage 2 change needed; this is additional evidentiary support for
+an already-made decision, and directly informs Stage 3's requirement that
+the architecture must prevent any new financial transaction from being
+attributed to a `fiscal_day` after its Z-Reading has been generated (not
+merely discouraged by convention).
+
+**Status:** CONFIRMED — supports an already-made Stage 2 decision; informs
+Stage 3 concurrency architecture (see
+[architecture.md](../03-architecture/architecture.md) §8).
+
+**Implementation reference:** `fiscal_day.status`, `z_reading` generation
+transaction; Stage 3 concurrency controls preventing post-closure
+attribution.
+
+**Needs professional confirmation?** NO for the modeling implication;
+re-verify the exact statutory wording if this is ever cited verbatim in
+customer-facing or legal documentation.
+
+---
+
 ## Items explicitly marked BIR-REVIEW-REQUIRED (do not treat as settled)
 
-Two items previously listed here — the BIR-002 ₱500 threshold value and the
-BIR-009 retention-period citation — have since been resolved against primary
-sources (RMC 77-2024 full text and RA 11976 §33 respectively) and are no
-longer review-required; see those entries above for the confirmed citations.
+Several items previously listed here have since been resolved against
+primary sources and are no longer review-required: the BIR-002 ₱500
+threshold value (RMC 77-2024 full text), the BIR-009 retention-period
+citation (RA 11976 §33), BIR-012 (RMC 72-2025, independently verified by
+the owner), and BIR-013 (eAccReg deployment labels, independently verified
+by the owner) — see those entries above for the confirmed citations.
 
 | Item | What's uncertain |
 |---|---|
@@ -416,3 +537,18 @@ upgrade its confidence rating accordingly.
   BIR-008 EIS conclusion refined to explicitly prohibit encoding "POS users
   are exempt from e-invoicing" as a permanent domain rule, since EIS
   applicability is taxpayer-specific and independent of POS usage alone.
+- **2026-09-16 (Stage 2 discount-allocation correction pass):** Added
+  BIR-012 (RMC 72-2025 — Accreditation vs. PTU are independent lifecycles)
+  and BIR-013 (BIR eAccReg's POS Standalone / POS with SERVERCONS
+  deployment models, supporting the Stage 2 `fiscal_installation`
+  cardinality decision). Both cited directly by the product owner; not
+  independently re-fetched by this session, so both carry MEDIUM
+  confidence and a `Needs professional confirmation? YES`/re-verify note
+  pending an independent read of the primary sources.
+- **2026-09-16 (pre-Stage-3 verification):** BIR-012 and BIR-013 upgraded
+  to HIGH confidence — the product owner independently checked both
+  against BIR's primary/live sources and confirmed the recorded substance.
+  Added BIR-014 (RMO 24-2023's Z-Reading business-day-coverage rule —
+  no post-closure transactions for that operation date), independently
+  verified by the owner, supporting Stage 2's `fiscal_day`/`z_reading`
+  closure invariants and informing Stage 3's concurrency requirements.
