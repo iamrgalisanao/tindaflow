@@ -2,7 +2,7 @@
 
 ## Status
 
-**RULINGS CLOSED. Still no Module A implementation, controller, middleware, policy, authentication handler, or terminal-enrollment code exists** — this document remains scope/decisions only. All nine items originally flagged as unresolved in §14 have been ruled on and are recorded there as the binding Decision Register. One item required touching Stage 6C: `CheckoutService`'s shift-resolution query was found (during Ruling 1's schema verification) to check `terminal_id` only, never `cashier_id` — fixed in a dedicated correction commit with a negative regression test, since Stage 6C remains unfrozen and this was a genuine correctness defect, not a design question. Two approved amendments are **deliberately not yet applied**, batched into one reconstruction as step A0 of the implementation sequence (§15): the Stage 4 contract fix (`terminalCookieAuth` + `TooManyRequests`/`RATE_LIMITED`), which modifies existing frozen `openapi.yaml`/`error-catalog.md` content, and the Stage 5 `terminals.credential_hash` partial-unique-index fix — which, after a second look, turned out to also require folding into the *same* reconstruction rather than standing alone as an ordinary forward-fix (an earlier draft of this document said otherwise; corrected — see §14's "Batched Stage 4 amendment" for exactly why `credential_hash` differs from `inventory_locations`/`Sale`/`InvoiceSeries`/`ElectronicJournalEntry`, which correctly remain standalone forward-fixes). Both land together because Stage 4's amendment already forces a Stage 5 replay regardless — no second reconstruction pass is needed. No Module A baseline/tag exists. Per the owner's explicit plan, implementation (A1 onward) begins in a fresh session, with A0's full 12-step reconstruction (§15) planned for explicitly at the start, not discovered partway through it.
+**RULINGS CLOSED. Still no Module A implementation, controller, middleware, policy, authentication handler, or terminal-enrollment code exists** — this document remains scope/decisions only. All nine items originally flagged as unresolved in §14 have been ruled on and are recorded there as the binding Decision Register. One item required touching Stage 6C: `CheckoutService`'s shift-resolution query was found (during Ruling 1's schema verification) to check `terminal_id` only, never `cashier_id` — fixed in a dedicated correction commit with a negative regression test, since Stage 6C remains unfrozen and this was a genuine correctness defect, not a design question. Two approved amendments are **deliberately not yet applied**, batched into one reconstruction as step A0 of the implementation sequence (§15): the Stage 4 contract fix (`terminalCookieAuth` + `RATE_LIMITED` — see §14 Ruling 6 for why this is `RATE_LIMITED` alone and not also a new `TooManyRequests` response), which modifies existing frozen `openapi.yaml`/`error-catalog.md` content, and the Stage 5 `terminals.credential_hash` partial-unique-index fix — which, after a second look, turned out to also require folding into the *same* reconstruction rather than standing alone as an ordinary forward-fix (an earlier draft of this document said otherwise; corrected — see §14's "Batched Stage 4 amendment" for exactly why `credential_hash` differs from `inventory_locations`/`Sale`/`InvoiceSeries`/`ElectronicJournalEntry`, which correctly remain standalone forward-fixes). Both land together because Stage 4's amendment already forces a Stage 5 replay regardless — no second reconstruction pass is needed. No Module A baseline/tag exists. Per the owner's explicit plan, implementation (A1 onward) begins in a fresh session, with A0's full 12-step reconstruction (§15) planned for explicitly at the start, not discovered partway through it.
 
 ---
 
@@ -232,6 +232,7 @@ Generalizing `operation-inventory.md`'s existing `enrolled?` column into a reusa
 - No `CSRF_TOKEN_MISMATCH` code.
 - No `USER_INACTIVE`/account-lockout code.
 - `authLogin`'s declared `429` response references `#/components/responses/TooManyRequests`, which was not found among the response definitions inspected in this pass (`BadRequest`/`Unauthorized`/`Forbidden`/`NotFound`/`Conflict`/`UnprocessableEntity` only) — flagged as a possible unresolved `$ref`, not confirmed against the full file exhaustively.
+  **Initial finding**: suspected dangling `TooManyRequests` reference. **A0 result**: disproved by exhaustive OpenAPI inspection during the A0 baseline reconstruction — `components.responses.TooManyRequests` already existed and was valid. The actual, confirmed gap was narrower: no stable `error-catalog.md` code existed for the reachable `429` outcome. See §14 Ruling 6's corrected record.
 - No API-visible distinction between "terminal revoked" (`revoked_at` set) and the `TerminalStatus` enum's three values (`ACTIVE|INACTIVE|DECOMMISSIONED`, none literally named `REVOKED`) — the mapping between the column and the enum is not stated.
 
 ---
@@ -355,9 +356,17 @@ The BACK_OFFICE / POS_TERMINAL / BOTH classification already in §9 stands — i
 
 Laravel's built-in `web` middleware group (session + `VerifyCsrfToken`) directly, applied to these routes. **No Sanctum, no other auth package** — `composer.json` confirms none installed, and the frozen design is explicitly same-origin (`api-design.md`), which is exactly what the default session guard handles without an SPA-token layer. Caution carried into implementation: Laravel's `routes/api.php` (which does not exist yet) is conventionally wired to the **stateless** `api` middleware group by default — Module A's routes must not be dropped into that group unmodified, or session authentication and CSRF will silently stop working. They need the `web` group's behavior even if physically declared in a file named `api.php`.
 
-### Ruling 6 — `TooManyRequests` dangling ref (APPROVED, with a stable error code)
+### Ruling 6 — `RATE_LIMITED` catalog completion (APPROVED and APPLIED, corrected post-A0)
 
-Confirmed contract defect: `authLogin`'s `429` response references an undefined `components/responses/TooManyRequests`. **Approved fix**: define it using the same standard error envelope as the other six reusable responses, **and** add one new domain error code, `RATE_LIMITED` (HTTP 429), to `error-catalog.md` — TindaFlow's error catalog is deliberately stable and machine-readable, so an uncatalogued/absent `code` on a real, reachable response would be inconsistent with every other error path. `RATE_LIMITED` is emitted by the login-throttling middleware/rate limiter directly; it needs no domain exception class in the business layer. Exact attempts/window thresholds remain internal configuration, not part of the public contract.
+The initialization pass initially reported `authLogin`'s `429` `#/components/responses/TooManyRequests` reference as dangling, and approved defining that response as part of the fix.
+
+The A0 baseline reconstruction verified against the complete `openapi.yaml` that `components.responses.TooManyRequests` already existed and was valid (standard error envelope, same shape as the other six reusable responses). **No reusable response component was added or amended.**
+
+The actual Stage 4 contract gap was narrower: the reachable HTTP `429` outcome had no corresponding stable `error-catalog.md` code.
+
+**Approved and applied amendment**: `RATE_LIMITED` → HTTP 429, added to `error-catalog.md`. `RATE_LIMITED` is emitted by the login-throttling middleware/rate limiter directly; it needs no domain exception class in the business layer. Exact attempts/window thresholds remain internal configuration, not part of the public contract.
+
+This is recorded as a correction, not a retraction: the amendment procedure worked as intended — a suspected defect was investigated, and the approved fix was narrowed once better evidence (A0's exhaustive inspection) showed part of it was unnecessary.
 
 ### Ruling 7 — Password policy (APPROVED, wording corrected)
 
@@ -371,7 +380,7 @@ Revocation takes effect on the terminal's very next request — the same `creden
 
 - Password-reset code: not applicable — no such flow exists in the contract.
 - `TerminalSummary` missing `credential_issued_at`/`revoked_at`: **deferred**, not blocking Module A or Stage 6C. Revisit as a Stage 4 amendment when back-office terminal-management UI is built (Stage 7).
-- Missing `terminalCookieAuth` scheme / dangling `429` ref: resolved by Rulings 3 and 6.
+- Missing `terminalCookieAuth` scheme: resolved by Ruling 3. Missing `RATE_LIMITED` catalog code for the (never actually dangling) `429` response: resolved by Ruling 6.
 - `revoked_at` vs. `TerminalStatus` enum: kept independent by design — `TERMINAL_REVOKED` is derived from `revoked_at IS NOT NULL` directly, never from a `status` enum value. No new enum value invented.
 
 ### Batched Stage 4 amendment (APPROVED in substance; NOT YET APPLIED) — requires full baseline reconstruction, not a tag move
@@ -379,7 +388,7 @@ Revocation takes effect on the terminal's very next request — the same `creden
 Per explicit instruction: **do not retag or rewrite Stage 4 history yet.** Both fixes are recorded here as one combined, approved amendment to apply together in a single pass (avoiding a second reconciliation later, the same lesson already learned from the Stage 2/5 InvoiceSeries amendment earlier in this project):
 
 1. Add `terminalCookieAuth` (`apiKey`, in `cookie`, name `tindaflow_terminal`) to `components/securitySchemes`; require it conjunctively with `cookieAuth` on every `POS_TERMINAL`-classified operation (§9's list).
-2. Define `components/responses/TooManyRequests` (standard error envelope) and add `RATE_LIMITED` (429) to `error-catalog.md`.
+2. Add `RATE_LIMITED` (429) to `error-catalog.md`. (Originally planned to also define `components/responses/TooManyRequests`; A0's exhaustive OpenAPI inspection found that response already existed and valid, so nothing further was needed there — see §14 Ruling 6's corrected record.)
 
 Both are purely additive at the API-behavior level — no existing operation's request/response shape changes, and no already-frozen behavior is altered. **But unlike the Stage 5 `credential_hash` fix above, this amendment modifies the actual content of existing frozen Stage 4 files (`openapi.yaml`, `error-catalog.md`), not merely adds new ones.** Confirmed by direct check: `git merge-base --is-ancestor stage-4-baseline stage-5-baseline` is currently true. If this amendment is committed forward of `main`'s current tip (which is necessarily where Module A's own work starts) and `stage-4-baseline` is then simply moved to point at it, `stage-4-baseline` would become a **descendant** of `stage-5-baseline`/`stage-6a-baseline`/`stage-6b-baseline` — inverting the required ancestry chain. This is the identical structural defect the Stage 2/InvoiceSeries linearization existed to fix, and the Stage Baseline Rule it produced applies here without exception: *"where a canonical baseline must be reconstructed as a result, every downstream baseline must be regenerated and revalidated."*
 
@@ -406,10 +415,11 @@ A0. One reconstruction, carrying both approved frozen-corpus amendments,
      1. Preserve the current main tip (tag it, e.g. backup/pre-module-a-a0,
         before any rewriting -- same discipline as backup/pre-final-baseline-reconcile).
      2. Start from the CURRENT stage-4-baseline (2313a16).
-     3. Apply the approved Stage 4 amendment: terminalCookieAuth security
-        scheme (ANDed with cookieAuth on every POS_TERMINAL operation,
-        SS9's list) + components/responses/TooManyRequests + RATE_LIMITED
-        (429) in error-catalog.md.
+     3. Apply the approved Stage 4 amendment -- actually applied by A0:
+        terminalCookieAuth security scheme (ANDed with cookieAuth on
+        every POS_TERMINAL operation, SS9's list) + RATE_LIMITED (429)
+        in error-catalog.md. TooManyRequests already existed and
+        required no modification (SS14 Ruling 6, corrected post-A0).
      4. Create the new stage-4-baseline on this commit.
      5. Replay Stage 5's substantive content (9de98ce) onto it.
      6. Apply the terminals.credential_hash partial-unique-index migration
@@ -488,7 +498,7 @@ A6. Stage 6C checkout integration
       cashier instead of a trusted parameter.
 ```
 
-This order is derived from dependency evidence (A2 needs A1's authenticated user; A4 needs both A2's capability check, for the endpoints that require one, and A3's terminal resolution; A6 is Stage 6C's own stated unblock condition), not merely stylistic preference. A0 is placed first because every later step's tests and code should target the corrected contract, not the one with a dangling `$ref` and an unmodeled second credential.
+This order is derived from dependency evidence (A2 needs A1's authenticated user; A4 needs both A2's capability check, for the endpoints that require one, and A3's terminal resolution; A6 is Stage 6C's own stated unblock condition), not merely stylistic preference. A0 is placed first because every later step's tests and code should target the corrected contract, not the one missing a `RATE_LIMITED` catalog code and an unmodeled second credential.
 
 ---
 
@@ -504,6 +514,6 @@ This order is derived from dependency evidence (A2 needs A1's authenticated user
 6. Authentication/authorization failures map to the existing frozen codes (`AUTHENTICATION_REQUIRED`, `AUTHORIZATION_DENIED`, `TERMINAL_NOT_ENROLLED`, `TERMINAL_REVOKED`) plus the one new, approved code (`RATE_LIMITED`, §14 Ruling 6) — no further new code invented without going through the amendment procedure.
 7. Terminal identity/enrollment behavior matches ADR-011 exactly (one-time tokens, hashed storage, revocation semantics), using the specific credential mechanism and hashing discipline ruled in §14 Ruling 3 (deterministic digest/HMAC, never `Hash::make()`).
 8. The `Idempotency-Key` HTTP header reaches `CheckoutService`'s existing `IdempotencyService` integration unchanged — Module A must not interpose any additional idempotency logic of its own on top of Stage 6A's already-frozen mechanism.
-9. The batched Stage 4 amendment (§14, A0) has been applied and `stage-4-baseline` moved, so the HTTP layer is built against the corrected contract, not the one with a dangling `$ref` and an unmodeled second credential.
+9. The batched Stage 4 amendment (§14, A0) has been applied and `stage-4-baseline` moved, so the HTTP layer is built against the corrected contract, not the one missing a `RATE_LIMITED` catalog code and an unmodeled second credential.
 
 Until all nine hold and are demonstrated by passing tests (not merely implemented), `POST /sales` remains not production-ready, and Stage 6C remains unfrozen.
