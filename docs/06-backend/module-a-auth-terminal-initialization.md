@@ -2,7 +2,7 @@
 
 ## Status
 
-**RULINGS CLOSED. Still no Module A implementation, controller, middleware, policy, authentication handler, or terminal-enrollment code exists** — this document remains scope/decisions only. All nine items originally flagged as unresolved in §14 have been ruled on and are recorded there as the binding Decision Register. One item required touching Stage 6C: `CheckoutService`'s shift-resolution query was found (during Ruling 1's schema verification) to check `terminal_id` only, never `cashier_id` — fixed in a dedicated correction commit with a negative regression test, since Stage 6C remains unfrozen and this was a genuine correctness defect, not a design question. One combined Stage 4 contract amendment was approved in substance (`terminalCookieAuth` security scheme + `TooManyRequests`/`RATE_LIMITED`) but **deliberately not yet applied** — it is batched as step A0 of the implementation sequence (§15), to avoid a second baseline reconciliation. No Module A baseline/tag exists. Per the owner's explicit plan, implementation (A1 onward) begins in a fresh session.
+**RULINGS CLOSED. Still no Module A implementation, controller, middleware, policy, authentication handler, or terminal-enrollment code exists** — this document remains scope/decisions only. All nine items originally flagged as unresolved in §14 have been ruled on and are recorded there as the binding Decision Register. One item required touching Stage 6C: `CheckoutService`'s shift-resolution query was found (during Ruling 1's schema verification) to check `terminal_id` only, never `cashier_id` — fixed in a dedicated correction commit with a negative regression test, since Stage 6C remains unfrozen and this was a genuine correctness defect, not a design question. One combined Stage 4 contract amendment was approved in substance (`terminalCookieAuth` security scheme + `TooManyRequests`/`RATE_LIMITED`) but **deliberately not yet applied** — it is batched as step A0 of the implementation sequence (§15). Unlike the Stage 5 `credential_hash` fix (a new migration, no reconstruction needed), this amendment modifies existing frozen Stage 4 file content and therefore requires the **same full baseline-reconstruction mechanism** used for the earlier Stage 2/InvoiceSeries linearization — not a simple tag move. See "Batched Stage 4 amendment" in §14 for the exact reasoning and the required five-step sequence. No Module A baseline/tag exists. Per the owner's explicit plan, implementation (A1 onward) begins in a fresh session, with A0's reconstruction work planned for explicitly at the start, not discovered partway through it.
 
 ---
 
@@ -329,7 +329,7 @@ Terminal: tindaflow_terminal      → opaque high-entropy credential
   ON terminals (credential_hash)
   WHERE credential_hash IS NOT NULL;
   ```
-  This still gives the credential lookup (`hash presented credential → look up by credential_hash → check revoked_at IS NULL → establish Terminal`) an efficient unique path; no separate index on `revoked_at` is needed, since it's checked as an ordinary predicate against the one row the unique index already finds. No Stage 5 baseline retag needed — same forward-fix pattern already used for `Sale`/`InvoiceSeries`/`ElectronicJournalEntry` during Stage 6C.
+  This still gives the credential lookup (`hash presented credential → look up by credential_hash → check revoked_at IS NULL → establish Terminal`) an efficient unique path; no separate index on `revoked_at` is needed, since it's checked as an ordinary predicate against the one row the unique index already finds. **This migration is a new file, not a modification of any existing frozen migration's content — no `stage-5-baseline` retag is needed**, exactly matching the already-established forward-fix pattern (`Sale`/`InvoiceSeries`/`ElectronicJournalEntry` during Stage 6C, none of which moved `stage-5-baseline` either). This is categorically different from the Stage 4 amendment immediately below, which *does* modify existing frozen file content and therefore *does* require baseline reconstruction — see "Batched Stage 4 amendment."
 - **Required Stage 4 amendment** (batched with Ruling 6's fix, applied together, not yet applied — see "Batched Stage 4 amendment" below): add a `terminalCookieAuth` security scheme, and require it **conjunctively** (AND, not OR) with `cookieAuth` on every `POS_TERMINAL`-classified operation (§9). Per the OpenAPI 3.1 spec, two schemes inside the *same* Security Requirement Object are AND'd together; two separate entries in the `security` array are OR'd (alternatives) — the correct shape is:
   ```yaml
   security:
@@ -365,14 +365,23 @@ Revocation takes effect on the terminal's very next request — the same `creden
 - Missing `terminalCookieAuth` scheme / dangling `429` ref: resolved by Rulings 3 and 6.
 - `revoked_at` vs. `TerminalStatus` enum: kept independent by design — `TERMINAL_REVOKED` is derived from `revoked_at IS NOT NULL` directly, never from a `status` enum value. No new enum value invented.
 
-### Batched Stage 4 amendment (APPROVED in substance; NOT YET APPLIED)
+### Batched Stage 4 amendment (APPROVED in substance; NOT YET APPLIED) — requires full baseline reconstruction, not a tag move
 
-Per explicit instruction: **do not retag or rewrite Stage 4 history yet.** Both fixes are recorded here as one combined, approved amendment to apply together in a single pass (avoiding a second baseline reconciliation later, the same lesson already learned from the Stage 2/5 InvoiceSeries amendment earlier in this project):
+Per explicit instruction: **do not retag or rewrite Stage 4 history yet.** Both fixes are recorded here as one combined, approved amendment to apply together in a single pass (avoiding a second reconciliation later, the same lesson already learned from the Stage 2/5 InvoiceSeries amendment earlier in this project):
 
 1. Add `terminalCookieAuth` (`apiKey`, in `cookie`, name `tindaflow_terminal`) to `components/securitySchemes`; require it conjunctively with `cookieAuth` on every `POS_TERMINAL`-classified operation (§9's list).
 2. Define `components/responses/TooManyRequests` (standard error envelope) and add `RATE_LIMITED` (429) to `error-catalog.md`.
 
-Both are purely additive — no existing operation's request/response shape changes, and no already-frozen behavior is altered. This amendment is applied, and `stage-4-baseline` moved, as part of (or immediately before) the Module A implementation session — not in this one.
+Both are purely additive at the API-behavior level — no existing operation's request/response shape changes, and no already-frozen behavior is altered. **But unlike the Stage 5 `credential_hash` fix above, this amendment modifies the actual content of existing frozen Stage 4 files (`openapi.yaml`, `error-catalog.md`), not merely adds new ones.** Confirmed by direct check: `git merge-base --is-ancestor stage-4-baseline stage-5-baseline` is currently true. If this amendment is committed forward of `main`'s current tip (which is necessarily where Module A's own work starts) and `stage-4-baseline` is then simply moved to point at it, `stage-4-baseline` would become a **descendant** of `stage-5-baseline`/`stage-6a-baseline`/`stage-6b-baseline` — inverting the required ancestry chain. This is the identical structural defect the Stage 2/InvoiceSeries linearization existed to fix, and the Stage Baseline Rule it produced applies here without exception: *"where a canonical baseline must be reconstructed as a result, every downstream baseline must be regenerated and revalidated."*
+
+**Required mechanism, therefore, at the start of A0** (not a simple tag move):
+1. Cherry-pick the amendment's diff onto the *current* `stage-4-baseline` (`2313a16`) directly — this becomes the new `stage-4-baseline`.
+2. Replay `stage-5-baseline`'s substantive content (`9de98ce`) onto it — expected to be a clean, zero-conflict cherry-pick, since nothing in Stage 5 touches `openapi.yaml`/`error-catalog.md` (the same zero-conflict property the Stage 6A replay had onto the amended Stage 5).
+3. Replay `stage-6a-baseline`'s substantive content (`823c032`), then `stage-6b-baseline`'s (`2f5e6e8` + `a64111e`), in turn.
+4. Run `scripts/validate-baselines.sh` (all 12 checks) plus the full regression suite at each new boundary before moving any tag, exactly as the original linearization did.
+5. Only then fast-forward `main` and move `stage-4-baseline`/`stage-5-baseline`/`stage-6a-baseline`/`stage-6b-baseline` to their reconstructed hashes.
+
+This is real, non-trivial work — smaller in scope than the original Stage 2 linearization (one small, purely-additive diff to replay forward through three stages instead of a multi-amendment domain/schema change), but the same mechanism, not a shortcut. `main`'s current tip (`af1615f`, Module A's Decision Register) and everything in Stage 6C built on top of it (`fb757b2` onward) also sit downstream of the *old* `stage-4-baseline`/`stage-5-baseline`/etc. and would themselves need replaying onto the reconstructed chain if they are to remain part of `main` afterward — this should be planned for explicitly at the start of A0, not discovered partway through it.
 
 ---
 
@@ -398,11 +407,28 @@ A0. Apply ALL prerequisite frozen-corpus amendments before any Module A
       — explicit about the pre-enrollment NULL state, still gives the
       credential lookup an efficient unique path. No separate index on
       revoked_at is needed; that column is checked as an ordinary
-      predicate against the row this index already finds.
-    — Validate and reconcile whichever of stage-4-baseline/
-      stage-5-baseline/stage-6a-baseline/stage-6b-baseline are actually
-      touched, using scripts/validate-baselines.sh, BEFORE any A1+ code
-      is written.
+      predicate against the row this index already finds. THIS ONE
+      NEEDS NO BASELINE RECONSTRUCTION -- a new migration file, not a
+      modification of any existing frozen file's content, exactly like
+      the inventory_locations/Sale/InvoiceSeries/ElectronicJournalEntry
+      forward-fixes already done during Stage 6C.
+    — The Stage 4 amendment (terminalCookieAuth + TooManyRequests/
+      RATE_LIMITED) is different in kind: it modifies the CONTENT of
+      existing frozen openapi.yaml/error-catalog.md, so simply
+      committing it forward and moving stage-4-baseline would make
+      stage-4-baseline a DESCENDANT of stage-5/6a/6b-baseline --
+      inverting the required ancestry chain, the same defect the
+      Stage 2/InvoiceSeries linearization fixed. This requires the full
+      reconstruction mechanism (cherry-pick onto the CURRENT
+      stage-4-baseline, replay Stage 5/6A/6B's substantive commits
+      forward onto it, validate at each boundary, only then move tags)
+      -- see "Batched Stage 4 amendment" in SS14 for the exact five-step
+      sequence and which commits main's Stage 6C work must also be
+      replayed onto afterward. Plan for this as real reconstruction
+      work at the start of A0, not a quick tag move.
+    — Run scripts/validate-baselines.sh (all 12 checks) and the full
+      regression suite after reconstruction, BEFORE any A1+ code is
+      written.
 
 A1. Authentication/session foundation
     — login/logout/me, session config, password hashing (already
