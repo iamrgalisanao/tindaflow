@@ -15,6 +15,7 @@ use App\Models\InvoiceSeries;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Shift;
+use App\Models\User;
 use App\Services\Checkout\CheckoutService;
 use App\Services\Checkout\FiscalInstallationResolver;
 use App\Services\Checkout\InventoryLocationResolver;
@@ -281,6 +282,42 @@ class CheckoutServiceTest extends PostgresSchemaTestCase
         );
 
         $this->assertSame(0, Sale::count());
+    }
+
+    /**
+     * Module A decision register (Ruling 1) regression: an OPEN shift on
+     * the resolved terminal belonging to a DIFFERENT cashier than the
+     * one this request authenticated as must not be usable -- checkout
+     * must reject exactly as if no shift existed at all, and must not
+     * write any row anywhere.
+     */
+    public function test_shift_belonging_to_a_different_cashier_is_rejected(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+        $otherCashier = User::factory()->create(['store_id' => $shift->fiscalDay->store_id]);
+
+        $this->expectException(ShiftRequiredException::class);
+        try {
+            $this->checkoutService->finalize(
+                $shift->terminal_id,
+                $otherCashier->id,
+                (string) Str::uuid(),
+                [
+                    'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                    'payments' => [['method' => 'CASH', 'amount' => '112.00']],
+                ]
+            );
+        } finally {
+            $this->assertSame(0, Sale::count());
+            $this->assertSame(0, DB::table('sale_items')->count());
+            $this->assertSame(0, DB::table('payments')->count());
+            $this->assertSame(0, Invoice::count());
+            $this->assertSame(0, DB::table('stock_movements')->count());
+            $this->assertSame(0, DB::table('audit_events')->count());
+            $this->assertSame(0, DB::table('electronic_journal_entries')->count());
+            $this->assertSame(0, DB::table('idempotency_records')->where('status', 'COMPLETED')->count());
+            $this->assertSame(0, InvoiceSeries::first()->current_number);
+        }
     }
 
     public function test_fiscal_day_not_open_is_rejected(): void

@@ -96,14 +96,26 @@ final class CheckoutService
         // and committed by a concurrent transaction simply stops
         // matching -- no separate "resolve, then re-check" statement is
         // needed to satisfy ADR-003's "re-validate inside the lock".
+        //
+        // Module A decision register (docs/06-backend/module-a-auth-terminal-initialization.md,
+        // Ruling 1): a Shift ties exactly one terminal_id and one
+        // cashier_id together (invariants #33/#34), but only proves
+        // "this cashier is operating this terminal" if BOTH are checked
+        // -- filtering by terminal_id alone would happily use a shift
+        // left open by a DIFFERENT cashier than the one this request
+        // actually authenticated as (e.g. Cashier A left a shift open,
+        // Cashier B is now logged into that terminal). The authenticated
+        // $cashierId must match the shift's own cashier, not merely
+        // share its terminal.
         $lockOrder->acquire(LockableResource::Shift);
         $shift = DB::table('shifts')
             ->where('terminal_id', $terminalId)
+            ->where('cashier_id', $cashierId)
             ->where('status', 'OPEN')
             ->lockForUpdate()
             ->first();
         if ($shift === null) {
-            throw ShiftRequiredException::forTerminal($terminalId);
+            throw ShiftRequiredException::forTerminalAndCashier($terminalId, $cashierId);
         }
 
         $lockOrder->acquire(LockableResource::FiscalDay);
