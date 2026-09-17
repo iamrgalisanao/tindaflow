@@ -21,3 +21,8 @@ Thumbs.db
 # Build output
 /public/build/
 /storage/*.key
+
+# Laravel / PHPUnit local artifacts
+/.phpunit.result.cache
+/Homestead.json
+/Homestead.yaml

@@ -1,0 +1,31 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+// Laravel framework infrastructure -- architecture.md SS16 specifies
+// Laravel's standard session-based auth with the `database` session
+// driver (architecture.md SS3: queue/cache/session all default to the
+// database driver in V1, no Redis). Moved here (after `users`) instead of
+// Laravel's default position so its FK to users resolves in dependency
+// order.
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('sessions', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->foreignUuid('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('sessions');
+    }
+};
