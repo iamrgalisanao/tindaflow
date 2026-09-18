@@ -1,8 +1,8 @@
-# Stage 7 — Frontend: Initialization and Scope (Pass 1)
+# Stage 7 — Frontend: Initialization and Scope
 
 ## Status
 
-**Pass 1 scope: SPA scaffold + real, working login + authenticated shell.** No POS checkout screen, no back-office CRUD screens yet — both are genuinely blocked on backend endpoints that do not exist, disclosed below rather than built against a guess. This mirrors Stage 6C's own "domain layer VERIFIED, HTTP layer BLOCKED" discipline: build exactly what the frozen contract *and* the current backend both support, disclose the rest.
+**Pass 1: SPA scaffold + real, working login + authenticated shell.** **Pass 2 (below, §7): a real, working POS checkout screen**, unblocked once the Shift/FiscalDay backend gap called out in Pass 1 §5 was filled. Back-office CRUD screens (Products, Inventory, Reports, Users, Store Settings) remain blocked on backend controllers that still don't exist, disclosed below rather than built against a guess. This mirrors Stage 6C's own "domain layer VERIFIED, HTTP layer BLOCKED" discipline: build exactly what the frozen contract *and* the current backend both support, disclose the rest.
 
 ## 1. Evidence reviewed
 
@@ -46,3 +46,18 @@
 ## 6. Next steps (not started here)
 
 In roughly dependency order: Shift/FiscalDay backend endpoints (unblocks a real POS checkout flow) → POS checkout screen → terminal-enrollment back-office screen (A3 already has a full backend) → Products/Inventory/Reports/Users backend + screens. Each remains its own explicitly-instructed pass, matching this project's standing practice.
+
+## 7. Pass 2 — POS checkout screen (real, verified working)
+
+Unblocked by the Shift/FiscalDay backend pass (`shiftOpen`/`shiftCurrentGet`) that followed Pass 1. Two gaps had to be closed first, neither anticipated in Pass 1:
+
+- **No UI for A3's terminal-enrollment backend.** A3 built the full enrollment flow (issue token, redeem token, current-terminal lookup) but nothing could call it from a browser. Added `pages/TerminalEnroll.jsx` (TERMINAL_MANAGE only): lists the store's terminals, generates a one-time enrollment token, and enrolls the current browser with it (either the token just generated or one pasted from another admin session).
+- **No Catalog backend at all.** The POS cart needs to browse/search products; nothing under `openapi.yaml`'s Catalog tag had a Laravel implementation. Added the smallest slice that unblocks the cart screen — `GET /products` (`ProductController::list` + `ProductResource`) — store-scoped, session-only (no terminal credential, no capability gate, per `operation-inventory.md`'s classification of `productList`), with name/sku search, an `active` filter, and pagination matching `TerminalController`'s existing shape. `productCreate`/`productGet`/`productUpdate`/etc. remain unbuilt — same smallest-slice discipline used for every other phase this session.
+
+`pages/Pos.jsx` is a single route (`/pos`) with internal step state (`loading | not-enrolled | open-shift | cart | checkout | receipt`) rather than the separate `/pos/checkout` route `sitemap.md` proposes — a deliberate implementation-simplicity deviation; `sitemap.md` already documents its own IA as "proposed... subject to change." It detects shift status via `GET /shifts/current` (403 `TERMINAL_NOT_ENROLLED` → prompts enrollment; 404 `NO_CURRENT_SHIFT` → shows an open-shift form), and every total shown before the receipt step is an explicitly labeled client-side **preview only** — `CheckoutService` always recomputes authoritatively server-side, matching `architecture.md`'s existing non-authoritative-preview convention used elsewhere.
+
+**Verified end-to-end in a real browser** against a real seeded store and PostgreSQL backend (not just code review): login → enroll a terminal → open a shift (₱1000 opening cash) → search and add a product → checkout with an exact-tendered CASH payment → receipt showing a real `transaction_number`, `invoice_number` (`000001`), `grand_total`, `amount_tendered`, `change`, and line items; "New sale" resets the cart without re-prompting for a shift (shift stays open); a second sale in the same shift correctly allocates the next sequential invoice number (`000002`); a third sale with an over-tendered amount (₱100 against a ₱55 total) correctly returns ₱45 change.
+
+**Disclosed, not fixed** (same "setup defect" pattern A6 established): a genuinely fresh store cannot check out at all until an admin has configured `FiscalInstallation`, `InvoiceSeries`, a `terminal_fiscal_installations` mapping, `InventoryLocation`, and `tax_registrations` — confirmed directly when a freshly seeded store hit `FiscalInstallationResolutionException::noMappingForTerminal` during this verification. That exception is deliberately NOT a `DomainException` (deliberately uncaught, surfaces as a genuine 500) — it is correctly refusing to paper over incomplete store setup with a stable client-facing error code, by design. No back-office UI/API exists yet to let a store self-serve this configuration; that remains Module B/C backend work, not something this pass should invent around.
+
+Full regression after this pass: Unit 102 + Feature 1 + Database 226 (including 5 new `ProductListHttpTest` cases) = 329 tests passing, 0 failures. No frozen-corpus baseline touched — `GET /products` is new surface area added forward, not a change to any already-frozen contract row.
