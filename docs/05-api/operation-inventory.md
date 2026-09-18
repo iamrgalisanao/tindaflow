@@ -214,12 +214,14 @@ touches a Z-Reading counter.
 |---|---|---|---|---|---|---|---|---|---|
 | GET | /shifts/current | shiftCurrentGet | session | true | — | no | — | 200 Shift | `SHIFT_NOT_OPEN` |
 | POST | /shifts/open | shiftOpen | session | true | — | **yes** | opening_cash | 201 ShiftOpenResult | `SHIFT_ALREADY_OPEN` |
-| GET | /shifts/{shiftId} | shiftGet | session | false | — | no | — | 200 Shift | 404 |
-| GET | /shifts | shiftList | session | false | — | no | filters | 200 paginated | 401 |
-| POST | /shifts/{shiftId}/cash-movements | shiftCashMovementCreate | session | true | `CASH_OUT` (for CASH_OUT above threshold) | **yes** | type/amount/reason | 201 CashMovement | `SHIFT_NOT_OPEN`, 403 |
-| GET | /shifts/{shiftId}/x-readings | shiftXReadingList | session | false | — | no | — | 200 array | 404 |
-| POST | /shifts/{shiftId}/x-readings | shiftXReadingCreate | session | true | — | no | — | 201 XReading | 404 |
-| POST | /shifts/{shiftId}/close | shiftClose | session | true | — | **yes** | declared_cash | 200 ShiftCloseResult | `SHIFT_NOT_OPEN`, `SHIFT_ALREADY_CLOSED` |
+| GET | /shifts/{shiftId} | shiftGet | session | false | — | no | — | 200 Shift | 404 — **not implemented this pass** (pure historical browsing; see FiscalDay note below) |
+| GET | /shifts | shiftList | session | false | — | no | filters | 200 paginated | 401 — **not implemented this pass** |
+| POST | /shifts/{shiftId}/cash-movements | shiftCashMovementCreate | session | true | `CASH_OUT` (for CASH_OUT above threshold) | **yes** | type/amount/reason | 201 CashMovement | `SHIFT_NOT_FOUND`, `SHIFT_NOT_OPEN`, 403 |
+| GET | /shifts/{shiftId}/x-readings | shiftXReadingList | session | false | — | no | — | 200 array | `SHIFT_NOT_FOUND` |
+| POST | /shifts/{shiftId}/x-readings | shiftXReadingCreate | session | true | — | no | — | 201 XReading | `SHIFT_NOT_FOUND` (no 409 exists in the frozen contract for this operation, so a CLOSED shift is still readable, never rejected) |
+| POST | /shifts/{shiftId}/close | shiftClose | session | true | — | **yes** | declared_cash | 200 ShiftCloseResult | `SHIFT_NOT_FOUND`, `SHIFT_ALREADY_CLOSED` |
+
+**Implementation status (2026-09-19, shift-close module)**: `shiftClose`/`shiftCashMovementCreate`/`shiftXReadingList`/`shiftXReadingCreate` are now implemented, closing the lifecycle `shiftOpen`/`shiftCurrentGet` started. `shiftGet`/`shiftList` remain unimplemented — pure historical browsing with no bearing on the operational open→close flow, deferred to a future Reports module. `SHIFT_NOT_FOUND` (404, sixth baseline reconstruction) replaces the generic `NotFound` these operations' already-frozen responses previously carried.
 
 ### X-Reading BIR crosswalk (RMO 24-2023 — Cashier's Accountability / End-of-Shift Report)
 
@@ -239,11 +241,13 @@ touches a Z-Reading counter.
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
 |---|---|---|---|---|---|---|---|---|---|
-| GET | /fiscal-days/current | fiscalDayCurrentGet | session | true | — | no | — | 200 FiscalDay | `FISCAL_DAY_NOT_OPEN` |
-| GET | /fiscal-days | fiscalDayList | session | false | — | no | filters | 200 paginated | 401 |
-| GET | /fiscal-days/{fiscalDayId} | fiscalDayGet | session | false | — | no | — | 200 FiscalDay | 404 |
-| GET | /fiscal-days/{fiscalDayId}/z-reading | fiscalDayZReadingGet | session | false | — | no | — | 200 ZReading | 404 (not closed yet) |
-| POST | /fiscal-days/{fiscalDayId}/close | fiscalDayClose | session | true | `FISCAL_DAY_CLOSE` | **yes** | — | 200 FiscalDayCloseResult | `FISCAL_DAY_HAS_OPEN_SHIFT`, `FISCAL_DAY_CLOSED` |
+| GET | /fiscal-days/current | fiscalDayCurrentGet | session | true | — | no | — | 200 FiscalDay | `FISCAL_DAY_NOT_OPEN` — **not implemented this pass** |
+| GET | /fiscal-days | fiscalDayList | session | false | — | no | filters | 200 paginated | 401 — **not implemented this pass** |
+| GET | /fiscal-days/{fiscalDayId} | fiscalDayGet | session | false | — | no | — | 200 FiscalDay | 404 — **not implemented this pass** |
+| GET | /fiscal-days/{fiscalDayId}/z-reading | fiscalDayZReadingGet | session | false | — | no | — | 200 ZReading | `FISCAL_DAY_NOT_FOUND` (non-enumerating: doesn't exist, wrong terminal, or not closed yet) |
+| POST | /fiscal-days/{fiscalDayId}/close | fiscalDayClose | session | true | `FISCAL_DAY_CLOSE` | **yes** | — | 200 FiscalDayCloseResult | `FISCAL_DAY_NOT_FOUND`, `FISCAL_DAY_HAS_OPEN_SHIFT`, `FISCAL_DAY_CLOSED` |
+
+**Implementation status (2026-09-19, shift-close module)**: `fiscalDayClose`/`fiscalDayZReadingGet` are now implemented. `fiscalDayCurrentGet`/`fiscalDayList`/`fiscalDayGet` remain unimplemented this pass -- deliberately: `fiscalDayCurrentGet`'s own frozen `404` is descriptively labeled `FISCAL_DAY_NOT_OPEN`, the same already-frozen-and-mislabeled shape as `shiftCurrentGet` before it (see the `NO_CURRENT_SHIFT` entry in error-catalog.md), so implementing it now would require minting yet another new code via the reconstruction procedure; the frontend instead obtains the `fiscal_day_id` it needs to close from the shift lifecycle it already holds in state (`shiftOpen`/`shiftCurrentGet` both return it inline), so this is not required to reach a working close flow. `fiscalDayGet`/`fiscalDayList` are pure historical browsing, deferred to a future Reports module alongside `shiftGet`/`shiftList`. `FISCAL_DAY_NOT_FOUND` (404, sixth baseline reconstruction) backs the two operations built this pass.
 
 ### Z-Reading BIR crosswalk (RMO 24-2023 — End-of-Day Report)
 

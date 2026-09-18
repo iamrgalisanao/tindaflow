@@ -21,4 +21,14 @@ return [
         'lifetime_minutes' => env('TERMINAL_CREDENTIAL_LIFETIME_MINUTES', 60 * 24 * 365 * 5),
     ],
 
+    // Shift-close module: openapi.yaml's shiftCashMovementCreate requires
+    // the CASH_OUT capability for a CASH_OUT "above a configurable
+    // threshold" (invariant #39) -- the contract mandates configurability,
+    // not a specific value. This default is a technical placeholder, not
+    // a business decision; a store owner should set CASH_OUT_AUTHORIZATION_
+    // THRESHOLD per their own cash-handling policy.
+    'cash_movements' => [
+        'cash_out_authorization_threshold' => env('CASH_OUT_AUTHORIZATION_THRESHOLD', '1000.00'),
+    ],
+
 ];

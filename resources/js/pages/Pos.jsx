@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiFetch } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'];
 
@@ -25,7 +26,8 @@ function newIdempotencyKey() {
  * trusted back.
  */
 export default function Pos() {
-    const [step, setStep] = useState('loading'); // loading | not-enrolled | open-shift | setup-incomplete | cart | checkout | receipt
+    const { user } = useAuth();
+    const [step, setStep] = useState('loading'); // loading | not-enrolled | open-shift | setup-incomplete | cart | checkout | receipt | close-shift | shift-closed | fiscal-day-closed
     const [error, setError] = useState(null);
     const [shift, setShift] = useState(null);
     const [readinessChecks, setReadinessChecks] = useState(null);
@@ -42,6 +44,17 @@ export default function Pos() {
     const [checkoutBusy, setCheckoutBusy] = useState(false);
 
     const [sale, setSale] = useState(null);
+
+    const [cashMovementType, setCashMovementType] = useState('CASH_IN');
+    const [cashMovementAmount, setCashMovementAmount] = useState('');
+    const [cashMovementReason, setCashMovementReason] = useState('');
+    const [cashMovementBusy, setCashMovementBusy] = useState(false);
+    const [cashMovementNotice, setCashMovementNotice] = useState(null);
+
+    const [declaredCash, setDeclaredCash] = useState('');
+    const [closeBusy, setCloseBusy] = useState(false);
+    const [closeResult, setCloseResult] = useState(null);
+    const [fiscalDayCloseResult, setFiscalDayCloseResult] = useState(null);
 
     // Non-authoritative pre-check (StoreSetupReadinessService mirrors, but
     // never calls, CheckoutService's own resolvers) -- lets a cashier see
@@ -162,6 +175,72 @@ export default function Pos() {
         setStep('cart');
     }
 
+    async function recordCashMovement(event) {
+        event.preventDefault();
+        setCashMovementBusy(true);
+        setError(null);
+        setCashMovementNotice(null);
+
+        const { ok, body } = await apiFetch(`/api/v1/shifts/${shift.id}/cash-movements`, {
+            method: 'POST',
+            headers: { 'Idempotency-Key': newIdempotencyKey() },
+            body: { type: cashMovementType, amount: Number(cashMovementAmount).toFixed(2), reason: cashMovementReason },
+        });
+
+        if (ok) {
+            setCashMovementNotice(`Recorded ${cashMovementType === 'CASH_IN' ? 'cash in' : 'cash out'}: ₱${body.amount}`);
+            setCashMovementAmount('');
+            setCashMovementReason('');
+        } else {
+            setError(body?.error?.message ?? 'Could not record the cash movement.');
+        }
+        setCashMovementBusy(false);
+    }
+
+    function goToCloseShift() {
+        setError(null);
+        setDeclaredCash('');
+        setStep('close-shift');
+    }
+
+    async function closeShift(event) {
+        event.preventDefault();
+        setCloseBusy(true);
+        setError(null);
+
+        const { ok, body } = await apiFetch(`/api/v1/shifts/${shift.id}/close`, {
+            method: 'POST',
+            headers: { 'Idempotency-Key': newIdempotencyKey() },
+            body: { declared_cash: Number(declaredCash).toFixed(2) },
+        });
+
+        if (ok) {
+            setCloseResult(body);
+            setStep('shift-closed');
+        } else {
+            setError(body?.error?.message ?? 'Could not close the shift.');
+        }
+        setCloseBusy(false);
+    }
+
+    async function closeFiscalDay() {
+        setCloseBusy(true);
+        setError(null);
+
+        const { ok, body } = await apiFetch(`/api/v1/fiscal-days/${closeResult.shift.fiscal_day_id}/close`, {
+            method: 'POST',
+            headers: { 'Idempotency-Key': newIdempotencyKey() },
+        });
+
+        if (ok) {
+            setFiscalDayCloseResult(body);
+            setStep('fiscal-day-closed');
+        } else {
+            setError(body?.error?.message ?? 'Could not close the business day.');
+        }
+        setCloseBusy(false);
+    }
+
     if (step === 'loading') {
         return <div className="p-8 text-sm text-gray-500">Loading…</div>;
     }
@@ -211,9 +290,16 @@ export default function Pos() {
         <div className="min-h-screen bg-gray-50">
             <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
                 <h1 className="text-base font-semibold text-gray-900">POS</h1>
-                <Link to="/" className="text-sm text-gray-600 underline">
-                    Dashboard
-                </Link>
+                <div className="flex items-center gap-4">
+                    {step === 'cart' && (
+                        <button type="button" onClick={goToCloseShift} className="text-sm text-gray-600 underline">
+                            Close shift
+                        </button>
+                    )}
+                    <Link to="/" className="text-sm text-gray-600 underline">
+                        Dashboard
+                    </Link>
+                </div>
             </header>
 
             {error && <p className="mx-4 mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
@@ -322,6 +408,43 @@ export default function Pos() {
                         >
                             Proceed to payment
                         </button>
+
+                        <form onSubmit={recordCashMovement} className="space-y-2 rounded-lg border border-gray-200 bg-white p-3">
+                            <h2 className="text-sm font-medium text-gray-700">Cash drawer</h2>
+                            {cashMovementNotice && <p className="text-xs text-green-700">{cashMovementNotice}</p>}
+                            <div className="flex gap-2">
+                                <select
+                                    value={cashMovementType}
+                                    onChange={(event) => setCashMovementType(event.target.value)}
+                                    className="rounded-md border border-gray-300 px-2 py-1.5 text-xs"
+                                >
+                                    <option value="CASH_IN">Cash in</option>
+                                    <option value="CASH_OUT">Cash out</option>
+                                </select>
+                                <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="Amount"
+                                    value={cashMovementAmount}
+                                    onChange={(event) => setCashMovementAmount(event.target.value)}
+                                    className="w-24 rounded-md border border-gray-300 px-2 py-1.5 text-xs"
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Reason"
+                                    value={cashMovementReason}
+                                    onChange={(event) => setCashMovementReason(event.target.value)}
+                                    className="flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-xs"
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={cashMovementBusy || !cashMovementAmount || !cashMovementReason}
+                                className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+                            >
+                                Record
+                            </button>
+                        </form>
                     </div>
                 </div>
             )}
@@ -422,6 +545,111 @@ export default function Pos() {
                     >
                         New sale
                     </button>
+                </div>
+            )}
+
+            {step === 'close-shift' && (
+                <form onSubmit={closeShift} className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-gray-200 bg-white p-6">
+                    <h2 className="text-sm font-medium text-gray-700">Close shift</h2>
+                    <p className="text-xs text-gray-500">
+                        Count the cash in the drawer and enter it below. The system computes the expected amount and
+                        any variance after you submit -- it is never shown to you beforehand.
+                    </p>
+                    <label htmlFor="declared_cash" className="block text-sm text-gray-600">
+                        Counted cash
+                    </label>
+                    <input
+                        id="declared_cash"
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        value={declaredCash}
+                        onChange={(event) => setDeclaredCash(event.target.value)}
+                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    <div className="flex gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setStep('cart')}
+                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+                        >
+                            Back
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={closeBusy || !declaredCash}
+                            className="flex-1 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                        >
+                            {closeBusy ? 'Closing…' : 'Close shift'}
+                        </button>
+                    </div>
+                </form>
+            )}
+
+            {step === 'shift-closed' && closeResult && (
+                <div className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-gray-200 bg-white p-6">
+                    <h2 className="text-sm font-medium text-gray-700">Shift closed</h2>
+                    <dl className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                            <dt className="text-gray-500">Expected cash</dt>
+                            <dd className="font-mono">₱{closeResult.shift.expected_cash}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                            <dt className="text-gray-500">Counted cash</dt>
+                            <dd className="font-mono">₱{closeResult.shift.declared_cash}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                            <dt className="text-gray-500">Variance</dt>
+                            <dd className={`font-mono font-semibold ${Number(closeResult.shift.variance) < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                                ₱{closeResult.shift.variance}
+                            </dd>
+                        </div>
+                    </dl>
+
+                    {user.capabilities.includes('FISCAL_DAY_CLOSE') && (
+                        <button
+                            type="button"
+                            disabled={closeBusy}
+                            onClick={closeFiscalDay}
+                            className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                        >
+                            {closeBusy ? 'Closing…' : 'Close business day'}
+                        </button>
+                    )}
+                    <Link to="/" className="block text-center text-sm text-gray-600 underline">
+                        Back to dashboard
+                    </Link>
+                </div>
+            )}
+
+            {step === 'fiscal-day-closed' && fiscalDayCloseResult && (
+                <div className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-gray-200 bg-white p-6">
+                    <h2 className="text-sm font-medium text-gray-700">Business day closed</h2>
+                    <dl className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                            <dt className="text-gray-500">Z-Reading #</dt>
+                            <dd className="font-mono">{fiscalDayCloseResult.z_reading.totals_snapshot.z_counter}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                            <dt className="text-gray-500">Gross sales</dt>
+                            <dd className="font-mono font-semibold">₱{fiscalDayCloseResult.z_reading.totals_snapshot.gross_sales}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                            <dt className="text-gray-500">VAT</dt>
+                            <dd className="font-mono">₱{fiscalDayCloseResult.z_reading.totals_snapshot.vat_amount}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                            <dt className="text-gray-500">Void total</dt>
+                            <dd className="font-mono">₱{fiscalDayCloseResult.z_reading.totals_snapshot.void_total}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                            <dt className="text-gray-500">Refund total</dt>
+                            <dd className="font-mono">₱{fiscalDayCloseResult.z_reading.totals_snapshot.refund_total}</dd>
+                        </div>
+                    </dl>
+                    <Link to="/" className="block text-center text-sm text-gray-600 underline">
+                        Back to dashboard
+                    </Link>
                 </div>
             )}
         </div>

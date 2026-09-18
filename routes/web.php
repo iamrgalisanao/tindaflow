@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\FiscalDayController;
 use App\Http\Controllers\FiscalInstallationController;
 use App\Http\Controllers\InventoryLocationController;
 use App\Http\Controllers\InvoiceSeriesController;
@@ -74,6 +75,22 @@ Route::prefix('api/v1')->group(function () {
     Route::post('/shifts/open', [ShiftController::class, 'open'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
     Route::get('/shifts/current', [ShiftController::class, 'current'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+    Route::post('/shifts/{shiftId}/close', [ShiftController::class, 'close'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+    Route::post('/shifts/{shiftId}/cash-movements', [ShiftController::class, 'createCashMovement'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+    Route::get('/shifts/{shiftId}/x-readings', [ShiftController::class, 'listXReadings'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+    Route::post('/shifts/{shiftId}/x-readings', [ShiftController::class, 'createXReading'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+
+    // openapi.yaml FiscalDay tag. fiscalDayClose additionally requires
+    // FISCAL_DAY_CLOSE (x-capability) on top of the terminal-scoped
+    // chain -- an admin/manager action, not any cashier's.
+    Route::post('/fiscal-days/{fiscalDayId}/close', [FiscalDayController::class, 'close'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:FISCAL_DAY_CLOSE']);
+    Route::get('/fiscal-days/{fiscalDayId}/z-reading', [FiscalDayController::class, 'getZReading'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
 
     // openapi.yaml Catalog tag -- productList only (see ProductController's
