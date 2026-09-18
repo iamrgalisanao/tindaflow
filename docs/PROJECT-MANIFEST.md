@@ -228,6 +228,40 @@ Full detail on both corrections, plus the failure-boundary and timezone-invarian
 
 ---
 
+### Stage 7 sitemap validation pass (2026-09-18)
+
+**What changed**: `docs/06-ui/sitemap.md`'s two open questions (flagged in
+the original Stage 1 draft as "proposed for validation in Stage 7") were
+resolved directly in that document — a **forward edit to Stage-1-owned
+content**, on explicit owner instruction given in the same turn as the
+request, not a silent autonomous change. Resolution: `/back-office/
+dashboard` is kept as a distinct route, and POS-mode transaction lookup/
+void/refund reachability is confirmed — both grounded in targeted reference
+research against UTAK's and StoreHub's public help centers (this project's
+named competitor references). The route tree itself was not changed; no
+domain, schema, or API-contract file was touched.
+
+**Why no baseline reconstruction**: the Frozen-corpus rule's reconstruction
+discipline (document → propose → STOP for approval; rebuild ancestry if a
+baseline must move) exists to protect files with real downstream *code*
+dependents (`openapi.yaml`, migrations, domain classes) where
+`scripts/validate-baselines.sh`'s ordering/isolation invariants are
+load-bearing. `sitemap.md` is narrative documentation with no code
+dependent on its exact content — editing it does not invalidate any tagged
+baseline's content-equivalence to anything else in the tree. `stage-1-
+baseline` itself is unmoved; the edit is recorded as a dated revision-log
+entry inside the document, the same pattern already used by `scope.md`'s
+own post-freeze corrections.
+
+**Not done, and why**: no competitor claim from this research (UTAK/
+StoreHub) was added to `market-comparison.md` — that document is
+product-positioning research with its own sourcing bar; this pass's
+research was narrowly scoped to IA/navigation-pattern validation and is
+cited only inside `sitemap.md` itself, with its own confidence/sourcing
+note.
+
+---
+
 ## At a glance
 
 | | |
