@@ -1,9 +1,14 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\FiscalInstallationController;
+use App\Http\Controllers\InventoryLocationController;
+use App\Http\Controllers\InvoiceSeriesController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\ShiftController;
+use App\Http\Controllers\StoreSetupController;
+use App\Http\Controllers\TaxRegistrationController;
 use App\Http\Controllers\TerminalController;
 use App\Http\Middleware\ComposeAuthoritativeContext;
 use App\Http\Middleware\EnsureUserIsActive;
@@ -76,6 +81,41 @@ Route::prefix('api/v1')->group(function () {
     // terminal credential required (operation-inventory.md).
     Route::get('/products', [ProductController::class, 'list'])
         ->middleware(['auth', EnsureUserIsActive::class]);
+
+    // Store setup (docs/06-ui/stage-8-store-setup.md). Admin CRUD is
+    // FISCAL_CONFIGURATION_MANAGE-gated, store-scoped, no terminal
+    // credential needed -- same shape as Terminal management above.
+    Route::get('/fiscal-installations', [FiscalInstallationController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+    Route::post('/fiscal-installations', [FiscalInstallationController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+    Route::post('/fiscal-installations/{fiscalInstallationId}/terminals', [FiscalInstallationController::class, 'assignTerminal'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+
+    Route::get('/tax-registrations', [TaxRegistrationController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/tax-registrations', [TaxRegistrationController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+
+    Route::get('/invoice-series', [InvoiceSeriesController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+    Route::post('/invoice-series', [InvoiceSeriesController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+    Route::post('/invoice-series/{invoiceSeriesId}/close', [InvoiceSeriesController::class, 'close'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+
+    Route::get('/inventory-locations', [InventoryLocationController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+    Route::post('/inventory-locations', [InventoryLocationController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+    Route::patch('/inventory-locations/{inventoryLocationId}', [InventoryLocationController::class, 'update'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+
+    // Terminal-scoped like shiftCurrentGet -- no x-capability, since a
+    // cashier on an enrolled terminal needs this readiness check too, not
+    // just an admin.
+    Route::get('/store-setup/readiness', [StoreSetupController::class, 'readiness'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
 });
 
 // A2 test-only harness: no real CATALOG_MANAGE-gated controller exists

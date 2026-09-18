@@ -18,6 +18,8 @@ tags:
 - {name: Reports}
 - {name: StoreSettings}
 - {name: FiscalInstallation}
+- {name: InvoiceSeries}
+- {name: StoreSetup}
 - {name: Audit}
 - {name: ElectronicJournal}
 - {name: Users}
@@ -1699,6 +1701,214 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /fiscal-installations/{fiscalInstallationId}/terminals:
+    post:
+      operationId: fiscalInstallationAssignTerminal
+      tags: [FiscalInstallation]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: Assign (or reassign) a terminal's current fiscal installation mapping
+      description: 'Added in the store-setup pass (2026-09-18) -- no prior draft in this document at any stage. Closes the terminal''s existing current mapping (`terminal_fiscal_installations_one_current_per_terminal` allows only one `effective_to IS NULL` row per terminal) and opens a new one, rather than requiring a separate close call first -- the same "prior one closed" shape as `taxRegistrationCreate`. This is the row `FiscalInstallationResolver::resolveForTerminal` reads at checkout; without one, `POST /sales` fails with a setup-defect 500 (a disclosed, deliberately uncaught gap -- see `docs/06-backend/stage-6c-sale-finalization.md` §5).'
+      parameters:
+      - name: fiscalInstallationId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [terminal_id]
+              properties:
+                terminal_id: {type: string, format: uuid}
+                effective_from: {type: string, format: date-time, description: Defaults to now if omitted}
+      responses:
+        '201':
+          description: Mapping created; any prior current mapping for this terminal is closed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TerminalFiscalInstallation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # ----------------------------------------------------------- InvoiceSeries
+  # Store-setup pass (2026-09-18) -- no prior draft in this document at any
+  # stage; forward-committed past stage-6c-baseline per the owner decision
+  # recorded in docs/PROJECT-MANIFEST.md's store-setup section. This is the
+  # table InvoiceSeriesAllocator::allocateForFiscalInstallation reads at
+  # checkout time.
+  /invoice-series:
+    get:
+      operationId: invoiceSeriesList
+      tags: [InvoiceSeries]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: List invoice series for the store
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: fiscal_installation_id
+        in: query
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Paginated invoice series
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/InvoiceSeries'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: invoiceSeriesCreate
+      tags: [InvoiceSeries]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: Activate a new invoice series for a fiscal installation
+      description: 'Bootstraps `current_number = starting_number - 1` (invariants.md INVSERIES-001) so the first real allocation yields `starting_number` exactly. `409 INVOICE_SERIES_ALREADY_ACTIVE` if the fiscal installation already has an ACTIVE series -- close it first (`invoiceSeriesClose`), never an implicit auto-supersede.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InvoiceSeriesInput'}
+      responses:
+        '201':
+          description: Invoice series activated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InvoiceSeries'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /invoice-series/{invoiceSeriesId}/close:
+    post:
+      operationId: invoiceSeriesClose
+      tags: [InvoiceSeries]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: Close an invoice series
+      description: An explicit admin action, never automatic -- retiring a fiscally-significant numbering sequence is never implied by another operation.
+      parameters:
+      - name: invoiceSeriesId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Invoice series closed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InvoiceSeries'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  # ------------------------------------------------------- InventoryLocation
+  # Store-setup pass (2026-09-18) -- tagged Inventory (already-existing tag,
+  # no new tag needed); no prior draft in this document at any stage. This
+  # is the table InventoryLocationResolver::resolveDefaultForStore reads at
+  # checkout time.
+  /inventory-locations:
+    get:
+      operationId: inventoryLocationList
+      tags: [Inventory]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: List inventory locations for the store
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      responses:
+        '200':
+          description: Paginated inventory locations
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/InventoryLocation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: inventoryLocationCreate
+      tags: [Inventory]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: Create an inventory location
+      description: A store's first location is made the default automatically, regardless of the submitted `is_default` value -- otherwise a fresh store could never pass the checkout-time default-location check without a second, separate call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InventoryLocationInput'}
+      responses:
+        '201':
+          description: Inventory location created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InventoryLocation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /inventory-locations/{inventoryLocationId}:
+    patch:
+      operationId: inventoryLocationUpdate
+      tags: [Inventory]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: Rename an inventory location, or promote it to the store's default
+      description: '`is_default` may only be submitted as `true` -- a location is promoted to default (which transactionally demotes the current one), never explicitly demoted on its own, so this endpoint can never leave a store with zero default locations.'
+      parameters:
+      - name: inventoryLocationId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                is_default: {type: boolean, enum: [true]}
+      responses:
+        '200':
+          description: Inventory location updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InventoryLocation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # ------------------------------------------------------------ StoreSetup
+  # Store-setup pass (2026-09-18) -- no prior draft in this document at any
+  # stage. Read-only, non-authoritative aggregate check across the four
+  # checkout-time resolver prerequisites, so the frontend can show a clear
+  # "setup incomplete" state before a cashier attempts a checkout that is
+  # guaranteed to fail.
+  /store-setup/readiness:
+    get:
+      operationId: storeSetupReadinessGet
+      tags: [StoreSetup]
+      summary: Store-setup readiness for the current terminal
+      description: 'security: cookieAuth AND terminalCookieAuth conjunctively, same as shiftCurrentGet -- no x-capability, since a cashier on an enrolled terminal needs this too, not just an admin.'
+      responses:
+        '200':
+          description: Readiness checks
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StoreSetupReadiness'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   # --------------------------------------------------------------- Audit
   /audit-events:
     get:
@@ -2960,6 +3170,75 @@ components:
             type: array
             items: {type: string, format: uuid}
             description: Terminals currently associated via terminal_fiscal_installation (supports both STANDALONE and SERVER_CONNECTED deployment models, ADR-009/BIR-013).
+    TerminalFiscalInstallation:
+      description: 'A terminal''s fiscal installation mapping over time (store-setup pass, 2026-09-18) -- at most one row per terminal has effective_to = null (the current mapping).'
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        terminal_id: {type: string, format: uuid}
+        fiscal_installation_id: {type: string, format: uuid}
+        effective_from: {type: string, format: date-time}
+        effective_to:
+          anyOf:
+          - {type: string, format: date-time}
+          - {type: 'null'}
+    InvoiceSeriesInput:
+      type: object
+      required: [fiscal_installation_id, series_code, starting_number]
+      properties:
+        fiscal_installation_id: {type: string, format: uuid}
+        series_code: {type: string, maxLength: 64}
+        prefix:
+          anyOf:
+          - {type: string, maxLength: 8}
+          - {type: 'null'}
+        starting_number: {type: integer, minimum: 1}
+        ending_number:
+          anyOf:
+          - {type: integer}
+          - {type: 'null'}
+    InvoiceSeries:
+      description: current_number/starting_number/ending_number/status mirror invoice_series exactly (Stage 6B). Bootstraps at current_number = starting_number - 1 (invariants.md INVSERIES-001).
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        fiscal_installation_id: {type: string, format: uuid}
+        series_code: {type: string}
+        prefix:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        current_number: {type: integer}
+        starting_number: {type: integer}
+        ending_number:
+          anyOf:
+          - {type: integer}
+          - {type: 'null'}
+        status: {type: string, enum: [ACTIVE, CLOSED]}
+    InventoryLocationInput:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, maxLength: 255}
+        is_default: {type: boolean, description: 'A store''s first location is made the default regardless of this value.'}
+    InventoryLocation:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        is_default: {type: boolean}
+    StoreSetupReadiness:
+      description: Non-authoritative aggregate check across the four checkout-time resolver prerequisites -- CheckoutService always re-derives its own resolution independently; this never gates or substitutes for that.
+      type: object
+      properties:
+        ready: {type: boolean}
+        checks:
+          type: object
+          properties:
+            fiscal_installation: {type: boolean}
+            invoice_series: {type: boolean}
+            inventory_location: {type: boolean}
+            tax_registration: {type: boolean}
     AuditEvent:
       type: object
       properties:

@@ -6,6 +6,20 @@ rule or an obvious protocol requirement — none is speculative. Envelope
 shape and HTTP status mapping are defined once here and used identically
 across [openapi.yaml](openapi.yaml).
 
+**Governance note (2026-09-18, store-setup pass)**: the five rows dated
+2026-09-18 were added as a plain forward commit past `stage-6c-baseline`,
+not via the reconstruct-and-re-tag procedure used for every earlier
+addition to this file. All five are motivated by wholly new operations
+(`InvoiceSeries`/`InventoryLocation`/`fiscalInstallationAssignTerminal`)
+that had no draft in this document at any prior stage — unlike every
+previous addition, none of them complete a gap in already-frozen content,
+so no existing `stage-*-baseline` tag needed to move. This is an explicit
+owner decision (see `docs/PROJECT-MANIFEST.md`'s store-setup section) to
+extend forward-commit governance to this file for genuinely-new surface,
+while completing a gap in an *already-frozen* response (as `TERMINAL_NOT_
+FOUND`/`NO_CURRENT_SHIFT` did) still requires the full reconstruction
+discipline.
+
 ## Standard error envelope
 
 ```json
@@ -87,6 +101,11 @@ with the envelope above.
 | `ENROLLMENT_TOKEN_INVALID` | 409 | `POST /terminal/enroll`'s enrollment token does not exist, has already been used, has expired, or belongs to a different store than the authenticated actor — one deliberately non-enumerating outcome for every way a one-time enrollment token can be unusable, matching the project's existing non-enumeration convention (e.g. `AUTHENTICATION_REQUIRED` never distinguishing unknown-email from wrong-password) rather than inventing a separate code per sub-case | Module A A3 discovery — `openapi.yaml`'s `terminalEnroll` `409` ("Token already used, expired, or revoked") already referenced the generic `Error` envelope with no code registered; `CONCURRENCY_CONFLICT` was checked and rejected as a reuse candidate (its own description is race-specific, and the contract describes one outcome, not three to split across codes) |
 | `TERMINAL_NOT_FOUND` | 404 | Referenced terminal does not exist, or exists only in a different store than the authenticated actor's own — indistinguishable from "does not exist," matching how every other store-scoped resource never confirms cross-store existence | Module A A3 final closeout discovery — `terminalGet`/`terminalCreateEnrollmentToken`/`terminalRevoke`'s `404` `NotFound` responses already referenced the generic `Error` envelope with no code registered; follows the same resource-specific-404 pattern already established by `PRODUCT_NOT_FOUND`/`SALE_NOT_FOUND`/`VOID_NOT_FOUND`/`REFUND_NOT_FOUND`/`INVOICE_NOT_FOUND` — no generic/reusable "not found" code exists in this catalog to reuse instead |
 | `NO_CURRENT_SHIFT` | 404 | `GET /shifts/current`: no shift is currently open for this terminal — a resource whose existence is itself conditional, per this document's own HTTP-status-semantics table (§"no open shift" example) | `shiftOpen`/`shiftCurrentGet` implementation discovery — `openapi.yaml`'s `shiftCurrentGet` `404` response is descriptively labeled "SHIFT_NOT_OPEN," but that name is already a distinct, frozen 409 code for a different scenario (a shift referenced by ID, found closed — e.g. a cash movement against a closed shift); reusing it here would violate this document's own "a given code's HTTP status never changes" rule. `SHIFT_REQUIRED` (409, closest semantic match) is equally frozen at a different status. No existing code fits a 404 "no shift is currently open" outcome |
+| `FISCAL_INSTALLATION_NOT_FOUND` | 404 | Referenced fiscal installation does not exist, or exists only in a different store than the authenticated actor's own | Store-setup pass (2026-09-18) — motivated entirely by the new `fiscalInstallationAssignTerminal` operation, which has no prior frozen draft; follows the same resource-specific-404 pattern already established by `TERMINAL_NOT_FOUND`/`PRODUCT_NOT_FOUND`/etc. |
+| `INVOICE_SERIES_NOT_FOUND` | 404 | Referenced invoice series does not exist, or exists only in a different store than the authenticated actor's own | Store-setup pass (2026-09-18) — `invoiceSeriesClose`, a wholly new operation with no prior frozen draft |
+| `INVOICE_SERIES_ALREADY_ACTIVE` | 409 | `invoice_series_one_active_per_installation` already has an ACTIVE row for this fiscal installation; the existing one must be closed (`invoiceSeriesClose`) before a new one can be activated — deliberately not an implicit auto-supersede, since silently retiring a fiscally-significant numbering sequence is not this API's decision to make | Store-setup pass (2026-09-18) — `invoiceSeriesCreate`, a wholly new operation with no prior frozen draft |
+| `INVOICE_SERIES_ALREADY_CLOSED` | 409 | `invoiceSeriesClose` called against a series that is already CLOSED | Store-setup pass (2026-09-18) — mirrors the existing `SHIFT_ALREADY_CLOSED` shape exactly; wholly new operation with no prior frozen draft |
+| `INVENTORY_LOCATION_NOT_FOUND` | 404 | Referenced inventory location does not exist, or exists only in a different store than the authenticated actor's own | Store-setup pass (2026-09-18) — `inventoryLocationUpdate`, a wholly new operation with no prior frozen draft |
 
 No further codes are defined speculatively. A new code is added only when
 implementation surfaces a real, distinct failure mode this list doesn't

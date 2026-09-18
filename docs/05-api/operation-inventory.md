@@ -317,7 +317,37 @@ prejudge.
 |---|---|---|---|---|---|---|---|---|---|
 | GET | /fiscal-installations | fiscalInstallationList | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | — | 200 array | 403 |
 | POST | /fiscal-installations | fiscalInstallationCreate | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | FiscalInstallationInput (`accreditation`/`permit_to_use` objects) | 201 FiscalInstallation | 403, 422 |
-| GET | /fiscal-installations/{fiscalInstallationId} | fiscalInstallationGet | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | — | 200 FiscalInstallation | 403, 404 |
+| POST | /fiscal-installations/{fiscalInstallationId}/terminals | fiscalInstallationAssignTerminal | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | terminal_id+effective_from? | 201 TerminalFiscalInstallation | 403, 404, 422, 409 |
+
+`fiscalInstallationGet` (declared above the table this section documents) remains **unimplemented** — the store-setup pass (2026-09-18) implemented `List`/`Create`/`AssignTerminal` only; the admin screens built against this operation-inventory entry read full `FiscalInstallation` objects from the list response inline, so a separate get-by-id fetch was never needed. Implementing it later would complete a gap in an *already-frozen* `404` response (`fiscalInstallationGet`'s response already existed before this pass), which this project's frozen-corpus discipline treats as a Stage 4 content change requiring the full reconstruction procedure — distinct from `AssignTerminal` above, a wholly new operation forward-committed without one.
+
+## InvoiceSeries (3) — store-setup pass (2026-09-18), no prior draft at any stage
+
+The table `InvoiceSeriesAllocator::allocateForFiscalInstallation` reads at checkout time. `invoice_series_one_active_per_installation` allows at most one ACTIVE row per fiscal installation — `Create` conflicts (409) rather than auto-superseding; `Close` is the only way to retire the current one first.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /invoice-series | invoiceSeriesList | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | fiscal_installation_id? (query) | 200 paginated array | 403 |
+| POST | /invoice-series | invoiceSeriesCreate | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | InvoiceSeriesInput | 201 InvoiceSeries | 403, 409 `INVOICE_SERIES_ALREADY_ACTIVE`, 422 |
+| POST | /invoice-series/{invoiceSeriesId}/close | invoiceSeriesClose | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | — | 200 InvoiceSeries | 403, 404, 409 `INVOICE_SERIES_ALREADY_CLOSED` |
+
+## InventoryLocation (3) — store-setup pass (2026-09-18), tagged `Inventory` (existing tag), no prior draft at any stage
+
+The table `InventoryLocationResolver::resolveDefaultForStore` reads at checkout time. A store's first location is always made the default (regardless of the submitted `is_default`), so a fresh store never needs a second call just to pass the checkout-time check. `Update`'s `is_default` may only be submitted as `true` — a location is promoted (transactionally demoting the current default), never explicitly demoted on its own, so this endpoint can never leave a store with zero defaults.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /inventory-locations | inventoryLocationList | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | — | 200 paginated array | 403 |
+| POST | /inventory-locations | inventoryLocationCreate | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | InventoryLocationInput | 201 InventoryLocation | 403, 422 |
+| PATCH | /inventory-locations/{inventoryLocationId} | inventoryLocationUpdate | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | name?+is_default? (true only) | 200 InventoryLocation | 403, 404, 422 |
+
+## StoreSetup (1) — store-setup pass (2026-09-18), no prior draft at any stage
+
+Read-only, non-authoritative aggregate across the four checkout-time resolver prerequisites (`FiscalInstallationResolver`, `InvoiceSeriesAllocator`, `InventoryLocationResolver`, `TaxRegistrationResolver`) — independent re-implementations of each resolver's own lookup, not a call into `app/Services/Checkout/*` (frozen under the Stage 6C addendum). Terminal-scoped like `shiftCurrentGet`, deliberately **no x-capability** — a cashier on an enrolled terminal needs to see the blocked state too, not just an admin.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /store-setup/readiness | storeSetupReadinessGet | session+terminal | true | — | no | — | 200 StoreSetupReadiness | 401, 403 |
 
 ## Audit (2) — read-only
 
