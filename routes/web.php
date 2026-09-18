@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\SaleController;
+use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\TerminalController;
 use App\Http\Middleware\ComposeAuthoritativeContext;
 use App\Http\Middleware\EnsureUserIsActive;
@@ -57,6 +58,16 @@ Route::prefix('api/v1')->group(function () {
     // enrolled, store-coherent terminal may check out; CheckoutService's
     // own OPEN-shift/cashier-match check is the remaining gate.
     Route::post('/sales', [SaleController::class, 'finalize'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+
+    // openapi.yaml Shifts tag. security: cookieAuth AND terminalCookieAuth
+    // conjunctively, same as saleFinalize -- no x-capability declared, so
+    // any authenticated user on an enrolled, store-coherent terminal may
+    // open/query a shift. shiftOpen atomically resolves-or-opens the
+    // terminal's FiscalDay too (api-design.md SS10, V1 operating policy).
+    Route::post('/shifts/open', [ShiftController::class, 'open'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+    Route::get('/shifts/current', [ShiftController::class, 'current'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
 });
 
