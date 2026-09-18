@@ -14,7 +14,7 @@
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
-STAGES=(stage-1-baseline stage-2-baseline stage-3-baseline stage-4-baseline stage-5-baseline stage-6a-baseline stage-6b-baseline)
+STAGES=(stage-1-baseline stage-2-baseline stage-3-baseline stage-4-baseline stage-5-baseline stage-6a-baseline stage-6b-baseline stage-6c-baseline)
 
 # Path-ownership map. Each stage's pattern matches paths that stage (and only
 # that stage) introduces — keep this in sync with PROJECT-MANIFEST.md's own
@@ -33,6 +33,13 @@ OWNERSHIP_stage_5_baseline='^docs/04-database/|^database/|^app/Models/|^app/Http
 # amendment passes touching it.
 OWNERSHIP_stage_6a_baseline='^app/Domain/Exceptions/(ConcurrencyConflict|Domain|FiscalDayClosed|IdempotencyKeyReused|InvalidTaxConfiguration|RefundExceedsRemainingAmount|RefundExceedsRemainingQuantity|SaleNotVoidable|ShiftNotOpen)Exception\.php$|^app/Domain/Financial/|^app/Domain/Money\.php$|^app/Domain/Quantity\.php$|^app/Services/Idempotency/|^app/Support/|^docs/06-backend/stage-6a-transaction-foundation\.md$|^tests/Database/(DatabaseExceptionTranslatorTest|IdempotencyConcurrencyTest|IdempotencyServiceTest)\.php$|^tests/Database/support/idempotency_race_worker\.php$|^tests/Unit/Domain/|^tests/Unit/Services/CanonicalRequestHasherTest\.php$|^tests/Unit/Support/'
 OWNERSHIP_stage_6b_baseline='^app/Domain/Exceptions/InvoiceSeries(Exhausted|Resolution)Exception\.php$|^app/Services/InvoiceNumbering/|^docs/06-backend/stage-6b-invoice-series-allocation\.md$|^tests/Database/InvoiceSeriesAllocator(Concurrency)?Test\.php$|^tests/Database/support/invoice_series_allocation_worker\.php$|^tests/Unit/Services/InvoiceNumbering/'
+# Stage 6C (Sale Finalization) ownership includes both the original
+# checkout domain/service-layer pass and A6's HTTP layer (Module A's own
+# files -- AuthController, TerminalController, middleware, PosRequestContext,
+# etc. -- are intentionally NOT claimed here; they are Module A's own
+# cross-cutting initiative, tracked in module-a-auth-terminal-initialization.md,
+# not Stage 6C content, even though A6 specifically unblocks it).
+OWNERSHIP_stage_6c_baseline='^app/Services/Checkout/|^app/Domain/Exceptions/(FiscalDayNotOpen|ShiftRequired|ProductNotFound|ProductInactive|InsufficientPayment|InvalidPaymentTotal|InventoryLocationResolution|TaxRegistrationResolution|FiscalInstallationResolution|IdempotencyKeyRequired)Exception\.php$|^app/Http/Controllers/SaleController\.php$|^app/Http/Requests/SaleFinalizeRequest\.php$|^app/Http/Resources/(SaleItem|Payment|InvoiceSummary|SaleDetail)Resource\.php$|^docs/06-backend/stage-6c-sale-finalization\.md$|^tests/Database/(ModelMassAssignmentRegressionTest|CheckoutResolversTest|CheckoutServiceTest|CheckoutServiceConcurrencyTest|SaleFinalizationHttpTest)\.php$|^tests/Database/support/checkout_worker\.php$'
 
 fail=0
 
