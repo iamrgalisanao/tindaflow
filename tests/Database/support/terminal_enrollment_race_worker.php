@@ -7,7 +7,7 @@
  * PostgreSQL race -- not a sequential call simulated inside one
  * connection/transaction. Mirrors idempotency_race_worker.php's pattern.
  *
- * argv: [1]=plaintextToken [2]=readyFile [3]=goFile [4]=outputFile [5]=databaseName
+ * argv: [1]=plaintextToken [2]=actorStoreId [3]=readyFile [4]=goFile [5]=outputFile [6]=databaseName
  */
 
 require __DIR__.'/../../../vendor/autoload.php';
@@ -16,7 +16,7 @@ use App\Services\Terminal\TerminalEnrollmentService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 
-[, $plaintextToken, $readyFile, $goFile, $outputFile, $databaseName] = $argv;
+[, $plaintextToken, $actorStoreId, $readyFile, $goFile, $outputFile, $databaseName] = $argv;
 
 $app = require __DIR__.'/../../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
@@ -44,7 +44,7 @@ while (! file_exists($goFile)) {
 }
 
 try {
-    $result = (new TerminalEnrollmentService)->enroll($plaintextToken);
+    $result = (new TerminalEnrollmentService)->enroll($plaintextToken, $actorStoreId);
 
     file_put_contents($outputFile, json_encode([
         'outcome' => 'success',

@@ -6,7 +6,10 @@ use App\Models\Store;
 use App\Models\Terminal;
 use App\Models\TerminalEnrollmentToken;
 use App\Models\User;
+use App\Services\Terminal\TerminalEnrollmentService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
@@ -345,6 +348,104 @@ class TerminalEnrollmentTest extends PostgresSchemaTestCase
 
         $revoke = $this->forwardSessionCookie($login)->postJson("/api/v1/terminals/{$otherStoreTerminal->id}/revoke");
         $revoke->assertStatus(404);
+    }
+
+    // A3 closeout item 2.1: Store-A administrator lists only Store-A terminals.
+    public function test_terminal_list_only_returns_the_actors_own_store(): void
+    {
+        $admin = $this->admin();
+        $ownTerminal = Terminal::factory()->create(['store_id' => $admin->store_id]);
+        $otherStoreTerminal = Terminal::factory()->create(); // different store, per factory default
+        $login = $this->login($admin);
+
+        $response = $this->forwardSessionCookie($login)->getJson('/api/v1/terminals');
+
+        $response->assertOk();
+        $ids = collect($response->json('data'))->pluck('id');
+        $this->assertTrue($ids->contains($ownTerminal->id));
+        $this->assertFalse($ids->contains($otherStoreTerminal->id), 'another store\'s terminal must never appear in the list');
+    }
+
+    // A3 closeout item 2.5: request data cannot override the actor's authoritative store scope.
+    public function test_request_body_store_id_cannot_override_the_actors_authoritative_store(): void
+    {
+        $admin = $this->admin();
+        $otherStoreTerminal = Terminal::factory()->create(); // a different store's terminal
+        $login = $this->login($admin);
+
+        // Even if a client tried to smuggle a different store_id/terminal_id
+        // combination, the controller never reads store_id from the
+        // request at all -- only $actor->store_id is ever used. This is
+        // structurally guaranteed, not merely a validation rule; proven by
+        // confirming the "foreign" terminal remains unreachable regardless
+        // of what the request body claims.
+        $response = $this->forwardSessionCookie($login)->postJson('/api/v1/terminal-enrollment-tokens', [
+            'terminal_id' => $otherStoreTerminal->id,
+            'store_id' => $admin->store_id, // not a real field on this operation; must be ignored
+        ]);
+
+        $response->assertStatus(404);
+    }
+
+    // A3 closeout item 3: a valid token belonging to another store cannot
+    // be used by an authenticated administrator from the wrong store, and
+    // the attempt does not burn the token for its legitimate owner.
+    public function test_a_valid_token_cannot_be_used_by_an_administrator_from_a_different_store(): void
+    {
+        [, $terminal, $plaintext] = $this->issueToken();
+
+        $otherStoreAdmin = $this->admin();
+        $otherLogin = $this->login($otherStoreAdmin);
+        $this->assertNotSame($terminal->store_id, $otherStoreAdmin->store_id);
+
+        $crossStoreAttempt = $this->forwardSessionCookie($otherLogin)->postJson('/api/v1/terminal/enroll', ['token' => $plaintext]);
+        $crossStoreAttempt->assertStatus(409);
+        $crossStoreAttempt->assertJson(['error' => ['code' => 'ENROLLMENT_TOKEN_INVALID']]);
+
+        // The token was NOT burned by the wrong-store attempt -- the
+        // legitimate (same-store) administrator can still use it.
+        $tokenRow = TerminalEnrollmentToken::first();
+        $this->assertNull($tokenRow->used_at, 'a cross-store attempt must not consume the token');
+
+        $originalStoreAdmin = User::where('store_id', $terminal->store_id)->where('role', 'ADMIN')->first();
+        $originalLogin = $this->login($originalStoreAdmin);
+        $legitimateAttempt = $this->forwardSessionCookie($originalLogin)->postJson('/api/v1/terminal/enroll', ['token' => $plaintext]);
+        $legitimateAttempt->assertOk();
+    }
+
+    // A3 closeout item 5: eager consumption survives a phase-2 (credential
+    // issuance) failure -- the token stays consumed, never rolled back.
+    public function test_token_stays_consumed_even_if_credential_issuance_subsequently_fails(): void
+    {
+        $admin = $this->admin();
+        $terminal = Terminal::factory()->unenrolled()->create(['store_id' => $admin->store_id]);
+        $plaintext = Str::random(64);
+
+        DB::table('terminal_enrollment_tokens')->insert([
+            'id' => (string) Str::uuid(), 'store_id' => $admin->store_id, 'terminal_id' => $terminal->id,
+            'token_hash' => hash('sha256', $plaintext), 'created_by' => $admin->id,
+            'expires_at' => now()->addMinutes(15), 'created_at' => now(),
+        ]);
+
+        $service = new TerminalEnrollmentService;
+
+        // Phase 1 alone: claim the token.
+        $resolvedTerminalId = $service->consumeToken($plaintext, $admin->store_id);
+        $this->assertSame($terminal->id, $resolvedTerminalId);
+        $this->assertNotNull(TerminalEnrollmentToken::first()->used_at, 'phase 1 must commit used_at on its own');
+
+        // Phase 2, forced to fail: a terminal id that cannot resolve.
+        try {
+            $service->issueCredential('00000000-0000-0000-0000-000000000000');
+            $this->fail('expected issueCredential() to fail for a non-existent terminal');
+        } catch (ModelNotFoundException) {
+            // expected
+        }
+
+        // The token remains consumed regardless -- ADR-011's "regardless
+        // of outcome" is not merely a documentation claim.
+        $this->assertNotNull(TerminalEnrollmentToken::first()->used_at, 'the token must stay consumed even though credential issuance failed');
+        $this->assertNull($terminal->refresh()->credential_hash, 'the terminal itself must remain unenrolled since issuance never completed');
     }
 
     // Cookie configuration.

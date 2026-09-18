@@ -42,7 +42,9 @@ class TerminalController extends Controller
 
     public function enroll(EnrollTerminalRequest $request, TerminalEnrollmentService $service): JsonResponse
     {
-        $result = $service->enroll($request->validated('token'));
+        $actor = Auth::guard('web')->user();
+
+        $result = $service->enroll($request->validated('token'), $actor->store_id);
 
         $response = (new TerminalSummaryResource($result['terminal']))->response();
 
@@ -110,7 +112,7 @@ class TerminalController extends Controller
         return Cookie::make(
             name: self::CREDENTIAL_COOKIE,
             value: $plaintextCredential,
-            minutes: 60 * 24 * 365 * 5, // "long-lived" (ADR-011) -- 5 years, deliberately longer than Cookie::forever()'s 400 days
+            minutes: (int) config('tindaflow.terminal_credential.lifetime_minutes'),
             secure: config('session.secure'),
             sameSite: config('session.same_site'),
         );

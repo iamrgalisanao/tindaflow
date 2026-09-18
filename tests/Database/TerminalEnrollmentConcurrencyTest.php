@@ -90,7 +90,7 @@ class TerminalEnrollmentConcurrencyTest extends TestCase
             'expires_at' => now()->addMinutes(15), 'created_at' => now(),
         ]);
 
-        [$resultA, $resultB] = $this->race($plaintext);
+        [$resultA, $resultB] = $this->race($plaintext, $storeId);
 
         // Exactly one worker succeeds; the other sees the token as invalid.
         $outcomes = [$resultA['outcome'], $resultB['outcome']];
@@ -114,7 +114,7 @@ class TerminalEnrollmentConcurrencyTest extends TestCase
     }
 
     /** @return array{0: array, 1: array} decoded JSON output from worker A and worker B */
-    private function race(string $plaintext): array
+    private function race(string $plaintext, string $actorStoreId): array
     {
         $workerScript = base_path('tests/Database/support/terminal_enrollment_race_worker.php');
         $readyA = $this->scratchDir.'/ready_a';
@@ -123,8 +123,8 @@ class TerminalEnrollmentConcurrencyTest extends TestCase
         $outA = $this->scratchDir.'/out_a.json';
         $outB = $this->scratchDir.'/out_b.json';
 
-        $processA = Process::start([PHP_BINARY, $workerScript, $plaintext, $readyA, $go, $outA, self::DATABASE]);
-        $processB = Process::start([PHP_BINARY, $workerScript, $plaintext, $readyB, $go, $outB, self::DATABASE]);
+        $processA = Process::start([PHP_BINARY, $workerScript, $plaintext, $actorStoreId, $readyA, $go, $outA, self::DATABASE]);
+        $processB = Process::start([PHP_BINARY, $workerScript, $plaintext, $actorStoreId, $readyB, $go, $outB, self::DATABASE]);
 
         $deadline = microtime(true) + 10;
         while (! (file_exists($readyA) && file_exists($readyB))) {
