@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\SaleController;
 use App\Http\Controllers\TerminalController;
 use App\Http\Middleware\ComposeAuthoritativeContext;
 use App\Http\Middleware\EnsureUserIsActive;
@@ -44,6 +45,14 @@ Route::prefix('api/v1')->group(function () {
     // longer observe that terminal here -- production exposure was
     // deferred (A3 closeout) exactly until this middleware existed.
     Route::get('/terminal/current', [TerminalController::class, 'current'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+
+    // openapi.yaml Sales tag (ADR-003, A6). security: cookieAuth AND
+    // terminalCookieAuth conjunctively (§14 Ruling 3) -- no x-capability
+    // is declared for saleFinalize, so any authenticated user on an
+    // enrolled, store-coherent terminal may check out; CheckoutService's
+    // own OPEN-shift/cashier-match check is the remaining gate.
+    Route::post('/sales', [SaleController::class, 'finalize'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
 });
 
