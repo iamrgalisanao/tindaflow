@@ -51,7 +51,7 @@ final class FiscalInstallationService
                 ]);
             }
 
-            return $installation->load(['accreditations', 'permitsToUse', 'terminals']);
+            return $installation->load(['accreditations', 'permitsToUse', 'terminals' => fn ($query) => $query->wherePivotNull('effective_to')]);
         });
     }
 

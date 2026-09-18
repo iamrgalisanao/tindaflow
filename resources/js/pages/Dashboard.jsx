@@ -62,12 +62,20 @@ export default function Dashboard() {
                             Terminal enrollment
                         </Link>
                     )}
+                    {user.capabilities.includes('FISCAL_CONFIGURATION_MANAGE') && (
+                        <Link
+                            to="/admin/store-setup"
+                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-center text-sm hover:bg-gray-50"
+                        >
+                            Store setup
+                        </Link>
+                    )}
                 </div>
 
                 <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    Back-office screens beyond terminal management (products, inventory,
-                    reports, users) are not built yet — their backend endpoints don't
-                    exist yet.
+                    Back-office screens beyond terminal management and store setup
+                    (products, reports, users) are not built yet — their backend
+                    endpoints don't exist yet.
                 </p>
             </div>
         </div>

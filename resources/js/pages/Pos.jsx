@@ -4,6 +4,13 @@ import { apiFetch } from '../api';
 
 const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'];
 
+const READINESS_LABELS = {
+    fiscal_installation: 'This terminal has no fiscal installation assigned.',
+    invoice_series: 'No active invoice series for this terminal’s fiscal installation.',
+    inventory_location: 'No default inventory location is set for this store.',
+    tax_registration: 'No current tax registration is set for this store.',
+};
+
 function newIdempotencyKey() {
     return crypto.randomUUID();
 }
@@ -18,9 +25,10 @@ function newIdempotencyKey() {
  * trusted back.
  */
 export default function Pos() {
-    const [step, setStep] = useState('loading'); // loading | not-enrolled | open-shift | cart | checkout | receipt
+    const [step, setStep] = useState('loading'); // loading | not-enrolled | open-shift | setup-incomplete | cart | checkout | receipt
     const [error, setError] = useState(null);
     const [shift, setShift] = useState(null);
+    const [readinessChecks, setReadinessChecks] = useState(null);
 
     const [openingCash, setOpeningCash] = useState('');
     const [openingBusy, setOpeningBusy] = useState(false);
@@ -35,13 +43,28 @@ export default function Pos() {
 
     const [sale, setSale] = useState(null);
 
+    // Non-authoritative pre-check (StoreSetupReadinessService mirrors, but
+    // never calls, CheckoutService's own resolvers) -- lets a cashier see
+    // a clear blocked state instead of attempting a checkout that is
+    // guaranteed to fail with a setup-defect 500 (the exact bug a freshly
+    // seeded store hit during this feature's own verification).
+    const checkReadiness = useCallback(async () => {
+        const { ok, body } = await apiFetch('/api/v1/store-setup/readiness');
+        if (ok && !body.ready) {
+            setReadinessChecks(body.checks);
+            setStep('setup-incomplete');
+        } else {
+            setStep('cart');
+        }
+    }, []);
+
     const checkShiftState = useCallback(async () => {
         setStep('loading');
         setError(null);
         const { ok, status, body } = await apiFetch('/api/v1/shifts/current');
         if (ok) {
             setShift(body);
-            setStep('cart');
+            await checkReadiness();
         } else if (status === 403 && body?.error?.code === 'TERMINAL_NOT_ENROLLED') {
             setStep('not-enrolled');
         } else if (status === 404 && body?.error?.code === 'NO_CURRENT_SHIFT') {
@@ -50,7 +73,7 @@ export default function Pos() {
             setError(body?.error?.message ?? 'Could not determine shift status.');
             setStep('open-shift');
         }
-    }, []);
+    }, [checkReadiness]);
 
     useEffect(() => {
         checkShiftState();
@@ -67,7 +90,7 @@ export default function Pos() {
         });
         if (ok) {
             setShift(body.shift);
-            setStep('cart');
+            await checkReadiness();
         } else {
             setError(body?.error?.message ?? 'Could not open a shift.');
         }
@@ -150,6 +173,34 @@ export default function Pos() {
                     This browser is not enrolled as any terminal. Ask an admin to enroll it under Terminal Enrollment.
                 </p>
                 <Link to="/" className="mt-4 inline-block text-sm text-gray-600 underline">
+                    Back to dashboard
+                </Link>
+            </div>
+        );
+    }
+
+    if (step === 'setup-incomplete') {
+        const failed = Object.entries(readinessChecks ?? {}).filter(([, ready]) => !ready);
+        return (
+            <div className="mx-auto max-w-md p-8 text-center">
+                <p className="mb-3 rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                    This terminal can&apos;t check out yet. Ask an admin to finish Store Setup:
+                </p>
+                <ul className="mb-4 space-y-1 text-left text-sm text-gray-700">
+                    {failed.map(([key]) => (
+                        <li key={key} className="rounded-md border border-amber-200 bg-white px-3 py-2">
+                            {READINESS_LABELS[key] ?? key}
+                        </li>
+                    ))}
+                </ul>
+                <button
+                    type="button"
+                    onClick={checkReadiness}
+                    className="rounded-md border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+                >
+                    Check again
+                </button>
+                <Link to="/" className="mt-4 block text-sm text-gray-600 underline">
                     Back to dashboard
                 </Link>
             </div>

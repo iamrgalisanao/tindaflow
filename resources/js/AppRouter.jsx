@@ -4,6 +4,11 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Pos from './pages/Pos';
 import TerminalEnroll from './pages/TerminalEnroll';
+import StoreSetupOverview from './pages/admin/StoreSetupOverview';
+import FiscalInstallations from './pages/admin/FiscalInstallations';
+import InvoiceSeriesPage from './pages/admin/InvoiceSeriesPage';
+import InventoryLocations from './pages/admin/InventoryLocations';
+import TaxRegistrations from './pages/admin/TaxRegistrations';
 
 function RequireAuth({ children }) {
     const { user } = useAuth();
@@ -66,6 +71,46 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <TerminalEnroll />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/store-setup"
+                    element={
+                        <RequireAuth>
+                            <StoreSetupOverview />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/store-setup/fiscal-installations"
+                    element={
+                        <RequireAuth>
+                            <FiscalInstallations />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/store-setup/invoice-series"
+                    element={
+                        <RequireAuth>
+                            <InvoiceSeriesPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/store-setup/inventory-locations"
+                    element={
+                        <RequireAuth>
+                            <InventoryLocations />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/store-setup/tax-registrations"
+                    element={
+                        <RequireAuth>
+                            <TaxRegistrations />
                         </RequireAuth>
                     }
                 />

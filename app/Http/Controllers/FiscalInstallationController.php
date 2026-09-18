@@ -29,7 +29,7 @@ class FiscalInstallationController extends Controller
         $actor = Auth::guard('web')->user();
 
         $installations = FiscalInstallation::where('store_id', $actor->store_id)
-            ->with(['accreditations', 'permitsToUse', 'terminals'])
+            ->with(['accreditations', 'permitsToUse', 'terminals' => fn ($query) => $query->wherePivotNull('effective_to')])
             ->orderByDesc('installed_at')
             ->get();
 

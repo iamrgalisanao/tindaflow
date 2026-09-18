@@ -128,6 +128,29 @@ class FiscalInstallationHttpTest extends PostgresSchemaTestCase
         $this->assertNull(TerminalFiscalInstallation::find($second->json('id'))->effective_to);
     }
 
+    public function test_reassigned_terminal_no_longer_appears_on_the_prior_installation(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $firstInstallation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
+        $secondInstallation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
+        $terminal = Terminal::factory()->create(['store_id' => $admin->store_id]);
+        $login = $this->login($admin);
+
+        $this->forwardSessionCookie($login)
+            ->postJson("/api/v1/fiscal-installations/{$firstInstallation->id}/terminals", ['terminal_id' => $terminal->id])
+            ->assertStatus(201);
+        $this->forwardSessionCookie($login)
+            ->postJson("/api/v1/fiscal-installations/{$secondInstallation->id}/terminals", ['terminal_id' => $terminal->id])
+            ->assertStatus(201);
+
+        $list = $this->forwardSessionCookie($login)->getJson('/api/v1/fiscal-installations');
+
+        $list->assertOk();
+        $byId = collect($list->json())->keyBy('id');
+        $this->assertSame([], $byId[$firstInstallation->id]['terminals'], 'a superseded mapping must not still list the terminal as current');
+        $this->assertSame([$terminal->id], $byId[$secondInstallation->id]['terminals']);
+    }
+
     public function test_assigning_a_terminal_from_another_store_is_rejected(): void
     {
         $admin = User::factory()->admin()->create();
