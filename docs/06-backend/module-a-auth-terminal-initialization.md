@@ -2,7 +2,7 @@
 
 ## Status
 
-**RULINGS CLOSED. A0 CLOSED. A1 (human authentication/session foundation) GOVERNANCE-SEALED**, after two baseline reconstructions. **A2 (authorization/capability foundation) SEALED. A3 (terminal enrollment/credential verification) GOVERNANCE-SEALED**, after a third and then a fourth baseline reconstruction (see §19a and §19b). **A4 (authoritative User+Terminal+Store request-context composition) IMPLEMENTED** — see §20; no baseline reconstruction required. A5 (HTTP integration tests) and A6 (Stage 6C checkout integration) have not started.
+**RULINGS CLOSED. A0 CLOSED. A1 (human authentication/session foundation) GOVERNANCE-SEALED**, after two baseline reconstructions. **A2 (authorization/capability foundation) SEALED. A3 (terminal enrollment/credential verification) GOVERNANCE-SEALED**, after a third and then a fourth baseline reconstruction (see §19a and §19b). **A4 (authoritative User+Terminal+Store request-context composition) IMPLEMENTED** — see §20; no baseline reconstruction required. **A5 (HTTP integration test matrix) IMPLEMENTED** — see §21; every §13 matrix item is proven except the two that name a Stage 6C controller (`saleFinalize`) which does not exist until A6. A6 (Stage 6C checkout integration) has not started.
 
 All nine Decision Register items are ruled (§14). One item required touching Stage 6C during the evidence pass: `CheckoutService`'s shift-resolution query was found to check `terminal_id` only, never `cashier_id` — fixed with a dedicated regression test. Both approved Stage 4/5 amendments (`terminalCookieAuth` + `RATE_LIMITED`; the `terminals.credential_hash` partial unique index) were applied via the **A0 baseline reconstruction**: `stage-4-baseline`/`stage-5-baseline`/`stage-6a-baseline`/`stage-6b-baseline` were rebuilt on top of them and revalidated (see `docs/PROJECT-MANIFEST.md`'s "A0 baseline reconstruction" section for the full record — old/new hashes, verification, backup tag). Stage 1/2/3 baselines are unchanged.
 
@@ -736,3 +736,40 @@ The already-implemented tests for list-scoping, request-body-override immunity, 
 **Tests and totals**: `TerminalEnrollmentTest.php` now 30 methods / 105 assertions. Full regression: `tests/Unit` 102/474, `tests/Database` 198/695, `tests/Feature` 1/1, A1 suite 21/77, A2 suite (`AuthorizationTest` 5/12 + `Unit/Services/Auth` 17/278), Stage 6A concurrency 3/33, Stage 6B concurrency 3/105, Stage 6C checkout 12/105 and checkout-concurrency 3/46, Pint clean. `php artisan route:list --path=terminal/current` confirms exactly one route, registered unconditionally (not environment-guarded). No baseline tag touched; A4 required no Stage 4 amendment.
 
 **A5/A6 not started.** Stage 6C's own `POST /sales` HTTP layer (A6) still requires: A5's full auth/authz/terminal HTTP integration matrix run against A0–A4; a `SaleController`/`SaleFinalizeRequest`/route registered under the `web` middleware group; and `CheckoutService::finalize()` fed `$trustedTerminalId`/`$trustedCashierId` from a `PosRequestContext` (via `ComposeAuthoritativeContext`, now available) rather than the request body — none of that is built yet.
+
+---
+
+## 21. A5 implementation summary (HTTP integration test matrix, A0–A4)
+
+**Scope delivered**: audited every one of §13's 18 required test-matrix items against A1/A2/A3/A4's existing test suites, closed the two real gaps found, and left the two items that name a not-yet-built Stage 6C controller correctly deferred. No `SaleController`/route/`FormRequest` was built — that is A6's scope, explicitly out of bounds for this pass.
+
+**Full item-by-item result**:
+
+| # | Test | Result |
+|---|---|---|
+| 1 | Successful login | ✅ `AuthenticationSessionTest::test_successful_login_returns_the_user_summary` |
+| 2 | Bad credentials | ✅ `test_wrong_password_is_rejected`, `test_unknown_email_is_rejected_identically_to_a_wrong_password` |
+| 3 | Inactive user login/already-open session | ✅ `test_inactive_user_cannot_login`, `test_session_is_invalidated_the_moment_the_user_becomes_inactive` |
+| 4 | Logout | ✅ `test_logout_destroys_the_session_and_the_next_request_is_rejected` |
+| 5 | `/me` | ✅ `test_me_returns_the_current_authenticated_user` |
+| 6 | CSRF rejection | ✅ `test_csrf_is_enforced_on_a_state_changing_request` |
+| 7 | Unauthenticated protected request | ✅ **Gap closed this pass** — no test previously proved *every* protected route rejects an unauthenticated request, only one or two examples (`test_me_without_a_session_is_rejected`, `TerminalEnrollmentTest::test_unauthenticated_request_is_rejected`) and `auth/logout` had none at all. Added `ModuleAHttpIntegrationTest::test_every_protected_module_a_route_rejects_an_unauthenticated_request` (sweeps all 8 protected routes from `php artisan route:list --path=api/v1`) and `test_logout_without_a_session_returns_authentication_required`. |
+| 8 | Role/capability authorization | ✅ `AuthorizationTest::test_a_user_with_the_capability_is_allowed_through`, `test_a_user_without_the_capability_is_denied_with_403` |
+| 9 | Successful terminal enrollment | ✅ `TerminalEnrollmentTest::test_successful_enrollment_issues_a_terminal_cookie_and_it_resolves_this_terminal` |
+| 10 | One-time enrollment token reuse rejection | ✅ `test_a_used_token_cannot_be_reused` |
+| 11 | Invalid enrollment credential | ✅ `test_expired_token_is_rejected`, `test_unknown_token_is_rejected` |
+| 12 | Revoked terminal | ✅ `test_revoked_credential_is_rejected_and_the_human_session_stays_valid` |
+| 13 | User-store/terminal-store mismatch | ✅ `test_terminal_resolution_now_enforces_user_store_coherence` (A4) |
+| 13a | Shift belongs to a different cashier | ⏸ **Correctly deferred** — `CheckoutServiceTest::test_shift_belonging_to_a_different_cashier_is_rejected` already proves this at the Stage 6C layer against a *trusted parameter*; re-verification against a genuine authenticated cashier requires A6's controller, which does not exist yet. |
+| 14/15 | Request-body terminal/user/cashier-ID spoof | ✅ `test_request_body_store_id_cannot_override_the_actors_authoritative_store`, `test_enrollment_ignores_any_extra_body_fields`, plus **new this pass**: `ModuleAHttpIntegrationTest::test_terminal_current_ignores_spoofed_request_input` (proves the one currently-live `POS_TERMINAL` operation derives its identity exclusively from the credential/session, never a spoofed `terminal_id`/`user_id`/`cashier_id` in the query string) |
+| 16 | Admin request without POS terminal context | ✅ `test_management_operations_do_not_require_a_terminal_credential` |
+| 17 | Checkout request without terminal context | ⏸ **Principle proven, full item deferred** — `test_terminal_current_without_any_credential_returns_terminal_not_enrolled` proves this on `terminalCurrent`, the only `POS_TERMINAL`-classified operation that currently exists; re-verification against `saleFinalize` specifically requires A6. |
+| 18 | Multiple simultaneous sessions | ✅ Already proven from A1 — `AuthenticationSessionTest::test_multiple_simultaneous_sessions_are_allowed`. Confirmed by direct inspection (not assumption): Laravel ships no built-in concurrent-session limit, and `AuthController::login()` never invalidates another session — permitted by default, exactly as §13's own "likely permitted by default" guess anticipated. |
+
+**16 of 18 items fully closed; the remaining 2 (13a, 17) are honestly characterized as deferred rather than force-closed**, since both explicitly name a Stage 6C controller that A6 has not built yet — closing them now would mean testing against a trusted parameter again, which is already covered, not against the genuine authenticated context A6 introduces.
+
+**Files added**: `tests/Database/ModuleAHttpIntegrationTest.php` (3 methods).
+
+**Tests and totals**: Full regression: `tests/Unit` 102/474, `tests/Database` 201/716, `tests/Feature` 1/1, Pint clean. No baseline tag touched; A5 required no Stage 4 amendment and no new application code (audit + test-only pass).
+
+**A6 not started.** Stage 6C's own `POST /sales` HTTP layer still requires: a `SaleController`/`SaleFinalizeRequest`/route registered under the `web` middleware group; `CheckoutService::finalize()` fed `$trustedTerminalId`/`$trustedCashierId` from a `PosRequestContext` (via `ComposeAuthoritativeContext`) rather than the request body; and, once that controller exists, re-verification of matrix items 13a and 17 against it specifically.
