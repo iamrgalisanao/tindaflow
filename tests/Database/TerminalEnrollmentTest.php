@@ -314,8 +314,13 @@ class TerminalEnrollmentTest extends PostgresSchemaTestCase
         $this->forwardSessionCookie($login)->getJson("/api/v1/terminals/{$terminal->id}")->assertOk();
     }
 
-    // 26. No A4 Store-coherence rule has been silently implemented.
-    public function test_terminal_resolution_does_not_enforce_user_store_coherence(): void
+    // A4: ComposeAuthoritativeContext now enforces user.store_id ==
+    // terminal.store_id. A different store's admin, authenticated from
+    // the SAME (enrolled) browser, must not be able to resolve this
+    // terminal -- reported as TERMINAL_NOT_ENROLLED (403), the same
+    // outward signal as no credential at all, never a distinct code and
+    // never the terminal's real data.
+    public function test_terminal_resolution_now_enforces_user_store_coherence(): void
     {
         [$admin, $terminal, $plaintext, $login] = $this->issueToken();
         $enroll = $this->forwardSessionCookie($login)->postJson('/api/v1/terminal/enroll', ['token' => $plaintext]);
@@ -327,9 +332,40 @@ class TerminalEnrollmentTest extends PostgresSchemaTestCase
 
         $response = $this->forwardSessionCookie($otherLogin)->withTerminalCredential($enroll)->getJson('/api/v1/terminal/current');
 
-        // A3 does not compare user.store_id to terminal.store_id -- that's A4.
+        $response->assertStatus(403);
+        $response->assertJson(['error' => ['code' => 'TERMINAL_NOT_ENROLLED']]);
+        $this->assertNotSame('AUTHORIZATION_DENIED', $response->json('error.code'));
+        $this->assertStringNotContainsString($terminal->terminal_code, $response->getContent());
+    }
+
+    // The same-store case (already covered by other tests above) must
+    // keep succeeding -- this middleware only rejects a genuine mismatch.
+    public function test_terminal_resolution_succeeds_when_user_and_terminal_share_a_store(): void
+    {
+        [, $terminal, $plaintext, $login] = $this->issueToken();
+        $enroll = $this->forwardSessionCookie($login)->postJson('/api/v1/terminal/enroll', ['token' => $plaintext]);
+
+        $response = $this->forwardSessionCookie($login)->withTerminalCredential($enroll)->getJson('/api/v1/terminal/current');
+
         $response->assertOk();
         $response->assertJson(['id' => $terminal->id]);
+    }
+
+    // A4 layering: EnsureUserIsActive must still run before
+    // ComposeAuthoritativeContext -- an inactive user gets 401, never
+    // 403, even while carrying an otherwise-valid, same-store terminal
+    // credential.
+    public function test_an_inactive_user_is_rejected_with_401_before_reaching_the_coherence_check(): void
+    {
+        [$admin, , $plaintext, $login] = $this->issueToken();
+        $enroll = $this->forwardSessionCookie($login)->postJson('/api/v1/terminal/enroll', ['token' => $plaintext]);
+
+        $admin->update(['active' => false]);
+
+        $response = $this->forwardSessionCookie($login)->withTerminalCredential($enroll)->getJson('/api/v1/terminal/current');
+
+        $response->assertStatus(401);
+        $response->assertJson(['error' => ['code' => 'AUTHENTICATION_REQUIRED']]);
     }
 
     // A3 final closeout 1: a Store-A administrator cannot read a Store-B
@@ -402,8 +438,14 @@ class TerminalEnrollmentTest extends PostgresSchemaTestCase
         $this->assertSame($credentialHashBefore, $otherTerminal->credential_hash, 'the existing Store-B credential must be unaffected');
 
         // The Store-B terminal's own credential (already established by
-        // the enroll call above) still resolves normally afterward.
-        $current = $this->forwardSessionCookie($otherLogin)->withTerminalCredential($enroll)->getJson('/api/v1/terminal/current');
+        // the enroll call above) still resolves normally afterward. A
+        // FRESH login is captured here rather than reusing $otherLogin --
+        // the intervening bare login($admin) call above ambiently
+        // inherited whatever session cookie was still attached to $this
+        // and, via session()->regenerate(), can silently repoint that
+        // exact session ID at $admin instead of $otherAdmin.
+        $freshOtherLogin = $this->login($otherAdmin);
+        $current = $this->forwardSessionCookie($freshOtherLogin)->withTerminalCredential($enroll)->getJson('/api/v1/terminal/current');
         $current->assertOk();
         $current->assertJson(['id' => $otherTerminal->id]);
     }

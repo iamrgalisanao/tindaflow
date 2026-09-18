@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\TerminalController;
+use App\Http\Middleware\ComposeAuthoritativeContext;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\ResolveTerminalContext;
 use Illuminate\Support\Facades\Route;
@@ -25,16 +26,6 @@ Route::prefix('api/v1')->group(function () {
     // the human session + TERMINAL_MANAGE (back-office, no terminal
     // credential needed yet -- that's what these operations establish/
     // manage).
-    //
-    // terminalCurrent is deliberately NOT registered here. It is the one
-    // POS_TERMINAL-classified operation in this group and, per the
-    // Decision Register's layered model, its production readiness also
-    // depends on A4's user.store_id == terminal.store_id composition,
-    // which does not exist yet -- exposing it now would let a Store-A
-    // user observe a Store-B terminal's credential resolve successfully.
-    // The resolver, middleware, and controller action are fully
-    // implemented and tested (see the test-only registration below);
-    // only production route exposure is deferred to A4.
     Route::post('/terminal-enrollment-tokens', [TerminalController::class, 'createEnrollmentToken'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
     Route::post('/terminal/enroll', [TerminalController::class, 'enroll'])
@@ -45,6 +36,15 @@ Route::prefix('api/v1')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
     Route::post('/terminals/{terminalId}/revoke', [TerminalController::class, 'revoke'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
+
+    // terminalCurrent is the one POS_TERMINAL-classified operation in
+    // this group. A4 now exists: ComposeAuthoritativeContext enforces
+    // user.store_id == terminal.store_id after ResolveTerminalContext,
+    // so a Store-A user carrying a Store-B terminal's credential can no
+    // longer observe that terminal here -- production exposure was
+    // deferred (A3 closeout) exactly until this middleware existed.
+    Route::get('/terminal/current', [TerminalController::class, 'current'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
 });
 
 // A2 test-only harness: no real CATALOG_MANAGE-gated controller exists
@@ -56,14 +56,4 @@ Route::prefix('api/v1')->group(function () {
 if (app()->environment('testing')) {
     Route::get('/api/v1/_test/requires-catalog-manage', fn () => response()->json(['ok' => true]))
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
-
-    // A3 closeout: terminalCurrent's production route is deliberately not
-    // registered above (deferred to A4). Registered here, at the SAME
-    // path/controller/middleware, only under the testing environment, so
-    // the full auth + EnsureUserIsActive + ResolveTerminalContext +
-    // controller chain remains exactly as testable as it would be in
-    // production, without exposing it before A4's Store-coherence check
-    // exists. Never reachable outside test runs.
-    Route::get('/api/v1/terminal/current', [TerminalController::class, 'current'])
-        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class]);
 }
