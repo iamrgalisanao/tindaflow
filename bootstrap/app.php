@@ -8,6 +8,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -49,6 +50,35 @@ return Application::configure(basePath: dirname(__DIR__))
                     'request_id' => $request->attributes->get('request_id'),
                 ],
             ], 401);
+        });
+
+        // A2: authenticated but lacking the required capability.
+        // AuthenticationException (401 AUTHENTICATION_REQUIRED, above)
+        // and this (403 AUTHORIZATION_DENIED) are deliberately separate
+        // exception types/renderers -- EnsureUserIsActive always runs
+        // ahead of any `can:` middleware, so an inactive user's stale
+        // session never reaches this one. No missing-capability name or
+        // policy class is leaked; the frozen contract names neither.
+        //
+        // Registered against AccessDeniedHttpException, not
+        // Illuminate\Auth\Access\AuthorizationException directly: Laravel's
+        // own Handler::prepareException() unconditionally rewraps a
+        // status-less AuthorizationException into this Symfony exception
+        // before any custom render() callback runs (confirmed by reading
+        // the framework source after a callback registered for
+        // AuthorizationException itself never fired) -- Gate::authorize()
+        // and the `can:` middleware both throw the Illuminate exception,
+        // so by the time anything downstream can render it, it is always
+        // this one.
+        $exceptions->render(function (AccessDeniedHttpException $e, Request $request) {
+            return response()->json([
+                'error' => [
+                    'code' => 'AUTHORIZATION_DENIED',
+                    'message' => $e->getMessage(),
+                    'details' => [],
+                    'request_id' => $request->attributes->get('request_id'),
+                ],
+            ], 403);
         });
 
         // Login throttling (SS14 Ruling 6): RATE_LIMITED is emitted
