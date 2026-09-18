@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Pos from './pages/Pos';
+import TerminalEnroll from './pages/TerminalEnroll';
 
 function RequireAuth({ children }) {
     const { user } = useAuth();
@@ -48,6 +50,22 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <Dashboard />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/pos"
+                    element={
+                        <RequireAuth>
+                            <Pos />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/terminals"
+                    element={
+                        <RequireAuth>
+                            <TerminalEnroll />
                         </RequireAuth>
                     }
                 />

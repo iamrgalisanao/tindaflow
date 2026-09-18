@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\TerminalController;
@@ -69,6 +70,12 @@ Route::prefix('api/v1')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
     Route::get('/shifts/current', [ShiftController::class, 'current'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+
+    // openapi.yaml Catalog tag -- productList only (see ProductController's
+    // own docblock for what remains out of scope). No x-capability, no
+    // terminal credential required (operation-inventory.md).
+    Route::get('/products', [ProductController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
 });
 
 // A2 test-only harness: no real CATALOG_MANAGE-gated controller exists

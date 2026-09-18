@@ -1,12 +1,11 @@
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 /**
- * Authenticated landing page. POS mode and Back-office mode
- * (docs/06-ui/sitemap.md) are not built yet -- both are blocked on
- * backend endpoints that don't exist (see
- * stage-7-frontend-initialization.md §2) -- so this deliberately shows
- * the real, current session state rather than a screen with nothing
- * real to do.
+ * Authenticated landing page. Back-office mode (docs/06-ui/sitemap.md)
+ * beyond terminal management is not built yet -- most of it is blocked
+ * on backend endpoints that don't exist (see
+ * stage-7-frontend-initialization.md §2). POS mode is now real.
  */
 export default function Dashboard() {
     const { user, logout } = useAuth();
@@ -48,10 +47,27 @@ export default function Dashboard() {
                     </div>
                 </div>
 
+                <div className="flex gap-2">
+                    <Link
+                        to="/pos"
+                        className="flex-1 rounded-md bg-gray-900 px-4 py-2 text-center text-sm font-medium text-white hover:bg-gray-800"
+                    >
+                        Open POS
+                    </Link>
+                    {user.capabilities.includes('TERMINAL_MANAGE') && (
+                        <Link
+                            to="/terminals"
+                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-center text-sm hover:bg-gray-50"
+                        >
+                            Terminal enrollment
+                        </Link>
+                    )}
+                </div>
+
                 <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    POS checkout and back-office screens are not built yet — both need
-                    backend endpoints (shift management; product/inventory/reports/user
-                    management) that don't exist yet.
+                    Back-office screens beyond terminal management (products, inventory,
+                    reports, users) are not built yet — their backend endpoints don't
+                    exist yet.
                 </p>
             </div>
         </div>
