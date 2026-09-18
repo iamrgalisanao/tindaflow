@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Exceptions\TerminalNotFoundException;
 use App\Http\Requests\CreateEnrollmentTokenRequest;
 use App\Http\Requests\EnrollTerminalRequest;
 use App\Http\Resources\TerminalEnrollmentTokenResource;
@@ -30,8 +31,7 @@ class TerminalController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        $terminal = Terminal::where('store_id', $actor->store_id)
-            ->findOrFail($request->validated('terminal_id'));
+        $terminal = $this->findInActorsStore($request->validated('terminal_id'), $actor->store_id);
 
         $issued = $service->issue($terminal, $actor);
 
@@ -88,7 +88,7 @@ class TerminalController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        $terminal = Terminal::where('store_id', $actor->store_id)->findOrFail($terminalId);
+        $terminal = $this->findInActorsStore($terminalId, $actor->store_id);
 
         return (new TerminalSummaryResource($terminal))->response();
     }
@@ -97,7 +97,7 @@ class TerminalController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        $terminal = Terminal::where('store_id', $actor->store_id)->findOrFail($terminalId);
+        $terminal = $this->findInActorsStore($terminalId, $actor->store_id);
 
         // Only revoked_at changes -- module-a-auth-terminal-initialization.md
         // §14 Ruling 3/9: revocation is independent of TerminalStatus, no
@@ -105,6 +105,29 @@ class TerminalController extends Controller
         $terminal->update(['revoked_at' => now()]);
 
         return (new TerminalSummaryResource($terminal->refresh()))->response();
+    }
+
+    /**
+     * A terminal ID outside the actor's own store is indistinguishable
+     * from one that doesn't exist at all -- TERMINAL_NOT_FOUND (404),
+     * never a bare Eloquent findOrFail(). A raw ModelNotFoundException
+     * is unconditionally rewrapped into Symfony's NotFoundHttpException
+     * by Illuminate\Foundation\Exceptions\Handler::prepareException()
+     * before any custom renderer for the original type could run (the
+     * same class of rewrap A2 already documented for
+     * AuthorizationException -> AccessDeniedHttpException), which would
+     * otherwise leak Laravel's raw default error shape instead of the
+     * frozen envelope.
+     */
+    private function findInActorsStore(string $terminalId, string $actorStoreId): Terminal
+    {
+        $terminal = Terminal::where('store_id', $actorStoreId)->find($terminalId);
+
+        if ($terminal === null) {
+            throw TerminalNotFoundException::forId($terminalId);
+        }
+
+        return $terminal;
     }
 
     private function credentialCookie(string $plaintextCredential): \Symfony\Component\HttpFoundation\Cookie

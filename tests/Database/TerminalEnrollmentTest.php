@@ -332,22 +332,80 @@ class TerminalEnrollmentTest extends PostgresSchemaTestCase
         $response->assertJson(['id' => $terminal->id]);
     }
 
-    // Store scoping for terminal management: another store's terminal is 404, not exposed.
-    public function test_terminal_management_is_scoped_to_the_actors_own_store(): void
+    // A3 final closeout 1: a Store-A administrator cannot read a Store-B
+    // terminal's data via GET -- must be indistinguishable from "does not
+    // exist," using the frozen TERMINAL_NOT_FOUND envelope, never leaking
+    // Laravel's raw ModelNotFoundException/NotFoundHttpException shape.
+    public function test_cross_store_terminal_get_does_not_expose_store_b_terminal_information(): void
     {
         $admin = $this->admin();
         $otherStoreTerminal = Terminal::factory()->create(); // different store, per factory default
         $login = $this->login($admin);
 
-        $get = $this->forwardSessionCookie($login)->getJson("/api/v1/terminals/{$otherStoreTerminal->id}");
-        $get->assertStatus(404);
+        $response = $this->forwardSessionCookie($login)->getJson("/api/v1/terminals/{$otherStoreTerminal->id}");
 
-        $createToken = $this->forwardSessionCookie($login)
+        $response->assertStatus(404);
+        $response->assertJson(['error' => ['code' => 'TERMINAL_NOT_FOUND']]);
+        $response->assertJsonStructure(['error' => ['code', 'message', 'details', 'request_id']]);
+        // No TerminalSummary field (terminal_code/status/activated_at) of
+        // the actual Store-B record is present anywhere in the body.
+        $this->assertStringNotContainsString($otherStoreTerminal->terminal_code, $response->getContent());
+        $this->assertArrayNotHasKey('terminal_code', $response->json());
+        $this->assertArrayNotHasKey('status', $response->json());
+    }
+
+    // A3 final closeout 2: a Store-A administrator cannot generate an
+    // enrollment token for a Store-B terminal -- this is a distinct
+    // attack path from consuming an already-issued token (see
+    // test_a_valid_token_cannot_be_used_by_an_administrator_from_a_different_store
+    // below), since issuance is where the token would first come into
+    // existence at all.
+    public function test_cross_store_enrollment_token_issuance_fails_and_creates_no_row(): void
+    {
+        $admin = $this->admin();
+        $otherStoreTerminal = Terminal::factory()->unenrolled()->create();
+        $login = $this->login($admin);
+
+        $this->assertSame(0, TerminalEnrollmentToken::count());
+
+        $response = $this->forwardSessionCookie($login)
             ->postJson('/api/v1/terminal-enrollment-tokens', ['terminal_id' => $otherStoreTerminal->id]);
-        $createToken->assertStatus(404);
 
-        $revoke = $this->forwardSessionCookie($login)->postJson("/api/v1/terminals/{$otherStoreTerminal->id}/revoke");
-        $revoke->assertStatus(404);
+        $response->assertStatus(404);
+        $response->assertJson(['error' => ['code' => 'TERMINAL_NOT_FOUND']]);
+        $this->assertSame(0, TerminalEnrollmentToken::count(), 'no enrollment-token row may be created for a cross-store terminal_id');
+        $this->assertNull($response->json('token'), 'no plaintext token may ever be returned for a denied cross-store request');
+    }
+
+    // A3 final closeout 3: a Store-A administrator cannot revoke a
+    // Store-B terminal's credential.
+    public function test_cross_store_terminal_revoke_fails_and_leaves_store_b_terminal_unaffected(): void
+    {
+        $admin = $this->admin();
+        [$otherAdmin, $otherTerminal, $otherPlaintext] = $this->issueToken();
+        $otherLogin = $this->login($otherAdmin);
+        $enroll = $this->forwardSessionCookie($otherLogin)->postJson('/api/v1/terminal/enroll', ['token' => $otherPlaintext]);
+        $enroll->assertOk();
+        $this->assertNotSame($admin->store_id, $otherTerminal->store_id);
+
+        $credentialHashBefore = $otherTerminal->refresh()->credential_hash;
+        $this->assertNull($otherTerminal->revoked_at);
+
+        $login = $this->login($admin);
+        $response = $this->forwardSessionCookie($login)->postJson("/api/v1/terminals/{$otherTerminal->id}/revoke");
+
+        $response->assertStatus(404);
+        $response->assertJson(['error' => ['code' => 'TERMINAL_NOT_FOUND']]);
+
+        $otherTerminal->refresh();
+        $this->assertNull($otherTerminal->revoked_at, 'revoked_at must remain unchanged for a cross-store revoke attempt');
+        $this->assertSame($credentialHashBefore, $otherTerminal->credential_hash, 'the existing Store-B credential must be unaffected');
+
+        // The Store-B terminal's own credential (already established by
+        // the enroll call above) still resolves normally afterward.
+        $current = $this->forwardSessionCookie($otherLogin)->withTerminalCredential($enroll)->getJson('/api/v1/terminal/current');
+        $current->assertOk();
+        $current->assertJson(['id' => $otherTerminal->id]);
     }
 
     // A3 closeout item 2.1: Store-A administrator lists only Store-A terminals.
