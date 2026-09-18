@@ -6,6 +6,10 @@ use App\Http\Controllers\FiscalInstallationController;
 use App\Http\Controllers\InventoryLocationController;
 use App\Http\Controllers\InvoiceSeriesController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\Reports\InventoryReportController;
+use App\Http\Controllers\Reports\SalesReportController;
+use App\Http\Controllers\Reports\ShiftReportController;
+use App\Http\Controllers\Reports\VoidRefundReportController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\StoreSetupController;
@@ -133,6 +137,28 @@ Route::prefix('api/v1')->group(function () {
     // just an admin.
     Route::get('/store-setup/readiness', [StoreSetupController::class, 'readiness'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+
+    // openapi.yaml Reports tag (15 operations) -- session-only, no
+    // terminal credential, all REPORT_VIEW. No domain-specific failure
+    // mode exists for any of these (operation-inventory.md: "reports
+    // never fail on business state, only on auth").
+    Route::middleware(['auth', EnsureUserIsActive::class, 'can:REPORT_VIEW'])->group(function () {
+        Route::get('/reports/daily-sales-summary', [SalesReportController::class, 'dailySalesSummary']);
+        Route::get('/reports/sales-by-date-range', [SalesReportController::class, 'salesByDateRange']);
+        Route::get('/reports/sales-by-product', [SalesReportController::class, 'salesByProduct']);
+        Route::get('/reports/sales-by-category', [SalesReportController::class, 'salesByCategory']);
+        Route::get('/reports/sales-by-cashier', [SalesReportController::class, 'salesByCashier']);
+        Route::get('/reports/sales-by-payment-method', [SalesReportController::class, 'salesByPaymentMethod']);
+        Route::get('/reports/tax-breakdown', [SalesReportController::class, 'taxBreakdown']);
+        Route::get('/reports/discounts', [SalesReportController::class, 'discounts']);
+        Route::get('/reports/voids', [VoidRefundReportController::class, 'voids']);
+        Route::get('/reports/refunds', [VoidRefundReportController::class, 'refunds']);
+        Route::get('/reports/inventory-on-hand', [InventoryReportController::class, 'inventoryOnHand']);
+        Route::get('/reports/low-stock', [InventoryReportController::class, 'lowStock']);
+        Route::get('/reports/inventory-movement', [InventoryReportController::class, 'inventoryMovement']);
+        Route::get('/reports/shifts', [ShiftReportController::class, 'shifts']);
+        Route::get('/reports/cash-variance', [ShiftReportController::class, 'cashVariance']);
+    });
 });
 
 // A2 test-only harness: no real CATALOG_MANAGE-gated controller exists

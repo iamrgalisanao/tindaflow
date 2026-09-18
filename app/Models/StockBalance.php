@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Database\Factories\StockBalanceFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -12,6 +14,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class StockBalance extends Model
 {
+    /** @use HasFactory<StockBalanceFactory> */
+    use HasFactory;
+
     protected $table = 'stock_balances';
 
     public $incrementing = false;
