@@ -97,6 +97,17 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // A3 discovery: without this, PostgresConnector never issues a
+            // `SET TIME ZONE`, so the connection defaults to the server's
+            // own local zone (confirmed here: Asia/Kuala_Lumpur, not UTC).
+            // Every timestamptz round-trip through PDO (write a naive
+            // datetime string, read it back re-tagged with the session's
+            // offset) was silently off by that offset -- reproduced
+            // directly via terminal_enrollment_tokens.expires_at, a
+            // genuinely future timestamp reading as already-past. This
+            // pins the session to config/app.php's own 'UTC', which every
+            // PHP-side now()/Carbon comparison already assumes.
+            'timezone' => env('DB_TIMEZONE', 'UTC'),
         ],
 
         'sqlsrv' => [

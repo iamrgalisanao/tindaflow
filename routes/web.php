@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\TerminalController;
 use App\Http\Middleware\EnsureUserIsActive;
+use App\Http\Middleware\ResolveTerminalContext;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -17,6 +19,25 @@ Route::prefix('api/v1')->group(function () {
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::post('/auth/logout', [AuthController::class, 'logout'])->middleware(['auth', EnsureUserIsActive::class]);
     Route::get('/auth/me', [AuthController::class, 'me'])->middleware(['auth', EnsureUserIsActive::class]);
+
+    // openapi.yaml Terminal tag (ADR-011, A3). terminalCreateEnrollmentToken/
+    // terminalEnroll/terminalList/terminalGet/terminalRevoke require only
+    // the human session + TERMINAL_MANAGE (back-office, no terminal
+    // credential needed yet -- that's what these operations establish/
+    // manage). terminalCurrent is the one POS_TERMINAL-classified
+    // operation here and additionally requires ResolveTerminalContext.
+    Route::post('/terminal-enrollment-tokens', [TerminalController::class, 'createEnrollmentToken'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
+    Route::post('/terminal/enroll', [TerminalController::class, 'enroll'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
+    Route::get('/terminal/current', [TerminalController::class, 'current'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class]);
+    Route::get('/terminals', [TerminalController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
+    Route::get('/terminals/{terminalId}', [TerminalController::class, 'get'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
+    Route::post('/terminals/{terminalId}/revoke', [TerminalController::class, 'revoke'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
 });
 
 // A2 test-only harness: no real CATALOG_MANAGE-gated controller exists
