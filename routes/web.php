@@ -8,8 +8,12 @@ use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\ResolveTerminalContext;
 use Illuminate\Support\Facades\Route;
 
+// Stage 7: the SPA shell. Also the CSRF-bootstrap entry point a fresh
+// browser must load before POSTing to /api/v1/auth/login (already
+// proven end-to-end by AuthenticationSessionTest's CSRF-bootstrap test,
+// which only checks cookies/headers, never this view's markup).
 Route::get('/', function () {
-    return view('welcome');
+    return view('app');
 });
 
 // openapi.yaml Auth tag. Session-authenticated, same-origin JSON API
@@ -66,3 +70,11 @@ if (app()->environment('testing')) {
     Route::get('/api/v1/_test/requires-catalog-manage', fn () => response()->json(['ok' => true]))
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
 }
+
+// Stage 7: client-side routing catch-all, so a direct load or refresh of
+// e.g. /login serves the SPA shell instead of a 404. Registered last and
+// excludes `api/...` so an unmatched API path still 404s as JSON rather
+// than silently returning HTML.
+Route::get('/{any}', function () {
+    return view('app');
+})->where('any', '^(?!api).*$');

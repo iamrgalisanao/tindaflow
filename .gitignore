@@ -20,6 +20,8 @@ Thumbs.db
 
 # Build output
 /public/build/
+/public/hot
+/public/fonts-manifest.dev.json
 /storage/*.key
 
 # Laravel / PHPUnit local artifacts
