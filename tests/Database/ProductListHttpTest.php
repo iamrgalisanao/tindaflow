@@ -76,6 +76,18 @@ class ProductListHttpTest extends PostgresSchemaTestCase
         $this->assertFalse($ids->contains($inactive->id));
     }
 
+    public function test_a_category_filter_that_is_not_a_uuid_matches_nothing_instead_of_failing(): void
+    {
+        $store = Store::factory()->create();
+        $user = User::factory()->create(['store_id' => $store->id]);
+        Product::factory()->create(['store_id' => $store->id]);
+
+        $response = $this->forwardSessionCookie($this->login($user))->getJson('/api/v1/products?category_id=not-a-uuid');
+
+        $response->assertOk();
+        $this->assertSame([], $response->json('data'));
+    }
+
     public function test_unauthenticated_request_is_rejected(): void
     {
         $response = $this->getJson('/api/v1/products');

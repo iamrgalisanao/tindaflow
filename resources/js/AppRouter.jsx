@@ -12,6 +12,8 @@ import TaxRegistrations from './pages/admin/TaxRegistrations';
 import ProductsPage from './pages/admin/catalog/ProductsPage';
 import CatalogNamesPage from './pages/admin/catalog/CatalogNamesPage';
 import UsersPage from './pages/admin/users/UsersPage';
+import StockPage from './pages/admin/inventory/StockPage';
+import MovementsPage from './pages/admin/inventory/MovementsPage';
 import ReportsHub from './pages/admin/reports/ReportsHub';
 import ReportViewer from './pages/admin/reports/ReportViewer';
 
@@ -124,6 +126,23 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <UsersPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route path="/admin/inventory" element={<Navigate to="/admin/inventory/stock" replace />} />
+                <Route
+                    path="/admin/inventory/stock"
+                    element={
+                        <RequireAuth>
+                            <StockPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/inventory/movements"
+                    element={
+                        <RequireAuth>
+                            <MovementsPage />
                         </RequireAuth>
                     }
                 />

@@ -305,6 +305,22 @@ class ReportsHttpTest extends PostgresSchemaTestCase
         $this->assertSame('42.000', $rows[0]['quantity_on_hand']);
     }
 
+    public function test_inventory_on_hand_ignores_products_that_do_not_track_inventory(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $location = InventoryLocation::factory()->create(['store_id' => $store->id]);
+        $tracked = Product::factory()->create(['store_id' => $store->id]);
+        $untracked = Product::factory()->create(['store_id' => $store->id, 'track_inventory' => false]);
+        StockBalance::factory()->create(['product_id' => $tracked->id, 'location_id' => $location->id, 'quantity_on_hand' => '5.000']);
+        StockBalance::factory()->create(['product_id' => $untracked->id, 'location_id' => $location->id, 'quantity_on_hand' => '-12.000']);
+
+        $rows = $this->forwardSessionCookie($this->login($admin))->getJson('/api/v1/reports/inventory-on-hand')->assertOk()->json('rows');
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('5.000', $rows[0]['quantity_on_hand']);
+    }
+
     public function test_low_stock_only_shows_products_below_reorder_level(): void
     {
         $store = Store::factory()->create();

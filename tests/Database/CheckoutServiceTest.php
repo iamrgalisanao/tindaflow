@@ -15,6 +15,7 @@ use App\Models\InvoiceSeries;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Shift;
+use App\Models\StockBalance;
 use App\Models\User;
 use App\Services\Checkout\CheckoutService;
 use App\Services\Checkout\FiscalInstallationResolver;
@@ -22,6 +23,7 @@ use App\Services\Checkout\InventoryLocationResolver;
 use App\Services\Checkout\TaxRegistrationResolver;
 use App\Services\Idempotency\CanonicalRequestHasher;
 use App\Services\Idempotency\IdempotencyService;
+use App\Services\Inventory\StockLedger;
 use App\Services\InvoiceNumbering\InvoiceSeriesAllocator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -47,6 +49,7 @@ class CheckoutServiceTest extends PostgresSchemaTestCase
             new InventoryLocationResolver,
             new TaxRegistrationResolver,
             new InvoiceSeriesAllocator,
+            new StockLedger,
         );
     }
 
@@ -202,6 +205,36 @@ class CheckoutServiceTest extends PostgresSchemaTestCase
             $sale->grand_total,
             (string) $sale->items()->sum('net_line_amount')
         );
+    }
+
+    /** Invariants #44/#47: a sale's SALE movement moves stock_balances in the same transaction. */
+    public function test_checkout_reduces_the_stock_balance_by_the_quantity_sold(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+        $location = InventoryLocation::where('store_id', $product->store_id)->where('is_default', true)->sole();
+        DB::table('stock_balances')->insert([
+            'product_id' => $product->id, 'location_id' => $location->id, 'quantity_on_hand' => '10.000', 'updated_at' => now(),
+        ]);
+
+        $this->checkoutService->finalize($shift->terminal_id, $shift->cashier_id, (string) Str::uuid(), [
+            'items' => [['product_id' => $product->id, 'quantity' => '2']],
+            'payments' => [['method' => 'CASH', 'amount' => '200.00']],
+        ]);
+
+        $this->assertSame('8.000', StockBalance::where('product_id', $product->id)->where('location_id', $location->id)->sole()->quantity_on_hand);
+    }
+
+    public function test_a_replayed_checkout_reduces_stock_only_once(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+        $location = InventoryLocation::where('store_id', $product->store_id)->where('is_default', true)->sole();
+        $key = (string) Str::uuid();
+        $payload = ['items' => [['product_id' => $product->id, 'quantity' => '1']], 'payments' => [['method' => 'CASH', 'amount' => '100.00']]];
+
+        $this->checkoutService->finalize($shift->terminal_id, $shift->cashier_id, $key, $payload);
+        $this->checkoutService->finalize($shift->terminal_id, $shift->cashier_id, $key, $payload);
+
+        $this->assertSame('-1.000', StockBalance::where('product_id', $product->id)->where('location_id', $location->id)->sole()->quantity_on_hand);
     }
 
     public function test_checkout_recomputes_totals_server_side_ignoring_client_hints(): void

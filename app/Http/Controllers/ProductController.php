@@ -10,6 +10,7 @@ use App\Services\Catalog\ProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 /**
  * openapi.yaml Catalog tag -- productList/Get (any authenticated user, no terminal credential:
@@ -30,7 +31,10 @@ class ProductController extends Controller
         $query = Product::where('store_id', $actor->store_id);
 
         if ($request->filled('category_id')) {
-            $query->where('category_id', $request->query('category_id'));
+            // A value that is not a UUID can match no row; comparing it to a uuid column is a database error.
+            Str::isUuid((string) $request->query('category_id'))
+                ? $query->where('category_id', $request->query('category_id'))
+                : $query->whereRaw('1 = 0');
         }
         if ($request->filled('active')) {
             $query->where('active', filter_var($request->query('active'), FILTER_VALIDATE_BOOLEAN));

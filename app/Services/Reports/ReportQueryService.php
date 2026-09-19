@@ -349,6 +349,7 @@ final class ReportQueryService
         $rows = DB::table('stock_balances')
             ->join('products', 'products.id', '=', 'stock_balances.product_id')
             ->where('products.store_id', $storeId)
+            ->where('products.track_inventory', true) // same rule as lowStock: an untracked product's ledger is not stock
             ->select([
                 'stock_balances.product_id', 'products.sku', 'products.name as product_name',
                 'stock_balances.location_id', 'stock_balances.quantity_on_hand', 'products.reorder_level',

@@ -78,6 +78,14 @@ export default function Dashboard() {
                             Catalog
                         </Link>
                     )}
+                    {user.capabilities.includes('STOCK_ADJUST') && (
+                        <Link
+                            to="/admin/inventory/stock"
+                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-center text-sm hover:bg-gray-50"
+                        >
+                            Inventory
+                        </Link>
+                    )}
                     {user.capabilities.includes('USER_MANAGE') && (
                         <Link
                             to="/admin/users"
@@ -97,9 +105,8 @@ export default function Dashboard() {
                 </div>
 
                 <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    Stock receipts and adjustments, the audit log, and the
-                    electronic journal have no screens yet — their backend
-                    endpoints don't exist yet.
+                    The audit log and the electronic journal have no screens
+                    yet — their backend endpoints don't exist yet.
                 </p>
             </div>
         </div>

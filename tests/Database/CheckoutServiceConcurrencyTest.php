@@ -65,7 +65,7 @@ class CheckoutServiceConcurrencyTest extends TestCase
             self::$migrated = true;
         } else {
             foreach ([
-                'electronic_journal_entries', 'audit_events', 'stock_movements', 'invoices',
+                'electronic_journal_entries', 'audit_events', 'stock_movements', 'stock_balances', 'invoices',
                 'payments', 'sale_items', 'sales', 'idempotency_records', 'invoice_series',
                 'terminal_fiscal_installations', 'tax_registrations', 'inventory_locations',
                 'fiscal_installations', 'products', 'shifts', 'fiscal_days', 'terminals', 'users', 'stores',

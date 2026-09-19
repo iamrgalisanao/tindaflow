@@ -22,6 +22,7 @@ use App\Services\Checkout\InventoryLocationResolver;
 use App\Services\Checkout\TaxRegistrationResolver;
 use App\Services\Idempotency\CanonicalRequestHasher;
 use App\Services\Idempotency\IdempotencyService;
+use App\Services\Inventory\StockLedger;
 use App\Services\InvoiceNumbering\InvoiceSeriesAllocator;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
@@ -61,6 +62,7 @@ $checkoutService = new CheckoutService(
     new InventoryLocationResolver,
     new TaxRegistrationResolver,
     new InvoiceSeriesAllocator,
+    new StockLedger,
 );
 
 try {

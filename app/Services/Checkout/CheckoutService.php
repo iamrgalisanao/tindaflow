@@ -19,12 +19,12 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleItem;
-use App\Models\StockMovement;
 use App\Models\Terminal;
 use App\Services\Idempotency\CanonicalRequestHasher;
 use App\Services\Idempotency\IdempotencyOperationType;
 use App\Services\Idempotency\IdempotencyService;
 use App\Services\Idempotency\OperationOutcome;
+use App\Services\Inventory\StockLedger;
 use App\Services\InvoiceNumbering\InvoiceSeriesAllocator;
 use App\Support\GlobalLockOrder;
 use App\Support\LockableResource;
@@ -58,6 +58,7 @@ final class CheckoutService
         private readonly InventoryLocationResolver $inventoryLocationResolver,
         private readonly TaxRegistrationResolver $taxRegistrationResolver,
         private readonly InvoiceSeriesAllocator $invoiceSeriesAllocator,
+        private readonly StockLedger $stockLedger,
     ) {}
 
     /**
@@ -326,14 +327,16 @@ final class CheckoutService
         ]);
 
         // ADR-003 step 7: one SALE-type stock_movement per sale_item,
-        // all against the resolved default location.
+        // all against the resolved default location. Written through the
+        // StockLedger so stock_balances moves in the same transaction
+        // (invariant #44); it was previously left untouched by sales.
         foreach ($saleItems as $saleItem) {
-            StockMovement::create([
+            $this->stockLedger->record([
                 'product_id' => $saleItem->product_id,
                 'location_id' => $locationId,
                 'terminal_id' => $terminalId,
                 'movement_type' => 'SALE',
-                'quantity' => $saleItem->quantity,
+                'quantity' => (string) $saleItem->quantity,
                 'reference_type' => 'sale_item',
                 'reference_id' => $saleItem->id,
                 'unit_cost' => $saleItem->unit_cost_snapshot,

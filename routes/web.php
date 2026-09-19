@@ -5,6 +5,7 @@ use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\FiscalDayController;
 use App\Http\Controllers\FiscalInstallationController;
+use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\InventoryLocationController;
 use App\Http\Controllers\InvoiceSeriesController;
 use App\Http\Controllers\ProductController;
@@ -125,6 +126,20 @@ Route::prefix('api/v1')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/brands', [BrandController::class, 'create'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+
+    // openapi.yaml Inventory tag. Reads are session-only. Receipts/adjustments attribute the
+    // movement to a physical terminal and are idempotent (operation-inventory.md: terminal
+    // enrolled = true), so they carry the terminal chain plus STOCK_ADJUST (ADMIN, MANAGER).
+    Route::get('/inventory/stock', [InventoryController::class, 'stock'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/inventory/low-stock', [InventoryController::class, 'lowStock'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/inventory/movements', [InventoryController::class, 'movements'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/inventory/receipts', [InventoryController::class, 'receive'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:STOCK_ADJUST']);
+    Route::post('/inventory/adjustments', [InventoryController::class, 'adjust'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:STOCK_ADJUST']);
 
     // openapi.yaml Users tag -- all USER_MANAGE, session-only, no terminal credential.
     // userActivate is forward-committed (docs/06-backend/stage-13-users.md).

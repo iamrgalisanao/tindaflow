@@ -17,6 +17,11 @@ const CATALOG_NAV = [
     { to: '/admin/catalog/brands', label: 'Brands' },
 ];
 
+const INVENTORY_NAV = [
+    { to: '/admin/inventory/stock', label: 'Stock' },
+    { to: '/admin/inventory/movements', label: 'Movements' },
+];
+
 function Icon({ children }) {
     return (
         <svg
@@ -64,6 +69,13 @@ const ICONS = {
         <Icon>
             <path d="M21 8l-9-5-9 5v8l9 5 9-5V8z" />
             <path d="M3 8l9 5 9-5M12 13v8" />
+        </Icon>
+    ),
+    inventory: (
+        <Icon>
+            <rect x="3" y="12" width="8" height="8" rx="1" />
+            <rect x="13" y="12" width="8" height="8" rx="1" />
+            <rect x="8" y="4" width="8" height="8" rx="1" />
         </Icon>
     ),
     store: (
@@ -122,6 +134,15 @@ const SECTIONS = [
         capability: 'CATALOG_MANAGE',
         matches: (path) => path.startsWith('/admin/catalog'),
         links: CATALOG_NAV,
+    },
+    {
+        id: 'inventory',
+        label: 'Inventory',
+        to: '/admin/inventory/stock',
+        icon: 'inventory',
+        capability: 'STOCK_ADJUST',
+        matches: (path) => path.startsWith('/admin/inventory'),
+        links: INVENTORY_NAV,
     },
     {
         id: 'users',
