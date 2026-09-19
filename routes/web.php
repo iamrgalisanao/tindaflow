@@ -149,8 +149,13 @@ Route::prefix('api/v1')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
     Route::post('/shifts/{shiftId}/cash-movements', [ShiftController::class, 'createCashMovement'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
-    Route::get('/shifts/{shiftId}/x-readings', [ShiftController::class, 'listXReadings'])
-        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+    // History reads (shiftList/shiftGet/shiftXReadingList) are session-only and store-scoped, like saleList.
+    Route::get('/shifts', [ShiftController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/shifts/{shiftId}', [ShiftController::class, 'get'])->whereUuid('shiftId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/shifts/{shiftId}/x-readings', [ShiftController::class, 'listXReadings'])->whereUuid('shiftId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/shifts/{shiftId}/x-readings', [ShiftController::class, 'createXReading'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
 
@@ -159,8 +164,13 @@ Route::prefix('api/v1')->group(function () {
     // chain -- an admin/manager action, not any cashier's.
     Route::post('/fiscal-days/{fiscalDayId}/close', [FiscalDayController::class, 'close'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:FISCAL_DAY_CLOSE']);
-    Route::get('/fiscal-days/{fiscalDayId}/z-reading', [FiscalDayController::class, 'getZReading'])
-        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+    // History reads (fiscalDayList/fiscalDayGet/fiscalDayZReadingGet) are session-only and store-scoped.
+    Route::get('/fiscal-days', [FiscalDayController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/fiscal-days/{fiscalDayId}', [FiscalDayController::class, 'get'])->whereUuid('fiscalDayId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/fiscal-days/{fiscalDayId}/z-reading', [FiscalDayController::class, 'getZReading'])->whereUuid('fiscalDayId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
 
     // openapi.yaml Catalog tag. Reads need only the session (operation-inventory.md);
     // every mutation is CATALOG_MANAGE. No terminal credential. {productId} is

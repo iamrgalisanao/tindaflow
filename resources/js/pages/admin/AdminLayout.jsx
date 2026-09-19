@@ -26,6 +26,8 @@ const SALES_NAV = [
 const RECORDS_NAV = [
     { to: '/admin/audit', label: 'Audit log', capability: 'AUDIT_VIEW' },
     { to: '/admin/journal', label: 'Electronic journal', capability: 'JOURNAL_VIEW' },
+    { to: '/admin/shifts', label: 'Shifts', capability: 'REPORT_VIEW' },
+    { to: '/admin/fiscal-days', label: 'Fiscal days', capability: 'REPORT_VIEW' },
 ];
 
 const INVENTORY_NAV = [
@@ -181,8 +183,8 @@ const SECTIONS = [
         label: 'Records',
         to: '/admin/audit',
         icon: 'records',
-        capability: ['AUDIT_VIEW', 'JOURNAL_VIEW'],
-        matches: (path) => path.startsWith('/admin/audit') || path.startsWith('/admin/journal'),
+        capability: ['AUDIT_VIEW', 'JOURNAL_VIEW', 'REPORT_VIEW'],
+        matches: (path) => ['/admin/audit', '/admin/journal', '/admin/shifts', '/admin/fiscal-days'].some((prefix) => path.startsWith(prefix)),
         links: RECORDS_NAV,
     },
     {

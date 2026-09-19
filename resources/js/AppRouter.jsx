@@ -18,6 +18,10 @@ import SalesPage from './pages/admin/sales/SalesPage';
 import SaleDetailPage from './pages/admin/sales/SaleDetailPage';
 import ApprovalsPage from './pages/admin/sales/ApprovalsPage';
 import AuditLogPage from './pages/admin/records/AuditLogPage';
+import ShiftsPage from './pages/admin/records/ShiftsPage';
+import ShiftDetailPage from './pages/admin/records/ShiftDetailPage';
+import FiscalDaysPage from './pages/admin/records/FiscalDaysPage';
+import FiscalDayDetailPage from './pages/admin/records/FiscalDayDetailPage';
 import JournalPage from './pages/admin/records/JournalPage';
 import MovementsPage from './pages/admin/inventory/MovementsPage';
 import ReportsHub from './pages/admin/reports/ReportsHub';
@@ -164,6 +168,38 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <SaleDetailPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/shifts"
+                    element={
+                        <RequireAuth>
+                            <ShiftsPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/shifts/:shiftId"
+                    element={
+                        <RequireAuth>
+                            <ShiftDetailPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/fiscal-days"
+                    element={
+                        <RequireAuth>
+                            <FiscalDaysPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/fiscal-days/:fiscalDayId"
+                    element={
+                        <RequireAuth>
+                            <FiscalDayDetailPage />
                         </RequireAuth>
                     }
                 />
