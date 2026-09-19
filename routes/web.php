@@ -170,6 +170,10 @@ Route::prefix('api/v1')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/products', [ProductController::class, 'create'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    // productLookupByBarcode is a cashier-scanning operation (operation-inventory.md: session + enrolled
+    // terminal, no capability), unlike the catalog reads around it which need only the session.
+    Route::get('/products/by-barcode/{barcode}', [ProductController::class, 'lookupByBarcode'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
     Route::get('/products/{productId}', [ProductController::class, 'get'])->whereUuid('productId')
         ->middleware(['auth', EnsureUserIsActive::class]);
     Route::patch('/products/{productId}', [ProductController::class, 'update'])->whereUuid('productId')

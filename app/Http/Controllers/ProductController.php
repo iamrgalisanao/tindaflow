@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Exceptions\BarcodeNotFoundException;
 use App\Http\Controllers\Concerns\RespondsWithPagination;
 use App\Http\Requests\ProductInputRequest;
 use App\Http\Resources\ProductResource;
 use App\Models\Product;
+use App\Models\ProductBarcode;
 use App\Services\Catalog\ProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,6 +57,28 @@ class ProductController extends Controller
             $query->paginate(perPage: $this->perPage($request), page: (int) $request->query('page', 1)),
             ProductResource::class,
         );
+    }
+
+    /**
+     * openapi.yaml productLookupByBarcode: what a cashier's scanner calls. Exact match on the product's own
+     * barcode or on an alternate `product_barcodes` row, both unique per store, so at most one product can
+     * match. Scanners often append a line break, so surrounding whitespace is ignored. An inactive product
+     * is returned as it is (`active: false`) rather than hidden, so the till can say why it cannot be sold
+     * instead of reporting an unknown barcode. The price and tax class are a preview only: checkout
+     * recomputes everything itself.
+     */
+    public function lookupByBarcode(string $barcode): JsonResponse
+    {
+        $barcode = trim($barcode);
+        $storeId = Auth::guard('web')->user()->store_id;
+
+        $product = $barcode === '' ? null : Product::where('store_id', $storeId)
+            ->where(fn ($query) => $query
+                ->where('barcode', $barcode)
+                ->orWhereIn('id', ProductBarcode::where('store_id', $storeId)->where('barcode', $barcode)->select('product_id')))
+            ->first();
+
+        return (new ProductResource($product ?? throw BarcodeNotFoundException::forBarcode($barcode)))->response();
     }
 
     public function get(ProductService $service, string $productId): JsonResponse

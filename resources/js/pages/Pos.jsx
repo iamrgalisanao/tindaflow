@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -37,6 +37,8 @@ export default function Pos() {
     const [openingBusy, setOpeningBusy] = useState(false);
 
     const [search, setSearch] = useState('');
+    const [scanNotice, setScanNotice] = useState(null); // { kind: 'added' | 'error', text }
+    const searchRef = useRef(null);
     const [results, setResults] = useState([]);
     const [cart, setCart] = useState([]); // [{product, quantity}]
 
@@ -121,8 +123,40 @@ export default function Pos() {
 
     async function runSearch(event) {
         event.preventDefault();
-        const { ok, body } = await apiFetch(`/api/v1/products?active=1&search=${encodeURIComponent(search)}`);
-        setResults(ok ? body.data : []);
+        const query = search.trim();
+        setScanNotice(null);
+
+        // A barcode scanner types the code and presses Enter, which submits this form. Try the text as a
+        // barcode first; anything that is not one falls through to the ordinary name/SKU search below.
+        if (/^\S{3,}$/.test(query)) {
+            try {
+                const scan = await apiFetch(`/api/v1/products/by-barcode/${encodeURIComponent(query)}`);
+                if (scan.ok) {
+                    // Inactive products are returned so the till can say why they cannot be sold.
+                    setScanNotice(
+                        scan.body.active
+                            ? { kind: 'added', text: `Added ${scan.body.name}` }
+                            : { kind: 'error', text: `${scan.body.name} is inactive and cannot be sold.` },
+                    );
+                    if (scan.body.active) {
+                        addToCart(scan.body);
+                    }
+                    setSearch('');
+                    setResults([]);
+                    searchRef.current?.focus();
+                    return;
+                }
+            } catch {
+                // Could not reach the lookup: fall back to the ordinary search rather than blocking the cashier.
+            }
+        }
+
+        const { ok, body } = await apiFetch(`/api/v1/products?active=1&search=${encodeURIComponent(query)}`);
+        const found = ok ? body.data : [];
+        setResults(found);
+        if (found.length === 0) {
+            setScanNotice({ kind: 'error', text: `No product found for “${query}”.` });
+        }
     }
 
     function addToCart(product) {
@@ -204,6 +238,7 @@ export default function Pos() {
     }
 
     function startNewSale() {
+        setScanNotice(null);
         setOriginalPrinted(false);
         setPrintError(null);
         setCopyKey(newIdempotencyKey());
@@ -373,16 +408,28 @@ export default function Pos() {
                     <div className="space-y-3">
                         <form onSubmit={runSearch} className="flex gap-2">
                             <input
+                                ref={searchRef}
                                 type="text"
+                                autoFocus
+                                autoComplete="off"
                                 value={search}
                                 onChange={(event) => setSearch(event.target.value)}
-                                placeholder="Search by name or SKU"
+                                placeholder="Scan a barcode, or search by name or SKU"
+                                aria-label="Scan a barcode or search products"
                                 className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
                             />
                             <button type="submit" className="rounded-md border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50">
                                 Search
                             </button>
                         </form>
+                        {scanNotice && (
+                            <p
+                                role="status"
+                                className={`rounded-md px-3 py-2 text-sm ${scanNotice.kind === 'added' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}
+                            >
+                                {scanNotice.text}
+                            </p>
+                        )}
                         <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
                             {results.length === 0 && <li className="p-3 text-sm text-gray-400">No results.</li>}
                             {results.map((product) => (
