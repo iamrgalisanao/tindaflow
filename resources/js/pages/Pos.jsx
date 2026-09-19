@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { usePrintFrame } from '../lib/usePrintFrame';
 
 const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'];
 
@@ -44,6 +45,14 @@ export default function Pos() {
     const [checkoutBusy, setCheckoutBusy] = useState(false);
 
     const [sale, setSale] = useState(null);
+
+    // Printing the invoice after checkout. The first print is the plain original (a read); every print after
+    // that is a reprint -- marked REPRINT/COPY and recorded -- so no unmarked duplicate can come from here.
+    const { print: printDocument, frame: printFrame } = usePrintFrame();
+    const [originalPrinted, setOriginalPrinted] = useState(false);
+    const [printBusy, setPrintBusy] = useState(false);
+    const [printError, setPrintError] = useState(null);
+    const [copyKey, setCopyKey] = useState(newIdempotencyKey);
 
     const [cashMovementType, setCashMovementType] = useState('CASH_IN');
     const [cashMovementAmount, setCashMovementAmount] = useState('');
@@ -167,7 +176,37 @@ export default function Pos() {
         setCheckoutBusy(false);
     }
 
+    async function printInvoice() {
+        setPrintBusy(true);
+        setPrintError(null);
+        try {
+            const invoiceId = sale.invoice.id;
+            const response = originalPrinted
+                ? await apiFetch(`/api/v1/invoices/${invoiceId}/reprints`, { method: 'POST', headers: { 'Idempotency-Key': copyKey } })
+                : await apiFetch(`/api/v1/invoices/${invoiceId}`);
+            if (response.ok) {
+                printDocument(originalPrinted ? response.body.invoice.render_html : response.body.render_html);
+                setOriginalPrinted(true);
+                setCopyKey(newIdempotencyKey()); // the next copy is a new copy, not a retry
+            } else {
+                setCopyKey(newIdempotencyKey());
+                setPrintError(
+                    response.body?.error?.code === 'TERMINAL_NOT_ENROLLED'
+                        ? 'This browser is not enrolled as a terminal, so it cannot record a printed copy.'
+                        : 'The invoice could not be prepared for printing. The sale is complete; you can print it from Sales history.',
+                );
+            }
+        } catch {
+            // Network failure: keep the same key, so pressing the button again can never record two copies.
+            setPrintError('The connection dropped. The sale is complete. Press the button to try printing again.');
+        }
+        setPrintBusy(false);
+    }
+
     function startNewSale() {
+        setOriginalPrinted(false);
+        setPrintError(null);
+        setCopyKey(newIdempotencyKey());
         setCart([]);
         setResults([]);
         setSearch('');
@@ -538,6 +577,24 @@ export default function Pos() {
                             </li>
                         ))}
                     </ul>
+                    {sale.invoice && (
+                        <div className="space-y-1">
+                            <button
+                                type="button"
+                                disabled={printBusy}
+                                onClick={printInvoice}
+                                className="w-full rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 disabled:opacity-50"
+                            >
+                                {printBusy ? 'Preparing…' : originalPrinted ? 'Print another copy' : 'Print invoice'}
+                            </button>
+                            {originalPrinted && <p className="text-xs text-gray-500">Another copy is marked REPRINT — COPY and recorded.</p>}
+                            {printError && (
+                                <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+                                    {printError}
+                                </p>
+                            )}
+                        </div>
+                    )}
                     <button
                         type="button"
                         onClick={startNewSale}
@@ -545,6 +602,7 @@ export default function Pos() {
                     >
                         New sale
                     </button>
+                    {printFrame}
                 </div>
             )}
 
