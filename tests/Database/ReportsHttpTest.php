@@ -247,7 +247,8 @@ class ReportsHttpTest extends PostgresSchemaTestCase
         $response->assertOk();
         $rows = $response->json('rows');
         $this->assertCount(1, $rows);
-        $this->assertSame('REJECTED', SaleVoid::find($rows[0]['void_id'])->status);
+        $this->assertSame('REJECTED', $rows[0]['status'], 'a rejected void must be distinguishable from an executed one');
+        $this->assertNotNull($rows[0]['requested_at']);
         $this->assertSame('75.00', $rows[0]['sale_grand_total']);
     }
 
@@ -265,6 +266,7 @@ class ReportsHttpTest extends PostgresSchemaTestCase
         $rows = $response->json('rows');
         $this->assertCount(1, $rows);
         $this->assertSame($refund->id, $rows[0]['refund_id']);
+        $this->assertSame('COMPLETED', $rows[0]['status']);
         $this->assertSame('20.00', $rows[0]['refund_total']);
     }
 
@@ -395,6 +397,26 @@ class ReportsHttpTest extends PostgresSchemaTestCase
         );
         $this->assertStringContainsString('2026-06-01', $lines[1]);
         $this->assertStringContainsString('55.00', $lines[1]);
+    }
+
+    public function test_void_csv_keeps_the_pinned_columns_and_omits_the_json_only_status(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store);
+        SaleVoid::factory()->rejected()->create(['sale_id' => $this->makeSale($shift)->id]);
+
+        $response = $this->forwardSessionCookie($this->login($admin))
+            ->withHeader('Accept', 'text/csv')
+            ->get('/api/v1/reports/voids');
+
+        $response->assertOk();
+        $lines = explode('
+', trim($response->getContent()));
+        $this->assertSame(
+            'void_id,sale_id,invoice_number,requested_by,approved_by,reason,terminal_id,fiscal_day_id,resolved_at,sale_grand_total',
+            $lines[0],
+        );
     }
 
     public function test_json_is_returned_by_default(): void

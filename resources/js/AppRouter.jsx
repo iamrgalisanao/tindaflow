@@ -9,6 +9,8 @@ import FiscalInstallations from './pages/admin/FiscalInstallations';
 import InvoiceSeriesPage from './pages/admin/InvoiceSeriesPage';
 import InventoryLocations from './pages/admin/InventoryLocations';
 import TaxRegistrations from './pages/admin/TaxRegistrations';
+import ReportsHub from './pages/admin/reports/ReportsHub';
+import ReportViewer from './pages/admin/reports/ReportViewer';
 
 function RequireAuth({ children }) {
     const { user } = useAuth();
@@ -111,6 +113,22 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <TaxRegistrations />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/reports"
+                    element={
+                        <RequireAuth>
+                            <ReportsHub />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/reports/:slug"
+                    element={
+                        <RequireAuth>
+                            <ReportViewer />
                         </RequireAuth>
                     }
                 />

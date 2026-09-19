@@ -252,7 +252,7 @@ final class ReportQueryService
                 'voids.id as void_id', 'voids.sale_id', 'invoices.invoice_number',
                 'voids.requested_by', 'voids.approved_by', 'voids.reason',
                 'voids.terminal_id', 'voids.fiscal_day_id', 'voids.resolved_at',
-                'sales.grand_total as sale_grand_total',
+                'sales.grand_total as sale_grand_total', 'voids.status', 'voids.requested_at',
             ])
             ->orderBy('voids.requested_at')
             ->get();
@@ -268,6 +268,10 @@ final class ReportQueryService
             'fiscal_day_id' => $row->fiscal_day_id,
             'resolved_at' => $row->resolved_at === null ? null : Carbon::parse($row->resolved_at)->toJSON(),
             'sale_grand_total' => $this->money($row->sale_grand_total),
+            // JSON-only, appended after the pinned CSV columns (csv-export-contract.md is unaffected):
+            // without these a REJECTED/REQUESTED void is indistinguishable from an executed one.
+            'status' => $row->status,
+            'requested_at' => Carbon::parse($row->requested_at)->toJSON(),
         ])->all();
 
         return ['rows' => $mapped, 'summary' => ['void_count' => count($mapped)]];
@@ -286,7 +290,7 @@ final class ReportQueryService
                 'refunds.id as refund_id', 'refunds.sale_id', 'invoices.invoice_number',
                 'refunds.requested_by', 'refunds.approved_by', 'refunds.reason',
                 'refunds.terminal_id', 'refunds.fiscal_day_id', 'refunds.refunded_at',
-                'refunds.refund_total',
+                'refunds.refund_total', 'refunds.status', 'refunds.requested_at',
             ])
             ->orderBy('refunds.requested_at')
             ->get();
@@ -302,6 +306,8 @@ final class ReportQueryService
             'fiscal_day_id' => $row->fiscal_day_id,
             'refunded_at' => $row->refunded_at === null ? null : Carbon::parse($row->refunded_at)->toJSON(),
             'refund_total' => $row->refund_total === null ? null : $this->money($row->refund_total),
+            'status' => $row->status,
+            'requested_at' => Carbon::parse($row->requested_at)->toJSON(),
         ])->all();
 
         return ['rows' => $mapped, 'summary' => ['refund_count' => count($mapped)]];
