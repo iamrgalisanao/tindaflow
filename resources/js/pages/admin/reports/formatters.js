@@ -80,6 +80,39 @@ const BADGE = {
     REQUESTED: 'border-slate-700 bg-slate-800 text-slate-300',
 };
 
+// Void/refund outcomes. VOIDED/COMPLETED are the final executed outcome (emerald); the sale-level
+// VOIDED in BADGE above stays rose because it means "this sale is struck", a different context.
+const OUTCOME_BADGE = {
+    REQUESTED: 'border-slate-600 bg-slate-800 text-slate-300',
+    APPROVED: 'border-amber-700/60 bg-amber-950/60 text-amber-400',
+    REJECTED: 'border-rose-700/70 bg-transparent text-rose-400',
+    VOIDED: 'border-emerald-700/70 bg-emerald-950/70 text-emerald-300',
+    COMPLETED: 'border-emerald-700/70 bg-emerald-950/70 text-emerald-300',
+};
+
+const TIER_BADGE = {
+    OUT_OF_STOCK: { text: 'OUT OF STOCK', className: 'border-rose-600 bg-rose-600 text-white' },
+    CRITICAL: { text: 'CRITICAL', className: 'border-rose-700 bg-transparent text-rose-400' },
+    LOW: { text: 'LOW', className: 'border-amber-700 bg-transparent text-amber-400' },
+};
+
+/**
+ * Display convention only (not a business rule): 0 on hand = out of stock, under half the reorder
+ * level = critical, otherwise low. Quantities are compared numerically; they are never money.
+ */
+export function stockTier(quantityOnHand, reorderLevel) {
+    const onHand = Number(quantityOnHand);
+    const reorder = Number(reorderLevel);
+    if (onHand <= 0) {
+        return 'OUT_OF_STOCK';
+    }
+    return onHand < reorder / 2 ? 'CRITICAL' : 'LOW';
+}
+
+export function cellValue(column, row) {
+    return column.value ? column.value(row) : row[column.key];
+}
+
 /**
  * @returns {{text: string, className: string, title?: string}}
  */
@@ -117,6 +150,20 @@ export function formatReportCell(value, format) {
             return {
                 text: status.replaceAll('_', ' '),
                 className: `inline-block rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold ${BADGE[status] ?? 'border-slate-700 bg-slate-800 text-slate-300'}`,
+            };
+        }
+        case 'outcome_badge': {
+            const status = String(value).toUpperCase();
+            return {
+                text: status.replaceAll('_', ' '),
+                className: `inline-block rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold ${OUTCOME_BADGE[status] ?? 'border-slate-700 bg-slate-800 text-slate-300'}`,
+            };
+        }
+        case 'stock_tier': {
+            const tier = TIER_BADGE[value] ?? TIER_BADGE.LOW;
+            return {
+                text: tier.text,
+                className: `inline-block whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold ${tier.className}`,
             };
         }
         case 'variance': {

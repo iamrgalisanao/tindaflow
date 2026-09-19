@@ -1,14 +1,28 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../../../api';
 import { useAuth } from '../../../context/AuthContext';
 import AdminLayout from '../AdminLayout';
+import EntityCombobox from './EntityCombobox';
+import ReportCards from './ReportCards';
 import ReportsAccessDenied from './ReportsAccessDenied';
-import { REPORTS_NAV } from './ReportsHub';
+import {
+    Cell,
+    ErrorPanel,
+    ExportFailureBanner,
+    ExportToast,
+    StatusChips,
+    StatusLegend,
+    SummaryCards,
+    SummaryValue,
+    exportFailureMessage,
+} from './ReportParts';
 import { reportBySlug } from './reportsRegistry';
-import { datePreset, formatMoney, formatReportCell, sumIntegers, sumMoney } from './formatters';
+import { cellValue, datePreset, sumIntegers, sumMoney } from './formatters';
 
 const PAGE_SIZE = 50;
+const RETURN_KEY = 'tindaflow.returnTo';
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PRESETS = [
     { id: 'today', label: 'Today' },
     { id: 'yesterday', label: 'Yesterday' },
@@ -30,58 +44,149 @@ function compare(a, b) {
     return Number.isNaN(numeric) ? String(a).localeCompare(String(b)) : numeric;
 }
 
-function Cell({ value, format }) {
-    const { text, className, title } = formatReportCell(value, format);
-    return (
-        <span className={className} title={title}>
-            {text}
-        </span>
-    );
+function failureFrom(status, body) {
+    if (status === 401) {
+        return { kind: 'session' };
+    }
+    if (status === 403) {
+        return { kind: 'forbidden' };
+    }
+    if (status >= 500) {
+        return { kind: 'server', requestId: body?.error?.request_id ?? null };
+    }
+    return { kind: 'other', message: body?.error?.message ?? null };
 }
 
-function SummaryValue({ value, format }) {
-    if (value === null || value === undefined) {
-        return <span className="text-slate-600">{'—'}</span>;
+/**
+ * apiFetch throws a TypeError when the request never completes (network) and a SyntaxError when the
+ * server answered with a non-JSON body, e.g. a gateway error page (server).
+ */
+async function fetchReport(slug, query) {
+    try {
+        const { ok, status, body } = await apiFetch(`/api/v1/reports/${slug}${query ? `?${query}` : ''}`);
+        return ok ? { body } : { failure: failureFrom(status, body) };
+    } catch (error) {
+        return { failure: { kind: error instanceof SyntaxError ? 'server' : 'network' } };
     }
-    if (format === 'currency') {
-        return <span className="font-mono tabular-nums">{formatMoney(value)}</span>;
+}
+
+function deriveOptions(rows, entityFilter) {
+    const seen = new Map();
+    for (const row of rows) {
+        const value = row[entityFilter.optionValue];
+        if (value && !seen.has(value)) {
+            seen.set(value, { value, code: entityFilter.optionCode?.(row), name: entityFilter.optionName(row) });
+        }
     }
-    if (format === 'variance') {
-        return <Cell value={value} format="variance" />;
+    return [...seen.values()];
+}
+
+function initialFilters(searchParams, report) {
+    const dateFilter = report.filters.find((f) => f.type === 'date_range') ?? null;
+    const entityFilter = report.filters.find((f) => f.type === 'entity') ?? null;
+    let range = datePreset(dateFilter?.defaultPreset ?? 'today');
+    let preset = dateFilter?.defaultPreset ?? null;
+    const from = searchParams.get('from') ?? '';
+    const to = searchParams.get('to') ?? '';
+    if (dateFilter && ISO_DATE.test(from) && ISO_DATE.test(to) && from <= to) {
+        range = { from, to };
+        preset = null;
     }
-    return <span className="font-mono tabular-nums">{Number(value).toLocaleString('en-US')}</span>;
+    const rawEntity = entityFilter ? (searchParams.get(entityFilter.key) ?? '') : '';
+    return { range, preset, entity: rawEntity.length <= 64 ? rawEntity : '' };
+}
+
+function Pager({ page, pageCount, total, onPage, alwaysControls = false }) {
+    const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+    const to = Math.min(page * PAGE_SIZE, total);
+    return (
+        <div className="flex items-center justify-between text-xs text-slate-500">
+            <span className="font-mono">
+                Showing {from}&ndash;{to} of {total}
+            </span>
+            {(pageCount > 1 || alwaysControls) && (
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        disabled={page === 1}
+                        onClick={() => onPage(page - 1)}
+                        className="min-h-11 rounded border border-slate-700 px-2.5 py-1 hover:bg-slate-800 disabled:opacity-40 lg:min-h-0"
+                    >
+                        Previous
+                    </button>
+                    <span className="px-1 py-1 font-mono">
+                        {page} / {pageCount}
+                    </span>
+                    <button
+                        type="button"
+                        disabled={page === pageCount}
+                        onClick={() => onPage(page + 1)}
+                        className="min-h-11 rounded border border-slate-700 px-2.5 py-1 hover:bg-slate-800 disabled:opacity-40 lg:min-h-0"
+                    >
+                        Next
+                    </button>
+                </div>
+            )}
+        </div>
+    );
 }
 
 /**
  * /admin/reports/:slug -- one schema-driven viewer for all 15 reports
  * (see reportsRegistry.js). Headline totals come from the server's own
  * `summary`; the pinned footer only totals columns the registry marks
- * safe to sum, using exact BigInt-cents arithmetic.
+ * safe to sum, using exact BigInt-cents arithmetic. Filters live in the
+ * URL (from, to, and the entity id) so a report can be reopened -- and a
+ * session-expired sign-in can return to it -- with the same filters.
  */
 export default function ReportViewer() {
     const { slug } = useParams();
-    const { user } = useAuth();
+    const { user, setUser } = useAuth();
+    const location = useLocation();
+    const [searchParams, setSearchParams] = useSearchParams();
     const canView = user.capabilities.includes('REPORT_VIEW');
     const report = reportBySlug(slug);
 
     const dateFilter = report?.filters.find((f) => f.type === 'date_range') ?? null;
     const entityFilter = report?.filters.find((f) => f.type === 'entity') ?? null;
 
-    const [range, setRange] = useState(() => datePreset(dateFilter?.defaultPreset ?? 'today'));
-    const [preset, setPreset] = useState(dateFilter?.defaultPreset ?? null);
-    const [entityValue, setEntityValue] = useState('');
+    const [initial] = useState(() => (report ? initialFilters(searchParams, report) : null));
+    const [range, setRange] = useState(() => initial?.range ?? datePreset('today'));
+    const [preset, setPreset] = useState(initial?.preset ?? null);
+    const [entityValue, setEntityValue] = useState(initial?.entity ?? '');
     const [entityOptions, setEntityOptions] = useState([]);
+    const [optionsFor, setOptionsFor] = useState(null);
+    const [optionsLoading, setOptionsLoading] = useState(false);
+    const [loadedRange, setLoadedRange] = useState(null);
 
     const [data, setData] = useState(null);
     const [status, setStatus] = useState('loading'); // loading | ready | error
-    const [error, setError] = useState(null);
+    const [failure, setFailure] = useState(null);
     const [exporting, setExporting] = useState(false);
+    const [exportBanner, setExportBanner] = useState(null);
+    const [toast, setToast] = useState(null);
 
     const [sort, setSort] = useState({ key: null, dir: 'asc' });
+    const [statusFilter, setStatusFilter] = useState('all');
     const [page, setPage] = useState(1);
+    const [scrollInfo, setScrollInfo] = useState({ left: false, right: false });
 
-    const buildQuery = useCallback(
-        (filters) => {
+    const lastFilters = useRef(null);
+    const requestSeq = useRef(0);
+    const optionsSeq = useRef(0);
+    const scrollRef = useRef(null);
+
+    const rangeInvalid = Boolean(dateFilter && range.from && range.to && range.from > range.to);
+
+    const load = useCallback(
+        async (filters) => {
+            if (!report) {
+                return;
+            }
+            lastFilters.current = filters;
+            if (dateFilter && filters.from > filters.to) {
+                return; // The form blocks this inline; no request is ever sent.
+            }
             const params = new URLSearchParams();
             if (dateFilter) {
                 params.set('from', filters.from);
@@ -90,70 +195,91 @@ export default function ReportViewer() {
             if (entityFilter && filters.entity) {
                 params.set(entityFilter.key, filters.entity);
             }
-            return params.toString();
-        },
-        [dateFilter, entityFilter],
-    );
+            setSearchParams(params, { replace: true });
 
-    const load = useCallback(
-        async (filters) => {
-            if (!report) {
-                return;
-            }
-            if (dateFilter && filters.from > filters.to) {
-                setStatus('error');
-                setError('"From" must be on or before "To".');
-                return;
-            }
+            const seq = ++requestSeq.current;
             setStatus('loading');
-            setError(null);
-            const query = buildQuery(filters);
-            let result;
-            try {
-                result = await apiFetch(`/api/v1/reports/${report.slug}${query ? `?${query}` : ''}`);
-            } catch {
+            setFailure(null);
+            setExportBanner(null);
+            const result = await fetchReport(report.slug, params.toString());
+            if (seq !== requestSeq.current) {
+                return; // A newer request superseded this one.
+            }
+            if (result.failure) {
+                setData(null);
+                setFailure(result.failure);
                 setStatus('error');
-                setError('The report could not be loaded. Check your connection and try again.');
                 return;
             }
-            const { ok, body } = result;
-            if (!ok) {
-                setStatus('error');
-                setError(body?.error?.message ?? 'The report could not be loaded.');
-                return;
-            }
-            setData(body);
+            setData(result.body);
+            setLoadedRange({ from: filters.from, to: filters.to });
             setPage(1);
             setStatus('ready');
             if (entityFilter && !filters.entity) {
-                // Options come from the unfiltered result -- no category/user list endpoint exists yet.
-                const seen = new Map();
-                for (const row of body.rows) {
-                    const value = row[entityFilter.optionValue];
-                    if (value && !seen.has(value)) {
-                        seen.set(value, entityFilter.optionLabel(row));
-                    }
-                }
-                setEntityOptions([...seen].map(([value, label]) => ({ value, label })));
+                // No category/user list endpoint exists, so options come from the unfiltered result.
+                setEntityOptions(deriveOptions(result.body.rows, entityFilter));
+                setOptionsFor({ from: filters.from, to: filters.to });
             }
         },
-        [report, dateFilter, entityFilter, buildQuery],
+        [report, dateFilter, entityFilter, setSearchParams],
+    );
+
+    const loadOptions = useCallback(
+        async (optionRange) => {
+            if (!entityFilter || !report) {
+                return;
+            }
+            const seq = ++optionsSeq.current;
+            const params = new URLSearchParams();
+            if (dateFilter) {
+                params.set('from', optionRange.from);
+                params.set('to', optionRange.to);
+            }
+            setOptionsLoading(true);
+            const result = await fetchReport(report.slug, params.toString());
+            if (seq !== optionsSeq.current) {
+                return;
+            }
+            setOptionsLoading(false);
+            if (!result.failure) {
+                setEntityOptions(deriveOptions(result.body.rows, entityFilter));
+                setOptionsFor({ from: optionRange.from, to: optionRange.to });
+            }
+        },
+        [report, dateFilter, entityFilter],
     );
 
     useEffect(() => {
         if (!report || !canView) {
             return;
         }
-        const initialRange = datePreset(dateFilter?.defaultPreset ?? 'today');
-        setRange(initialRange);
-        setPreset(dateFilter?.defaultPreset ?? null);
-        setEntityValue('');
+        const start = initialFilters(searchParams, report);
+        optionsSeq.current += 1;
+        setRange(start.range);
+        setPreset(start.preset);
+        setEntityValue(start.entity);
         setEntityOptions([]);
-        setSort({ key: null, dir: 'asc' });
+        setOptionsFor(null);
+        setOptionsLoading(false);
+        setLoadedRange(null);
+        setSort(report.defaultSort ?? { key: null, dir: 'asc' });
+        setStatusFilter('all');
+        setExportBanner(null);
         setData(null);
-        load({ ...initialRange, entity: '' });
+        load({ ...start.range, entity: start.entity });
+        if (start.entity) {
+            loadOptions(start.range);
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [slug]);
+
+    useEffect(() => {
+        if (!toast) {
+            return undefined;
+        }
+        const timer = setTimeout(() => setToast(null), 6000);
+        return () => clearTimeout(timer);
+    }, [toast]);
 
     function applyPreset(id) {
         const next = datePreset(id);
@@ -164,47 +290,91 @@ export default function ReportViewer() {
 
     function applyFilters(event) {
         event.preventDefault();
-        load({ ...range, entity: entityValue });
+        if (!rangeInvalid) {
+            load({ ...range, entity: entityValue });
+        }
     }
 
     function changeEntity(value) {
         setEntityValue(value);
-        load({ ...range, entity: value });
+        const base = rangeInvalid ? lastFilters.current : range;
+        load({ from: base.from, to: base.to, entity: value });
+    }
+
+    function signIn() {
+        try {
+            sessionStorage.setItem(RETURN_KEY, `${location.pathname}${location.search}`);
+        } catch {
+            // Session storage can be unavailable; the user simply lands on the dashboard after sign-in.
+        }
+        setUser(null); // RequireAuth then redirects to /login.
     }
 
     async function exportCsv() {
+        const filters = lastFilters.current;
         setExporting(true);
-        setError(null);
+        setExportBanner(null);
+        setToast(null);
+        const params = new URLSearchParams();
+        if (dateFilter) {
+            params.set('from', filters.from);
+            params.set('to', filters.to);
+        }
+        if (entityFilter && filters.entity) {
+            params.set(entityFilter.key, filters.entity);
+        }
+        let failedKind = null;
         try {
-            const query = buildQuery({ ...range, entity: entityValue });
+            const query = params.toString();
             const response = await fetch(`/api/v1/reports/${report.slug}${query ? `?${query}` : ''}`, {
                 headers: { Accept: 'text/csv' },
                 credentials: 'same-origin',
             });
-            if (!response.ok) {
-                throw new Error('The CSV export failed.');
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                const suffix = dateFilter ? `_${filters.from}_${filters.to}` : `_${new Date().toISOString().slice(0, 10)}`;
+                const filename = `${report.exportPrefix}${suffix}.csv`;
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(url);
+                setToast({ filename });
+            } else {
+                failedKind = failureFrom(response.status, null).kind;
             }
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            const suffix = dateFilter ? `_${range.from}_${range.to}` : `_${range.to}`;
-            link.href = url;
-            link.download = `${report.exportPrefix}${suffix}.csv`;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            URL.revokeObjectURL(url);
-        } catch (exception) {
-            setError(exception.message);
+        } catch {
+            failedKind = 'network';
+        }
+        if (failedKind) {
+            setExportBanner({ message: exportFailureMessage(failedKind) });
         }
         setExporting(false);
     }
+
+    const statusCounts = useMemo(() => {
+        if (!data || !report?.statusFilter) {
+            return {};
+        }
+        const counts = {};
+        for (const row of data.rows) {
+            const value = row[report.statusFilter.key];
+            counts[value] = (counts[value] ?? 0) + 1;
+        }
+        return counts;
+    }, [data, report]);
 
     const rows = useMemo(() => {
         if (!data) {
             return [];
         }
-        const copy = [...data.rows];
+        let copy = [...data.rows];
+        if (report?.statusFilter && statusFilter !== 'all') {
+            copy = copy.filter((row) => row[report.statusFilter.key] === statusFilter);
+        }
         if (report?.groupBy) {
             copy.sort((a, b) => compare(a[report.groupBy.key], b[report.groupBy.key]));
         }
@@ -221,12 +391,31 @@ export default function ReportViewer() {
             });
         }
         return copy;
-    }, [data, sort, report]);
+    }, [data, sort, report, statusFilter]);
+
+    const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+    const pageRows = useMemo(() => rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [rows, page]);
+
+    const updateScroll = useCallback(() => {
+        const element = scrollRef.current;
+        if (!element) {
+            return;
+        }
+        setScrollInfo({
+            left: element.scrollLeft > 0,
+            right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
+        });
+    }, []);
+
+    useEffect(() => {
+        updateScroll();
+        window.addEventListener('resize', updateScroll);
+        return () => window.removeEventListener('resize', updateScroll);
+    }, [updateScroll, pageRows, status]);
 
     const shell = (content) => (
         <AdminLayout
             title="Reports"
-            navItems={REPORTS_NAV}
             requiredCapability="REPORT_VIEW"
             deniedView={<ReportsAccessDenied />}
             wide
@@ -246,20 +435,51 @@ export default function ReportViewer() {
         );
     }
 
-    const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-    const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
     const totaledColumns = report.columns.filter((c) => c.total);
+    const mobileTotalColumns = report.mobileTotals
+        ? totaledColumns.filter((c) => report.mobileTotals.includes(c.key))
+        : totaledColumns.slice(0, 2);
+    const selectedOption = entityOptions.find((option) => option.value === entityValue);
     const applied = data ? Object.entries(data.filters_applied ?? {}).filter(([, v]) => v !== null && v !== '') : [];
+    const optionsStale = Boolean(
+        entityValue &&
+            optionsFor &&
+            loadedRange &&
+            (optionsFor.from !== loadedRange.from || optionsFor.to !== loadedRange.to),
+    );
+    const hasRows = Boolean(data && data.rows.length > 0);
+    const summaryItems =
+        status === 'ready' && data
+            ? [
+                  ...report.summary.map((item) => ({
+                      label: item.label,
+                      node: <SummaryValue value={data.summary?.[item.key]} format={item.format} />,
+                  })),
+                  ...(report.derivedSummary?.(data.rows) ?? []).map((item) => ({
+                      label: item.label,
+                      node: <span className="font-mono tabular-nums">{item.value}</span>,
+                      sub: item.sub,
+                      tone: item.tone,
+                  })),
+              ]
+            : [];
 
     function toggleSort(key) {
         setSort((prior) => (prior.key === key ? { key, dir: prior.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
     }
 
+    const stickyFirst = (index, base) =>
+        index === 0
+            ? `sticky left-0 ${base} ${scrollInfo.left ? 'shadow-[4px_0_8px_-2px_rgba(0,0,0,0.6)]' : ''}`
+            : '';
+
     let previousGroup = Symbol('none');
 
     return shell(
         <>
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            {toast && <ExportToast filename={toast.filename} onDismiss={() => setToast(null)} />}
+
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <Link to="/admin/reports" className="text-xs text-slate-500 underline hover:text-slate-300">
                         &larr; All reports
@@ -274,29 +494,47 @@ export default function ReportViewer() {
                 </div>
                 <button
                     type="button"
-                    disabled={exporting || status !== 'ready'}
+                    disabled={exporting || status !== 'ready' || !hasRows}
                     onClick={exportCsv}
-                    title="Exports raw decimals with no currency symbol or thousands separators, for spreadsheets and audits."
-                    className="rounded-md bg-emerald-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+                    title={
+                        status === 'ready' && !hasRows
+                            ? 'Nothing to export for these filters.'
+                            : 'Exports raw decimals with no currency symbol or thousands separators, for spreadsheets and audits.'
+                    }
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-emerald-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50 sm:w-auto lg:min-h-0"
                 >
+                    {exporting && (
+                        <span
+                            aria-hidden="true"
+                            className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-950/40 border-t-slate-950"
+                        />
+                    )}
                     {exporting ? 'Exporting…' : 'Export CSV'}
                 </button>
             </div>
 
+            {exportBanner && (
+                <ExportFailureBanner
+                    message={exportBanner.message}
+                    onRetry={exportCsv}
+                    onDismiss={() => setExportBanner(null)}
+                />
+            )}
+
             {(dateFilter || entityFilter) && (
                 <form
                     onSubmit={applyFilters}
-                    className="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3"
+                    className="mb-3 flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3 md:flex-row md:flex-wrap md:items-end"
                 >
                     {dateFilter && (
                         <>
-                            <div className="flex gap-1">
+                            <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 md:mx-0 md:overflow-visible md:p-0" role="group" aria-label="Date presets">
                                 {PRESETS.map((item) => (
                                     <button
                                         key={item.id}
                                         type="button"
                                         onClick={() => applyPreset(item.id)}
-                                        className={`rounded border px-2.5 py-1.5 text-xs ${
+                                        className={`min-h-11 shrink-0 rounded border px-2.5 py-1.5 text-xs lg:min-h-0 ${
                                             preset === item.id
                                                 ? 'border-emerald-500 bg-emerald-950/60 text-emerald-400'
                                                 : 'border-slate-700 text-slate-400 hover:bg-slate-800'
@@ -306,20 +544,32 @@ export default function ReportViewer() {
                                     </button>
                                 ))}
                             </div>
-                            <label className="text-xs text-slate-500" htmlFor="report_from">
-                                From
-                                <input
-                                    id="report_from"
-                                    type="date"
-                                    value={range.from}
-                                    onChange={(event) => {
-                                        setPreset(null);
-                                        setRange((prior) => ({ ...prior, from: event.target.value }));
-                                    }}
-                                    className="ml-2 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100"
-                                />
-                            </label>
-                            <label className="text-xs text-slate-500" htmlFor="report_to">
+                            <div>
+                                <label className="flex flex-col gap-1 text-xs text-slate-500 md:flex-row md:items-center md:gap-2" htmlFor="report_from">
+                                    From
+                                    <input
+                                        id="report_from"
+                                        type="date"
+                                        value={range.from}
+                                        aria-invalid={rangeInvalid}
+                                        aria-describedby={rangeInvalid ? 'report_range_error' : undefined}
+                                        onChange={(event) => {
+                                            setPreset(null);
+                                            setRange((prior) => ({ ...prior, from: event.target.value }));
+                                        }}
+                                        className={`min-h-11 w-full rounded-md border bg-slate-950 px-2 py-1 text-sm text-slate-100 md:w-auto lg:min-h-0 ${
+                                            rangeInvalid ? 'border-rose-500' : 'border-slate-700'
+                                        }`}
+                                    />
+                                </label>
+                                {rangeInvalid && (
+                                    <p id="report_range_error" role="alert" className="mt-1 font-mono text-[11px] text-rose-400">
+                                        &#9888; &quot;From&quot; must be on or before &quot;To&quot;.{' '}
+                                        <span className="text-slate-500">No request was sent.</span>
+                                    </p>
+                                )}
+                            </div>
+                            <label className="flex flex-col gap-1 text-xs text-slate-500 md:flex-row md:items-center md:gap-2" htmlFor="report_to">
                                 To
                                 <input
                                     id="report_to"
@@ -329,67 +579,87 @@ export default function ReportViewer() {
                                         setPreset(null);
                                         setRange((prior) => ({ ...prior, to: event.target.value }));
                                     }}
-                                    className="ml-2 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100"
+                                    className="min-h-11 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100 md:w-auto lg:min-h-0"
                                 />
                             </label>
                             <button
                                 type="submit"
-                                className="rounded-md border border-emerald-700 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-900/40"
+                                disabled={rangeInvalid}
+                                className="min-h-11 w-full rounded-md border border-emerald-700 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-600 disabled:hover:bg-transparent md:w-auto lg:min-h-0"
                             >
                                 Apply
                             </button>
                         </>
                     )}
                     {entityFilter && (
-                        <label className="text-xs text-slate-500" htmlFor="report_entity">
-                            {entityFilter.label}
-                            <select
-                                id="report_entity"
-                                value={entityValue}
-                                onChange={(event) => changeEntity(event.target.value)}
-                                className="ml-2 max-w-64 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100"
-                            >
-                                <option value="">All</option>
-                                {entityOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                        {option.label}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
+                        <EntityCombobox
+                            id="report_entity"
+                            label={entityFilter.label}
+                            noun={entityFilter.noun}
+                            searchPlaceholder={entityFilter.searchPlaceholder}
+                            options={entityOptions}
+                            value={entityValue}
+                            loading={status === 'loading' || optionsLoading}
+                            onChange={changeEntity}
+                        />
                     )}
                 </form>
             )}
 
-            {applied.length > 0 && (
+            {(applied.length > 0 || entityValue) && (
                 <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-slate-600">Applied:</span>
                     {applied.map(([key, value]) => (
                         <span key={key} className="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 font-mono text-slate-300">
                             {key} = {String(value).length > 12 ? String(value).slice(0, 8) : String(value)}
+                            {entityFilter && key === entityFilter.key && selectedOption
+                                ? ` (${selectedOption.code ?? selectedOption.name})`
+                                : ''}
                         </span>
                     ))}
+                    {entityValue && (
+                        <button type="button" onClick={() => changeEntity('')} className="text-slate-400 underline hover:text-slate-200">
+                            Reset filter
+                        </button>
+                    )}
                 </div>
             )}
 
-            {error && (
-                <p className="mb-3 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-300" role="alert">
-                    {error}
-                </p>
-            )}
-
-            {status === 'ready' && data && report.summary.length > 0 && (
-                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                    {report.summary.map((item) => (
-                        <div key={item.key} className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
-                            <p className="text-[11px] uppercase tracking-wide text-slate-500">{item.label}</p>
-                            <p className="mt-1 text-lg font-semibold text-slate-100">
-                                <SummaryValue value={data.summary?.[item.key]} format={item.format} />
-                            </p>
-                        </div>
-                    ))}
+            {optionsStale && (
+                <div className="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-700/60 bg-amber-950/20 px-3 py-2 text-xs text-slate-200">
+                    <span className="min-w-0 flex-1">
+                        Date range changed since the {entityFilter.noun} list was loaded &mdash; reset the filter or refresh the
+                        list.
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => loadOptions(loadedRange)}
+                        className="min-h-11 rounded border border-amber-700 px-2.5 py-1 text-amber-300 hover:bg-amber-900/30 lg:min-h-0"
+                    >
+                        Refresh options
+                    </button>
                 </div>
             )}
+
+            {status === 'error' && failure && (
+                <ErrorPanel failure={failure} onRetry={() => load(lastFilters.current)} onSignIn={signIn} />
+            )}
+
+            {status === 'ready' && data && report.statusFilter && (
+                <StatusChips
+                    config={report.statusFilter}
+                    counts={statusCounts}
+                    total={data.rows.length}
+                    value={statusFilter}
+                    onChange={(value) => {
+                        setStatusFilter(value);
+                        setPage(1);
+                    }}
+                />
+            )}
+
+            {summaryItems.length > 0 && <SummaryCards items={summaryItems} />}
+            {status === 'ready' && report.note && <p className="mb-4 text-xs text-slate-500">{report.note}</p>}
 
             {status === 'loading' && (
                 <div className="space-y-2" aria-busy="true" aria-label="Loading report">
@@ -399,130 +669,179 @@ export default function ReportViewer() {
                 </div>
             )}
 
-            {status === 'ready' && rows.length === 0 && (
-                <div className="rounded-lg border border-dashed border-slate-800 p-8 text-center">
-                    <p className="text-sm text-slate-300">No rows for these filters.</p>
+            {status === 'ready' && data && data.rows.length === 0 && (
+                <div
+                    className={`rounded-lg border border-dashed p-8 text-center ${
+                        report.emptyState?.tone === 'ok' ? 'border-emerald-900/70 bg-emerald-950/10' : 'border-slate-800'
+                    }`}
+                >
+                    {report.emptyState?.tone === 'ok' && (
+                        <span
+                            aria-hidden="true"
+                            className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded border border-emerald-700 text-emerald-400"
+                        >
+                            &#10003;
+                        </span>
+                    )}
+                    <p className="text-sm text-slate-200">{report.emptyState?.title ?? 'No rows for these filters.'}</p>
                     <p className="mt-1 text-xs text-slate-500">
-                        {dateFilter ? 'Try a wider date range.' : 'Nothing to show right now.'}
+                        {report.emptyState?.body ?? (dateFilter ? 'Try a wider date range.' : 'Nothing to show right now.')}
                     </p>
                 </div>
             )}
 
+            {status === 'ready' && hasRows && rows.length === 0 && (
+                <div className="rounded-lg border border-dashed border-slate-800 p-8 text-center">
+                    <p className="text-sm text-slate-300">No rows with this status in the loaded results.</p>
+                    <button
+                        type="button"
+                        onClick={() => setStatusFilter('all')}
+                        className="mt-2 text-xs text-emerald-400 underline"
+                    >
+                        Show all statuses
+                    </button>
+                </div>
+            )}
+
             {status === 'ready' && rows.length > 0 && (
-                <div className="overflow-x-auto rounded-lg border border-slate-800">
-                    <table className="w-full min-w-max text-left text-sm">
-                        <thead className="sticky top-0 bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
-                            <tr>
-                                {report.columns.map((column) => (
-                                    <th
-                                        key={column.key}
-                                        className={`border-b border-slate-800 px-3 py-2 font-mono ${
-                                            column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : ''
-                                        }`}
-                                    >
-                                        {column.sortable ? (
-                                            <button type="button" onClick={() => toggleSort(column.key)} className="uppercase hover:text-slate-300">
-                                                {column.label}
-                                                {sort.key === column.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
-                                            </button>
-                                        ) : (
-                                            column.label
-                                        )}
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/70">
-                            {pageRows.map((row, index) => {
-                                const groupValue = report.groupBy ? row[report.groupBy.key] : null;
-                                const showGroup = report.groupBy && groupValue !== previousGroup;
-                                previousGroup = groupValue;
-                                return (
-                                    <Fragment key={`${page}-${index}`}>
-                                        {showGroup && (
-                                            <tr className="bg-slate-900">
-                                                <td colSpan={report.columns.length} className="px-3 py-1.5 text-xs font-semibold text-slate-400">
-                                                    {report.groupBy.label}: <span className="font-mono text-emerald-400">{String(groupValue).slice(0, 8)}</span>
-                                                </td>
-                                            </tr>
-                                        )}
-                                        <tr className={`odd:bg-slate-950/40 hover:bg-slate-900 ${report.rowTone?.(row) ?? ''}`}>
-                                            {report.columns.map((column) => (
+                <>
+                    <ReportCards key={`${page}-${statusFilter}-${slug}`} report={report} rows={pageRows} />
+
+                    <div className="relative hidden md:block">
+                        <div ref={scrollRef} onScroll={updateScroll} className="overflow-x-auto rounded-lg border border-slate-800 [color-scheme:dark]">
+                            <table className="w-full min-w-max text-left text-sm">
+                                <thead className="sticky top-0 bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
+                                    <tr>
+                                        {report.columns.map((column, index) => (
+                                            <th
+                                                key={column.key}
+                                                className={`z-10 border-b border-slate-800 bg-slate-950 px-3 py-2 font-mono ${
+                                                    column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : ''
+                                                } ${stickyFirst(index, 'bg-slate-950')}`}
+                                            >
+                                                {column.sortable ? (
+                                                    <button type="button" onClick={() => toggleSort(column.key)} className="uppercase hover:text-slate-300">
+                                                        {column.label}
+                                                        {sort.key === column.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+                                                    </button>
+                                                ) : (
+                                                    column.label
+                                                )}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-800/70">
+                                    {pageRows.map((row, index) => {
+                                        const groupValue = report.groupBy ? row[report.groupBy.key] : null;
+                                        const showGroup = report.groupBy && groupValue !== previousGroup;
+                                        previousGroup = groupValue;
+                                        return (
+                                            <Fragment key={`${page}-${index}`}>
+                                                {showGroup && (
+                                                    <tr className="bg-slate-900">
+                                                        <td colSpan={report.columns.length} className="px-3 py-1.5 text-xs font-semibold text-slate-400">
+                                                            {report.groupBy.label}: <span className="font-mono text-emerald-400">{String(groupValue).slice(0, 8)}</span>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                                <tr className={`group odd:bg-slate-950/40 hover:bg-slate-900 ${report.rowTone?.(row) ?? ''}`}>
+                                                    {report.columns.map((column, columnIndex) => (
+                                                        <td
+                                                            key={column.key}
+                                                            className={`whitespace-nowrap px-3 py-2 ${
+                                                                column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : ''
+                                                            } ${stickyFirst(columnIndex, 'z-[1] bg-slate-950 group-hover:bg-slate-900')}`}
+                                                        >
+                                                            <Cell value={cellValue(column, row)} format={column.format} row={row} />
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            </Fragment>
+                                        );
+                                    })}
+                                </tbody>
+                                {totaledColumns.length > 0 && (
+                                    <tfoot className="border-t-2 border-slate-700 bg-slate-900">
+                                        <tr>
+                                            {report.columns.map((column, index) => (
                                                 <td
                                                     key={column.key}
-                                                    className={`whitespace-nowrap px-3 py-2 ${
+                                                    className={`whitespace-nowrap px-3 py-2 font-semibold ${
                                                         column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : ''
-                                                    }`}
+                                                    } ${stickyFirst(index, 'z-[1] bg-slate-900')}`}
                                                 >
-                                                    <Cell value={column.value ? column.value(row) : row[column.key]} format={column.format} />
+                                                    {index === 0 && !column.total && (
+                                                        <span className="text-xs text-slate-400">Totals ({rows.length} rows)</span>
+                                                    )}
+                                                    {column.total === 'money' && (
+                                                        <Cell
+                                                            value={sumMoney(rows, column.key)}
+                                                            format={column.format === 'variance' ? 'variance' : 'currency'}
+                                                        />
+                                                    )}
+                                                    {column.total === 'integer' && (
+                                                        <span className="font-mono tabular-nums text-slate-100">
+                                                            {sumIntegers(rows, column.key).toLocaleString('en-US')}
+                                                        </span>
+                                                    )}
                                                 </td>
                                             ))}
                                         </tr>
-                                    </Fragment>
-                                );
-                            })}
-                        </tbody>
-                        {totaledColumns.length > 0 && (
-                            <tfoot className="border-t-2 border-slate-700 bg-slate-900">
-                                <tr>
-                                    {report.columns.map((column, index) => (
-                                        <td
-                                            key={column.key}
-                                            className={`whitespace-nowrap px-3 py-2 font-semibold ${
-                                                column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : ''
-                                            }`}
-                                        >
-                                            {index === 0 && !column.total && (
-                                                <span className="text-xs text-slate-400">Totals ({rows.length} rows)</span>
-                                            )}
-                                            {column.total === 'money' && (
+                                    </tfoot>
+                                )}
+                            </table>
+                        </div>
+                        {scrollInfo.right && (
+                            <>
+                                <div
+                                    aria-hidden="true"
+                                    className="pointer-events-none absolute inset-y-0 right-0 w-14 rounded-r-lg bg-gradient-to-l from-slate-950 to-transparent"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => scrollRef.current?.scrollBy({ left: 240, behavior: 'smooth' })}
+                                    className="absolute right-2 top-14 z-20 rounded-full border border-emerald-700 bg-slate-900 px-2.5 py-1 font-mono text-[11px] text-emerald-400 hover:bg-slate-800"
+                                >
+                                    Scroll &rsaquo;
+                                </button>
+                            </>
+                        )}
+                    </div>
+
+                    <div className="mt-3 hidden md:block">
+                        <Pager page={page} pageCount={pageCount} total={rows.length} onPage={setPage} />
+                    </div>
+
+                    <div className="sticky bottom-0 z-20 -mx-4 mt-3 border-t border-slate-800 bg-slate-900 px-4 py-2 md:hidden">
+                        {mobileTotalColumns.length > 0 && (
+                            <div className="mb-2">
+                                <p className="text-[11px] uppercase tracking-wide text-slate-500">Totals ({rows.length} rows)</p>
+                                <p className="flex flex-wrap gap-x-4 text-sm text-slate-300">
+                                    {mobileTotalColumns.map((column) => (
+                                        <span key={column.key}>
+                                            {column.label}:{' '}
+                                            {column.total === 'integer' ? (
+                                                <span className="font-mono tabular-nums text-slate-100">
+                                                    {sumIntegers(rows, column.key).toLocaleString('en-US')}
+                                                </span>
+                                            ) : (
                                                 <Cell
                                                     value={sumMoney(rows, column.key)}
                                                     format={column.format === 'variance' ? 'variance' : 'currency'}
                                                 />
                                             )}
-                                            {column.total === 'integer' && (
-                                                <span className="font-mono tabular-nums text-slate-100">
-                                                    {sumIntegers(rows, column.key).toLocaleString('en-US')}
-                                                </span>
-                                            )}
-                                        </td>
+                                        </span>
                                     ))}
-                                </tr>
-                            </tfoot>
+                                </p>
+                            </div>
                         )}
-                    </table>
-                </div>
+                        <Pager page={page} pageCount={pageCount} total={rows.length} onPage={setPage} alwaysControls />
+                    </div>
+                </>
             )}
 
-            {status === 'ready' && rows.length > PAGE_SIZE && (
-                <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-                    <span>
-                        Showing {(page - 1) * PAGE_SIZE + 1}&ndash;{Math.min(page * PAGE_SIZE, rows.length)} of {rows.length}
-                    </span>
-                    <div className="flex gap-2">
-                        <button
-                            type="button"
-                            disabled={page === 1}
-                            onClick={() => setPage((p) => p - 1)}
-                            className="rounded border border-slate-700 px-2.5 py-1 hover:bg-slate-800 disabled:opacity-40"
-                        >
-                            Previous
-                        </button>
-                        <span className="px-1 py-1 font-mono">
-                            {page} / {pageCount}
-                        </span>
-                        <button
-                            type="button"
-                            disabled={page === pageCount}
-                            onClick={() => setPage((p) => p + 1)}
-                            className="rounded border border-slate-700 px-2.5 py-1 hover:bg-slate-800 disabled:opacity-40"
-                        >
-                            Next
-                        </button>
-                    </div>
-                </div>
-            )}
+            {status === 'ready' && report.statusLegend && <StatusLegend legend={report.statusLegend} />}
         </>,
     );
 }

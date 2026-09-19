@@ -61,9 +61,9 @@ BigInt-cents money formatting/summing — never floating point. CSV export
 sends the same query with `Accept: text/csv` (the backend's real
 content-negotiation contract), and downloads the blob.
 
-`AdminLayout.jsx` was generalized (title / nav / required capability /
-inline `deniedView`) so store-setup and reports share one dark shell;
-store-setup behavior is unchanged.
+`AdminLayout.jsx` was generalized (title / required capability / inline
+`deniedView`) so store-setup and reports share one dark shell; it was
+later given the sidebar/rail/drawer navigation (§7).
 
 ## 3. Deliberate deviations from the mockups/spec
 
@@ -168,5 +168,50 @@ original entity-filter (`a9cfd2f8…`) and mobile (`21bc6ba3…`) screens are
 superseded duplicates left behind because Stitch's edit tool creates a
 new screen.
 
-Not yet implemented in code: everything in this table. Implementing it
-is a separate, optional stage.
+## 7. Implementation of the mockups (2026-09-19)
+
+Everything in §6 is implemented in `resources/js/pages/admin/reports/`
+(`ReportViewer.jsx`, `ReportParts.jsx`, `EntityCombobox.jsx`,
+`ReportCards.jsx`, per-report config in `reportsRegistry.js`). Points
+worth knowing:
+
+- **Filters live in the URL** (`?from=&to=&<entity>_id=`), replaced on each
+  load. That is what makes "You will return to this report with your
+  filters kept" true: on a 401 the panel's **Sign in** stores the current
+  URL in `sessionStorage` (`tindaflow.returnTo`) and `Login.jsx` returns
+  there after sign-in — only same-app `/admin/` paths are honoured.
+- **Failure classification**: `apiFetch` throws `TypeError` when the
+  request never completes (network) and `SyntaxError` on a non-JSON body
+  such as a gateway page (treated as a server error); 401 → session,
+  403 → the existing Access Denied view, 5xx → server, other → the
+  server's message. The "Reference: …" line appears only if the error body
+  carries `request_id`, which the API does not currently send.
+- **Export** always uses the last *applied* filters, not unapplied edits
+  in the date inputs, and its failure/success states are separate from
+  load errors. CSV export is unaffected by the client-side status chips
+  (the chip note says so).
+- **Voids/Refunds** use a dedicated `outcome_badge` format (VOIDED and
+  COMPLETED emerald) because `VOIDED` on a *sale* in the journal stays rose.
+- **Low Stock** tiers are computed in the browser from `quantity_on_hand`
+  and `reorder_level` (display convention only, noted on screen).
+- **Admin shell**: the top-header layout was replaced by the sidebar the
+  mockups show — persistent sidebar from `lg`, icon rail on tablets (its
+  "TF" button opens the full navigation), drawer on phones (focus trap,
+  Escape, scroll lock). Sections are listed only when the user holds the
+  capability. `AdminLayout` no longer takes `navItems`; store setup and
+  reports both use it, with sub-links for the active section.
+- **Not built** from the mockups: the mockup's request-reference id and
+  timestamps/annotations (see the ignore list above), and a
+  "Refresh options" auto-refresh — the stale-options hint is a manual
+  button by design.
+
+Verified in a real browser on 2026-09-19 (desktop 1280, tablet 768,
+phone 375): every error state (network, 5xx, non-JSON 502, 401, 403,
+recovery via Retry), invalid range (no request sent), export success and
+failure banners, combobox (search, no matches, keyboard, applied chip,
+reset, stale hint, URL restore), voids status chips/cards/legend
+(mocked rows — the dev DB has no voids), low-stock tiers/sort/bar
+(mocked rows), tablet frozen first column and scroll hint, phone cards
+and expander, drawer open/close, and every store-setup and report page
+through the new sidebar. Not exercised: the post-sign-in return to the
+report (needs a password entry) and pagination beyond one page.

@@ -4,6 +4,23 @@ import { apiFetch } from '../api';
 import { useAuth } from '../context/AuthContext';
 
 /**
+ * A report viewer whose session expired stores its own URL here before sending the user to sign in.
+ * Only same-app /admin/ paths are honoured, so this can never redirect off-site.
+ */
+function consumeReturnTo() {
+    try {
+        const target = sessionStorage.getItem('tindaflow.returnTo');
+        sessionStorage.removeItem('tindaflow.returnTo');
+        if (target && target.startsWith('/admin/') && !target.startsWith('//')) {
+            return target;
+        }
+    } catch {
+        // Session storage can be unavailable; fall through to the dashboard.
+    }
+    return '/';
+}
+
+/**
  * openapi.yaml authLogin. Surfaces the frozen error-catalog codes
  * distinctly (VALIDATION_FAILED field errors, AUTHENTICATION_REQUIRED,
  * RATE_LIMITED) rather than a single generic failure message -- matching
@@ -31,7 +48,7 @@ export default function Login() {
 
         if (ok) {
             await refresh();
-            navigate('/', { replace: true });
+            navigate(consumeReturnTo(), { replace: true });
             return;
         }
 

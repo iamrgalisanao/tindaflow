@@ -4,8 +4,6 @@ import AdminLayout from '../AdminLayout';
 import ReportsAccessDenied from './ReportsAccessDenied';
 import { REPORT_CATEGORIES, REPORTS } from './reportsRegistry';
 
-export const REPORTS_NAV = [{ to: '/admin/reports', label: 'All Reports' }];
-
 /** /admin/reports -- the 15 reports grouped by category, with search and a category filter. */
 export default function ReportsHub() {
     const [query, setQuery] = useState('');
@@ -23,7 +21,6 @@ export default function ReportsHub() {
     return (
         <AdminLayout
             title="Reports"
-            navItems={REPORTS_NAV}
             requiredCapability="REPORT_VIEW"
             deniedView={<ReportsAccessDenied />}
             wide
