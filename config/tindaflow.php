@@ -12,6 +12,12 @@ return [
         'decay_minutes' => env('LOGIN_THROTTLE_DECAY_MINUTES', 1),
     ],
 
+    // Ceiling on API requests per signed-in user per minute. A technical safeguard, not a
+    // business rule: a busy till makes a few requests a second at most.
+    'api_throttle' => [
+        'per_minute' => env('API_THROTTLE_PER_MINUTE', 600),
+    ],
+
     // A3: the tindaflow_terminal credential cookie's lifetime. ADR-011
     // calls for a "long-lived" credential; the exact duration is an
     // internal Stage 6 operational choice, not part of the frozen

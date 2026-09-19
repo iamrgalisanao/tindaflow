@@ -14,18 +14,21 @@ use Illuminate\Support\Facades\DB;
  * zone (reproduced directly as Asia/Kuala_Lumpur, not UTC) -- silently
  * shifting every timestamptz round-trip through PDO by that offset. A
  * genuinely-future terminal_enrollment_tokens.expires_at was reading
- * back as already-past. Fixed by pinning the session to UTC
- * (config/database.php's `timezone` key, applied via
+ * back as already-past. Fixed by pinning the session to the
+ * application's own timezone (UTC at the time, Asia/Manila since stage 23 decision D1;
+ * config/database.php's `timezone` key, applied via
  * PostgresConnector::configureTimezone()'s `SET TIME ZONE`). This test
  * pins the invariant so it cannot silently regress.
  */
 class DatabaseConnectionTimezoneTest extends PostgresSchemaTestCase
 {
-    public function test_the_connection_session_timezone_is_utc(): void
+    /** Eloquent writes a zone-less string in the application's zone, so the session must be in the same one (stage 23 decision D1). */
+    public function test_the_connection_session_timezone_is_the_application_timezone(): void
     {
         $timezone = DB::selectOne('show timezone')->TimeZone;
 
-        $this->assertSame('UTC', $timezone);
+        $this->assertSame(config('app.timezone'), $timezone);
+        $this->assertSame('Asia/Manila', $timezone, 'V1 is a Philippine product: the default business timezone');
     }
 
     public function test_a_future_expiry_timestamp_does_not_shift_relative_to_application_now(): void

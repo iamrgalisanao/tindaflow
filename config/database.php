@@ -105,9 +105,12 @@ return [
             // offset) was silently off by that offset -- reproduced
             // directly via terminal_enrollment_tokens.expires_at, a
             // genuinely future timestamp reading as already-past. This
-            // pins the session to config/app.php's own 'UTC', which every
-            // PHP-side now()/Carbon comparison already assumes.
-            'timezone' => env('DB_TIMEZONE', 'UTC'),
+            // pins the session to config/app.php's own timezone, which every
+            // PHP-side now()/Carbon comparison already assumes: Eloquent writes
+            // a Carbon as a zone-less string in the application's zone, so the
+            // two MUST match (stage 23, decision D1). DB_TIMEZONE only overrides it for a
+            // deliberate reason.
+            'timezone' => env('DB_TIMEZONE', env('APP_TIMEZONE', 'Asia/Manila')),
         ],
 
         'sqlsrv' => [

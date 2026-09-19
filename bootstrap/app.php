@@ -2,6 +2,7 @@
 
 use App\Domain\Exceptions\DomainException;
 use App\Http\Middleware\AssignRequestId;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -19,6 +20,13 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(AssignRequestId::class);
+        $middleware->append(SecurityHeaders::class);
+
+        // This is a JSON API: a guest is never redirected to a login page (there is no `login` route). Without this,
+        // an unauthenticated request that does not send `Accept: application/json` -- a CSV export fetched with
+        // `Accept: text/csv`, a link opened in a browser -- died with a 500 (RouteNotFoundException) instead of
+        // the AUTHENTICATION_REQUIRED 401 rendered below, so an expired session looked like a server fault.
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
@@ -92,7 +100,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     'details' => [],
                     'request_id' => $request->attributes->get('request_id'),
                 ],
-            ], 429);
+            ], 429, $e->getHeaders());
         });
 
         // error-catalog.md VALIDATION_FAILED (A1 correction): every

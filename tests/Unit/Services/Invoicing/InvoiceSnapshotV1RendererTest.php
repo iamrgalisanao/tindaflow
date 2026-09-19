@@ -74,10 +74,11 @@ class InvoiceSnapshotV1RendererTest extends TestCase
         $reprint = $this->render($this->snapshot(), Carbon::parse('2026-09-19T08:30:00+00:00'));
 
         $this->assertSame(2, substr_count($reprint, 'REPRINT &mdash; COPY'));
-        $this->assertStringContainsString('Reprinted 2026-09-19 08:30:00', $reprint);
+        // Times are printed in the store's own zone (Asia/Manila, UTC+8), not in UTC.
+        $this->assertStringContainsString('Reprinted 2026-09-19 16:30:00', $reprint);
         $this->assertStringContainsString('No new invoice number was issued', $reprint);
         // Everything that is not the mark is identical to the original: same number, lines, totals.
-        foreach (['000123', 'Rice 1kg', 'PHP 710.00', '2026-09-18 13:13:49'] as $expected) {
+        foreach (['000123', 'Rice 1kg', 'PHP 710.00', '2026-09-18 21:13:49'] as $expected) {
             $this->assertStringContainsString($expected, $original);
             $this->assertStringContainsString($expected, $reprint);
         }

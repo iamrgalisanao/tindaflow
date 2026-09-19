@@ -59,13 +59,17 @@ return [
     | Application Timezone
     |--------------------------------------------------------------------------
     |
-    | Here you may specify the default timezone for your application, which
-    | will be used by the PHP date and date-time functions. The timezone
-    | is set to "UTC" by default as it is suitable for most use cases.
+    | The store's own timezone, which is also its business timezone: a fiscal
+    | day's business_date, the "from"/"to" dates on every list and report, the
+    | time printed on an invoice and the offset in a CSV export are all
+    | worked out in it. Instants are stored as absolute timestamptz values
+    | either way. V1 is a Philippine product, so it defaults to Asia/Manila
+    | (docs/06-backend/stage-23-production-readiness.md, decision D1). The
+    | database session must use the same zone (config/database.php).
     |
     */
 
-    'timezone' => 'UTC',
+    'timezone' => env('APP_TIMEZONE', 'Asia/Manila'),
 
     /*
     |--------------------------------------------------------------------------
