@@ -209,6 +209,24 @@ class SaleFinalizationHttpTest extends PostgresSchemaTestCase
     }
 
     /** §13 item 13 re-proof: a Store-A cashier holding a Store-B terminal credential cannot check out at all -- A4's coherence check fires before CheckoutService is ever reached. */
+    /** domain-model.md SS2.1: a product from another store is indistinguishable from a nonexistent one at checkout. */
+    public function test_checkout_cannot_sell_a_product_belonging_to_another_store(): void
+    {
+        ['shift' => $shift, 'terminalCredential' => $terminalCredential] = $this->readyToCheckoutViaHttp();
+        $foreignProduct = Product::factory()->create(['selling_price' => '100.00', 'cost' => '60.00']);
+        $cashierLogin = $this->login($shift->cashier);
+
+        $response = $this->forwardSessionCookie($cashierLogin)->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/sales', [
+                'items' => [['product_id' => $foreignProduct->id, 'quantity' => '1']],
+                'payments' => [['method' => 'CASH', 'amount' => '100.00']],
+            ]);
+
+        $response->assertStatus(404);
+        $response->assertJson(['error' => ['code' => 'PRODUCT_NOT_FOUND']]);
+    }
+
     public function test_checkout_rejects_a_cross_store_terminal_credential(): void
     {
         ['shift' => $shift, 'terminalCredential' => $terminalCredential] = $this->readyToCheckoutViaHttp();

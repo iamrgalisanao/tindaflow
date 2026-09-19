@@ -146,7 +146,9 @@ final class CheckoutService
         // ADR-003 step 3 (continued): fetch each product's current snapshot.
         $items = array_values($payload['items']);
         $productIds = collect($items)->pluck('product_id')->unique()->values();
-        $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
+        // Scoped to the terminal's own store (domain-model.md SS2.1): a product from another store is
+        // indistinguishable from one that does not exist, never sellable here.
+        $products = Product::where('store_id', $storeId)->whereIn('id', $productIds)->get()->keyBy('id');
         foreach ($productIds as $productId) {
             if (! $products->has($productId)) {
                 throw ProductNotFoundException::forId($productId);
