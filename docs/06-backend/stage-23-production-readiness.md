@@ -245,8 +245,8 @@ to their own database, `tindaflow_concurrency_test`, which nothing created. That
 (no one with a password on their local PostgreSQL could have run them either), not in the application. Fixed the right way:
 one `Tests\Database\PostgresTestConnection` helper driven by the same `PGSQL_TEST_*` variables the rest of the suite already
 used, called by all six tests, all six workers and the base test case, with the same local defaults; and a CI step that
-creates the concurrency database. The full Database suite passes locally (522); the workflow needs one more run to show
-green on GitHub. Not run from here: a real certificate. Two things to know: a redirect from plain HTTP drops a non-standard HTTPS port (only when 80 and 443 are
+creates the concurrency database. The full Database suite passes locally (522), and the next GitHub run (`7c9f3ea`) was
+**green** end to end. Not run from here: a real certificate. Two things to know: a redirect from plain HTTP drops a non-standard HTTPS port (only when 80 and 443 are
 not the published ports), and running the certificate command in Git Bash needs `MSYS_NO_PATHCONV=1`; both are in
 `docker/README.md`.
 
