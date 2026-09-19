@@ -2,9 +2,9 @@
 
 ## Status
 
-**Audit done; the fixes that need no new top-level folder and no owner decision are applied and tested.** Everything
-that does need one is listed in §6 with a ready-to-use recipe. No frozen file was edited and no baseline moved;
-`scripts/validate-baselines.sh` stayed green.
+**Audit done, the fixes applied and tested, and (after approval of the two new folders) the deployment artifacts
+built and run for real: `.github/` (CI) and `docker/` (the production stack with hourly backups), §6.** No frozen
+file was edited and no baseline moved; `scripts/validate-baselines.sh` stayed green.
 
 Method: read the configuration and middleware; ran the application **in production mode** (`APP_ENV=production`,
 `APP_DEBUG=false`) against a database built from nothing and probed what a client actually receives; audited the
@@ -21,8 +21,8 @@ dependencies; inspected the indexes behind the list and report queries; and **dr
 | F6 | Medium | No ceiling on API traffic; only login was throttled | **Fixed** (D5) |
 | F7 | Low | Logs: one file growing without limit (31 MB on the dev machine), lines not tied to a request | **Fixed** (D6) |
 | F8 | Low | An inbound `X-Request-ID` was echoed and logged unchecked | **Fixed** (D6) |
-| F9 | High | No CI, no Dockerfile/compose/nginx, no backup script: `deployment.md` describes them but none exist | **Needs approval** (§6) |
-| F10 | High (owner) | A daily backup means up to a day of sales can be lost | **Owner decision** (§4.3) |
+| F9 | High | No CI, no Dockerfile/compose/nginx, no backup script: `deployment.md` describes them but none existed | **Built and tested** (§6) |
+| F10 | High (owner) | A daily backup means up to a day of sales can be lost | **Decided: hourly** (§4.3), configurable |
 | F11 | Info | Dependencies clean; production migrate + seed from empty works; indexes adequate for V1 scale | Verified (§5) |
 
 ## 1. Decisions
@@ -126,11 +126,14 @@ the health check; it proves the app boots, **not** that the database is reachabl
 
 ## 3. Deployment status (F9)
 
-`docs/03-architecture/deployment.md` (a Stage 3 draft, baseline-protected) describes an nginx + PHP-FPM + PostgreSQL
-Docker stack and says a later stage builds it. **None of it exists**: no Dockerfile, compose file, nginx config or
-backup script, and no CI. Discrepancies to fold in when it is written: the draft names `postgres:16` while
-development and the drill use **17** (a dump from a newer server cannot be restored into an older one, so use one
-major everywhere), and its health check calls `/health`, which does not exist (it is `/up`).
+`docs/03-architecture/deployment.md` (a Stage 3 draft, baseline-protected, so left untouched) describes an nginx +
+PHP-FPM + PostgreSQL Docker stack and says a later stage builds it. Until now **none of it existed**. It is built
+in §6. Where the built stack differs from the draft, on purpose: it uses **PostgreSQL 17**, not the draft's 16 (a dump
+from a newer server cannot be restored into an older one, and development and the drill use 17); the health check is
+**database-aware** (`healthcheck.php`) rather than the draft's `/health`, which does not exist and which Laravel's `/up`
+would not have satisfied anyway (it never touches the database); and the compiled assets are **baked into the nginx
+image** rather than shared through a volume, because a volume keeps serving the previous release's files after an
+upgrade.
 
 ## 4. Backup and restore: drilled
 
@@ -164,10 +167,12 @@ off the machine, retention pruning, and a scheduled job (part of the deployment 
 ### 4.3 Owner decision: how much may be lost (F10)
 
 ADR-008 proposes a **daily** dump. For a till, that means a crash in the afternoon can lose the whole day's sales,
-which cannot be re-entered because invoice numbers and the journal are legal records. Options: dumps every hour
-(seconds each at this scale, cheap), and/or PostgreSQL continuous archiving for point-in-time recovery (recovers to
-the minute, more to operate). Recommendation: **hourly dumps kept for a day, daily kept 30 days, monthly kept 12,
-copied off the machine**, and PITR if the store cannot accept an hour. This is the owner's risk to accept.
+which cannot be re-entered because invoice numbers and the journal are legal records. The recommendation, now
+implemented as the default, is **hourly dumps kept for a day, then the first of each day kept 30 days, then the first of
+each month kept 12** (all environment settings), copied off the machine. The most a crash can lose is one interval
+(`BACKUP_INTERVAL_MINUTES`, default 60). If the store cannot accept an hour, the next step is PostgreSQL continuous
+archiving for point-in-time recovery (to the minute, more to operate). The owner can change the numbers without a code
+change; this is the owner's risk to accept.
 
 ## 5. Verified with no change needed
 
@@ -184,47 +189,58 @@ copied off the machine**, and PITR if the store cannot accept an hour. This is t
   `HttpOnly; SameSite=Strict`.
 - The database suite already uses its own `tindaflow_schema_test` database, separate from development data.
 
-## 6. Needs your approval: new top-level folders
+## 6. Deployment artifacts (approved and built)
 
-`CLAUDE.md` asks that no new base folder is created without approval, so I did not create these.
+Approval for the two new top-level folders was given, so they exist now.
 
-**`.github/workflows/ci.yml`** (proposed): runs on every push and pull request.
+**`.github/workflows/ci.yml`**: on every push to `main` and every pull request, a `test` job (PostgreSQL 17 service;
+PHP 8.4; frontend build; `pint --test`; the Unit and Feature tests; the Database tests; the frozen-baseline check with
+the `stage-*-baseline` tags fetched) and a `docker` job (builds both production images so a broken Dockerfile is caught
+before a release). It could not be run from here; every step was run locally, and both YAML files parse.
 
-```yaml
-name: CI
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: tindaflow_schema_test }
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      PGSQL_TEST_HOST: 127.0.0.1
-      PGSQL_TEST_PASSWORD: postgres
-    steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with: { php-version: '8.4', extensions: pdo_pgsql, bcmath, intl, mbstring, coverage: none }
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
-      - run: composer install --no-interaction --prefer-dist
-      - run: cp .env.example .env && php artisan key:generate
-      - run: npm ci && npm run build
-      - run: vendor/bin/pint --test
-      - run: php artisan test --compact
-      - run: php artisan test --compact tests/Database
-      - run: bash scripts/validate-baselines.sh
-```
+**`docker/`** (operator runbook: `docker/README.md`):
 
-**`docker/`** (proposed, per `deployment.md` §2): `docker/app/Dockerfile` (PHP-FPM 8.4 with `pdo_pgsql`, OPcache,
-`expose_php=Off`), `docker/nginx/conf.d/` (TLS, HTTP to HTTPS redirect, static assets), a `compose.yaml` with the
-three services and the health check on `/up`, and `docker/backup/backup.sh` implementing §4 with encryption,
-off-machine copy and retention.
+| File | Purpose |
+|---|---|
+| `app/Dockerfile` | one file, two images: `app` (PHP-FPM 8.4 with `pdo_pgsql`, `intl`, `bcmath`, OPcache, production dependencies only) and `web` (nginx with the compiled assets baked in) |
+| `app/php.ini` | `expose_php=Off`, `display_errors=Off`, OPcache without timestamp checks (the image is immutable) |
+| `app/entrypoint.sh` | waits for the database, caches config/routes/events/views as `www-data`, applies migrations, starts PHP-FPM |
+| `app/healthcheck.php` | healthy only if PostgreSQL answers a query with the app's own credentials |
+| `nginx/default.conf` | TLS 1.2/1.3, HTTP redirects to HTTPS, hashed assets cached for a year, only `index.php` is executed, dotfiles denied, 6 MB body limit for the product import |
+| `compose.yaml` | `web` (the only published ports), `app`, `postgres` (no published port, backend network only), `backup` |
+| `backup/backup.sh`, `restore.sh` | verified, optionally AES-256 encrypted dumps on an interval, retention pruning, an off-machine hook; a restore that only ever writes into a new database |
+| `.env.example`, `certs/`, `.dockerignore` | settings template; certificate folder (git-ignored contents); a small, secret-free build context |
+
+### 6.1 The stack was built and run, not just written
+
+`docker compose up -d --build` was run locally (both images, then the four containers, throwaway secrets and a
+self-signed certificate), probed, and torn down. What was checked:
+
+- **Build.** Both images build (app 851 MB, web 94 MB). The real build found a defect a read-through would not have:
+  `.dockerignore` let the developer machine's cached `bootstrap/cache/*.php` into the image, which names dev-only
+  packages and crashed package discovery. Fixed. The image holds no tests, docs or dev packages.
+- **Start.** Postgres healthy, app healthy after applying all 43 migrations, web serving; only `web` publishes ports.
+  The backup container was starting before the migrations and took a first dump of an empty database (898 bytes); it
+  now waits for the app to be healthy.
+- **Web tier.** `/up` 200 over TLS; every security header and HSTS present; `Server: nginx` with no version and no
+  `X-Powered-By`; cookies `Secure; HttpOnly; SameSite=Strict`; plain HTTP redirects to HTTPS; a guest's CSV request is a
+  clean `AUTHENTICATION_REQUIRED` 401; `*.php` and dotfiles are refused; a 7 MB upload is refused with 413 before it reaches
+  the app. The application and the database session both report `Asia/Manila`.
+- **Production seed.** Creates one administrator and prints the generated password once; no demo data.
+- **Health check.** Reports failure (exit 1, "could not translate host name") with the database stopped and recovers
+  when it returns; Laravel's `/up` cannot do either.
+- **Backups.** A real dump (141 KB) is taken and read back before it is kept; encryption adds only the 19-byte salt
+  header; the off-machine hook receives the file. **Restores** into a new database gave 41 tables, 129 indexes, 43
+  migrations and the same users and stores; a wrong passphrase fails cleanly and leaves no half-made database; restoring
+  over an existing database, or into a hostile name, is refused.
+- **Retention.** The pruning was checked against an independent implementation of the policy on four cases, the largest
+  685 backups spread over 16 months (kept exactly the expected 66); irregular gaps with encrypted names; a lone very old
+  backup (never deleted); and an empty directory.
+
+**Not run from here:** the GitHub Actions workflow itself (every step in it was run locally; both YAML files parse), and a
+real certificate. Two things to know: a redirect from plain HTTP drops a non-standard HTTPS port (only when 80 and 443 are
+not the published ports), and running the certificate command in Git Bash needs `MSYS_NO_PATHCONV=1`; both are in
+`docker/README.md`.
 
 ## 7. Verification
 
@@ -237,5 +253,6 @@ off-machine copy and retention.
 
 ## 8. Not done
 
-Encrypted, scheduled, off-machine backups and the deployment artifacts (§6); a database-aware health check;
-per-store timezones; and the repeat of the restore drill on the real deployment.
+The restore drill on the **real** deployment (it must be repeated there, on real data, before go-live); an
+off-machine destination (the hook exists but the store has to choose one); PostgreSQL point-in-time recovery; and
+per-store timezones.

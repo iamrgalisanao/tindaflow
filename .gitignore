@@ -28,3 +28,8 @@ Thumbs.db
 /.phpunit.result.cache
 /Homestead.json
 /Homestead.yaml
+
+# Deployment secrets and backup output (docker/README.md)
+/docker/certs/*
+!/docker/certs/.gitkeep
+/docker/backups/

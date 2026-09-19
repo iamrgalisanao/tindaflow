@@ -1,0 +1,25 @@
+# Keep the image build context small and free of anything secret or machine-specific.
+.git
+.github
+.claude
+.env
+.env.*
+!.env.example
+docker/.env
+docker/certs
+docker/backups
+node_modules
+vendor
+public/build
+public/hot
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/framework/testing
+# the developer machine's cached package and service lists mention dev-only packages
+bootstrap/cache/*.php
+tests
+docs
+.phpunit.result.cache
+*.log

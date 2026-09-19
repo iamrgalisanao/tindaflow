@@ -1,0 +1,98 @@
+# TindaFlow production stack (docs/03-architecture/deployment.md, docs/06-backend/stage-23-production-readiness.md).
+#
+#   cp .env.example .env   # then fill it in (docker/README.md)
+#   docker compose up -d --build
+#
+# web (nginx, the only published ports) -> app (PHP-FPM) -> postgres (no published port, on the backend network only).
+# backup keeps hourly dumps of the database; see docker/backup/backup.sh.
+name: tindaflow
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: docker/app/Dockerfile
+      target: web
+    image: tindaflow-web:${TINDAFLOW_TAG:-latest}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      # fullchain.pem and privkey.pem (docker/README.md explains how to make them)
+      - ${TLS_CERT_DIR:-./certs}:/etc/nginx/certs:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [frontend]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://localhost/up || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/app/Dockerfile
+      target: app
+    image: tindaflow-app:${TINDAFLOW_TAG:-latest}
+    env_file: .env
+    volumes:
+      - app-storage:/var/www/html/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [frontend, backend]
+    healthcheck:
+      # Reaches PostgreSQL with the app's own credentials (Laravel's /up never touches the database).
+      test: ["CMD", "php", "/usr/local/bin/healthcheck.php"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      TZ: ${APP_TIMEZONE:-Asia/Manila}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # No "ports:" on purpose: the database is reachable only from the app and backup containers.
+
+  backup:
+    image: postgres:17
+    env_file: .env
+    entrypoint: ["/usr/local/bin/backup.sh"]
+    command: ["loop"]
+    volumes:
+      - ./backup/backup.sh:/usr/local/bin/backup.sh:ro
+      - ./backup/restore.sh:/usr/local/bin/restore.sh:ro
+      # Put this on a different disk from the database (docker/README.md).
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      # After the app: its start applies the migrations, so the first dump is of a real schema, not an empty database.
+      app:
+        condition: service_healthy
+    networks: [backend]
+    restart: unless-stopped
+
+networks:
+  frontend:
+  backend:
+
+volumes:
+  pgdata:
+  app-storage:

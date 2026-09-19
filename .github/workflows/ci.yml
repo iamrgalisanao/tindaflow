@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests, style and frozen-baseline check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tindaflow_schema_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # tests/Database builds its own schema in this database (PostgresSchemaTestCase)
+      PGSQL_TEST_HOST: 127.0.0.1
+      PGSQL_TEST_PASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the baseline check compares against the stage-*-baseline tags
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, bcmath, intl, mbstring
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare the environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Build the frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Code style
+        run: vendor/bin/pint --test
+
+      - name: Unit and feature tests
+        run: php artisan test --compact
+
+      - name: Database tests (PostgreSQL)
+        run: php artisan test --compact tests/Database
+
+      - name: Frozen documentation baselines
+        run: bash scripts/validate-baselines.sh
+
+  docker:
+    name: Production images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/app/Dockerfile
+          target: app
+          push: false
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
+      - name: Build the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/app/Dockerfile
+          target: web
+          push: false
+          cache-from: type=gha,scope=app
