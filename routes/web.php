@@ -8,6 +8,7 @@ use App\Http\Controllers\FiscalDayController;
 use App\Http\Controllers\FiscalInstallationController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\InventoryLocationController;
+use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceSeriesController;
 use App\Http\Controllers\JournalEntryController;
 use App\Http\Controllers\ProductController;
@@ -110,6 +111,14 @@ Route::prefix('api/v1')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:SALE_REFUND_APPROVE']);
     Route::post('/refunds/{refundId}/reject', [RefundController::class, 'reject'])->whereUuid('refundId')
         ->middleware(['auth', EnsureUserIsActive::class, 'can:SALE_REFUND_APPROVE']);
+
+    // openapi.yaml Invoices tag. invoiceGet: session only, store-scoped, the plain original rendered from
+    // the immutable snapshot. invoiceReprint: enrolled terminal + Idempotency-Key, no dedicated capability
+    // (operation-inventory.md); it never allocates a number or touches any fiscal total.
+    Route::get('/invoices/{invoiceId}', [InvoiceController::class, 'get'])->whereUuid('invoiceId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/invoices/{invoiceId}/reprints', [InvoiceController::class, 'reprint'])->whereUuid('invoiceId')
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
 
     // openapi.yaml Audit and ElectronicJournal tags: read-only lists, session only (no terminal), gated by
     // AUDIT_VIEW / JOURNAL_VIEW. No create, update or delete exists for either log. auditEventGet and

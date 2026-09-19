@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Models\User;
 use App\Services\Auth\LoginRateLimiter;
 use App\Services\Auth\RoleCapabilityCatalog;
+use App\Services\Invoicing\HtmlInvoicePrinter;
+use App\Services\Invoicing\InvoicePrinter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -17,7 +19,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // ADR-007: one printing seam, one implementation (browser HTML) today.
+        $this->app->bind(InvoicePrinter::class, HtmlInvoicePrinter::class);
     }
 
     /**

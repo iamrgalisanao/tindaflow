@@ -4,6 +4,7 @@ import { MOVEMENT_TYPES } from '../inventory/inventoryParts';
 /** Audit events the application writes, in the order a person would look for them. */
 export const AUDIT_TYPES = [
     { id: 'SALE_FINALIZED', label: 'Sale finalized' },
+    { id: 'INVOICE_REPRINTED', label: 'Invoice reprinted' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -39,6 +40,11 @@ export function auditLabel(type) {
     return AUDIT_TYPES.find((entry) => entry.id === type)?.label ?? humanize(type);
 }
 
+/** A reprint is journalled as an INVOICE entry (the type list is closed); say so where it is shown. */
+export function journalEntryLabel(entry) {
+    return entry.event_type === 'INVOICE' && entry.payload_json?.is_reprint ? 'Invoice reprint' : journalLabel(entry.event_type);
+}
+
 export function journalLabel(type) {
     return JOURNAL_TYPES.find((entry) => entry.id === type)?.label ?? humanize(type);
 }
@@ -49,6 +55,8 @@ export function describeAudit(event) {
     switch (event.event_type) {
         case 'SALE_FINALIZED':
             return `Sale finalized${after.invoice_number ? `, invoice ${after.invoice_number}` : ''}`;
+        case 'INVOICE_REPRINTED':
+            return `Invoice ${after.invoice_number ?? '—'} reprinted; no new number was issued`;
         case 'SALE_VOID_REQUESTED':
             return 'Void requested for a sale';
         case 'SALE_VOIDED':
@@ -82,7 +90,7 @@ export function describeJournal(entry) {
     const payload = entry.payload_json ?? {};
     switch (entry.event_type) {
         case 'INVOICE':
-            return `Invoice ${payload.invoice_number ?? '—'} · ${money(payload.grand_total)}`;
+            return `${payload.is_reprint ? 'Reprint of invoice' : 'Invoice'} ${payload.invoice_number ?? '—'} · ${money(payload.grand_total)}`;
         case 'VOID':
             return `Void of invoice ${payload.invoice_number ?? '—'} · ${money(payload.grand_total)}`;
         case 'REFUND':

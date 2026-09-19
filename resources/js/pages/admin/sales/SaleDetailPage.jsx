@@ -5,6 +5,7 @@ import AdminLayout from '../AdminLayout';
 import { ErrorAlert, Toast } from '../catalog/CatalogParts';
 import { RETURN_KEY, failureMessage, request } from '../catalog/catalogApi';
 import { formatDateTime, formatMoney, formatQuantity, shortId } from '../reports/formatters';
+import InvoicePanel from './InvoicePanel';
 import RefundPanel from './RefundPanel';
 import { fromCents, toCents } from './refundMath';
 import VoidSalePanel from './VoidSalePanel';
@@ -44,7 +45,7 @@ export default function SaleDetailPage() {
     const [sale, setSale] = useState(null);
     const [failure, setFailure] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [panel, setPanel] = useState(null); // null | 'void' | 'refund'
+    const [panel, setPanel] = useState(null); // null | 'void' | 'refund' | 'invoice'
     const [toast, setToast] = useState(null);
     const dismissToast = useCallback(() => setToast(null), []);
     const closePanel = useCallback(() => setPanel(null), []);
@@ -133,6 +134,15 @@ export default function SaleDetailPage() {
                             </p>
                         </div>
                         <div className="flex gap-2">
+                            {sale.invoice && (
+                                <button
+                                    type="button"
+                                    onClick={() => setPanel('invoice')}
+                                    className="min-h-11 rounded-md border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800 lg:min-h-0"
+                                >
+                                    Invoice
+                                </button>
+                            )}
                             {canRefund && (
                                 <button
                                     type="button"
@@ -282,6 +292,9 @@ export default function SaleDetailPage() {
                 </div>
             )}
 
+            {panel === 'invoice' && sale?.invoice && (
+                <InvoicePanel invoiceId={sale.invoice.id} invoiceNumber={sale.invoice.invoice_number} canPrint={canRecord} onClose={closePanel} onUnauthorized={signIn} />
+            )}
             {panel === 'void' && sale && (
                 <VoidSalePanel sale={sale} executesImmediately={can('SALE_VOID_APPROVE')} onDone={voidDone} onClose={closePanel} onUnauthorized={signIn} />
             )}

@@ -4,7 +4,7 @@ import AdminLayout from '../AdminLayout';
 import { ErrorAlert, Pager, Toast } from '../catalog/CatalogParts';
 import { RETURN_KEY, failureMessage, request } from '../catalog/catalogApi';
 import { formatDateTime, shortId } from '../reports/formatters';
-import { JOURNAL_TYPES, KeyValues, TypeBadge, describeJournal, journalLabel } from './recordsParts';
+import { JOURNAL_TYPES, KeyValues, TypeBadge, describeJournal, journalEntryLabel } from './recordsParts';
 
 const PER_PAGE = 25;
 const EMPTY = { event_type: '', from: '', to: '' };
@@ -222,7 +222,7 @@ export default function JournalPage() {
                                 <li key={entry.id}>
                                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5">
                                         <span className="w-40 shrink-0 font-mono text-[12px] text-slate-400">{formatDateTime(entry.occurred_at)}</span>
-                                        <TypeBadge label={journalLabel(entry.event_type)} />
+                                        <TypeBadge label={journalEntryLabel(entry)} />
                                         <div className="min-w-0 flex-1 basis-64">
                                             <p className="break-words text-sm text-slate-100">{describeJournal(entry)}</p>
                                             <p className="font-mono text-[11px] text-slate-500">
