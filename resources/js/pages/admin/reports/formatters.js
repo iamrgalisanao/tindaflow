@@ -10,6 +10,18 @@ function groupThousands(integerDigits) {
     return integerDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Short display form of an id. Ids are time-ordered UUIDs, whose first characters are a timestamp
+ * (near-identical for records created close together); the random tail is what tells them apart.
+ * Anything that is not a UUID (an invoice number, a SKU) is shown whole.
+ */
+export function shortId(value) {
+    const text = String(value);
+    return UUID.test(text) ? text.slice(-8) : text;
+}
+
 export function isNumericString(value) {
     return typeof value === 'string' ? NUMERIC.test(value) : typeof value === 'number' && Number.isFinite(value);
 }
@@ -137,7 +149,7 @@ export function formatReportCell(value, format) {
             return { text: Number(value).toLocaleString('en-US'), className: 'font-mono tabular-nums text-slate-200' };
         case 'mono_id':
             return {
-                text: String(value).length > 12 ? String(value).slice(0, 8) : String(value),
+                text: shortId(value),
                 title: String(value),
                 className: 'inline-block rounded border border-slate-700/60 bg-slate-800/80 px-1.5 py-0.5 font-mono text-[11px] text-emerald-400',
             };

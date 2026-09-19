@@ -2,24 +2,27 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\RespondsWithPagination;
+use App\Http\Requests\ProductInputRequest;
 use App\Http\Resources\ProductResource;
 use App\Models\Product;
+use App\Services\Catalog\ProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * openapi.yaml Catalog tag -- productList only (the minimal read-only
- * slice needed for the POS cart screen to browse/search products;
- * productCreate/productGet/etc. remain out of scope, per
- * stage-7-frontend-initialization.md's own discipline). No x-capability,
- * no terminal credential required (operation-inventory.md: "session"
- * auth, "Term. enrolled? = false") -- any authenticated user may browse
- * the catalog. Scoped to the actor's own store_id, matching
- * domain-model.md SS2.1's universal store-scoping convention.
+ * openapi.yaml Catalog tag -- productList/Get (any authenticated user, no terminal credential:
+ * operation-inventory.md "session" auth) and productCreate/Update/Activate/Deactivate
+ * (CATALOG_MANAGE). Everything is scoped to the actor's own store_id (domain-model.md SS2.1);
+ * a product in another store is indistinguishable from one that does not exist.
+ *
+ * Not implemented here: productLookupByBarcode (POS-side), productImport, productExport.
  */
 class ProductController extends Controller
 {
+    use RespondsWithPagination;
+
     public function list(Request $request): JsonResponse
     {
         $actor = Auth::guard('web')->user();
@@ -42,20 +45,48 @@ class ProductController extends Controller
         if (in_array($column, ['name', 'sku', 'created_at'], true)) {
             $query->orderBy($column, str_starts_with($sort, '-') ? 'desc' : 'asc');
         }
+        $query->orderBy('id');
 
-        $paginator = $query->paginate(
-            perPage: (int) $request->query('per_page', 25),
-            page: (int) $request->query('page', 1),
+        return $this->paginatedResponse(
+            $query->paginate(perPage: $this->perPage($request), page: (int) $request->query('page', 1)),
+            ProductResource::class,
         );
+    }
 
-        return response()->json([
-            'data' => ProductResource::collection($paginator->items()),
-            'meta' => [
-                'page' => $paginator->currentPage(),
-                'per_page' => $paginator->perPage(),
-                'total' => $paginator->total(),
-                'last_page' => $paginator->lastPage(),
-            ],
-        ]);
+    public function get(ProductService $service, string $productId): JsonResponse
+    {
+        $actor = Auth::guard('web')->user();
+
+        return (new ProductResource($service->find($actor->store_id, $productId)))->response();
+    }
+
+    public function create(ProductInputRequest $request, ProductService $service): JsonResponse
+    {
+        $actor = Auth::guard('web')->user();
+
+        return (new ProductResource($service->create($actor->store_id, $request->validated())))
+            ->response()
+            ->setStatusCode(201);
+    }
+
+    public function update(ProductInputRequest $request, ProductService $service, string $productId): JsonResponse
+    {
+        $actor = Auth::guard('web')->user();
+
+        return (new ProductResource($service->update($actor->store_id, $productId, $request->validated())))->response();
+    }
+
+    public function activate(ProductService $service, string $productId): JsonResponse
+    {
+        $actor = Auth::guard('web')->user();
+
+        return (new ProductResource($service->setActive($actor->store_id, $productId, true)))->response();
+    }
+
+    public function deactivate(ProductService $service, string $productId): JsonResponse
+    {
+        $actor = Auth::guard('web')->user();
+
+        return (new ProductResource($service->setActive($actor->store_id, $productId, false)))->response();
     }
 }

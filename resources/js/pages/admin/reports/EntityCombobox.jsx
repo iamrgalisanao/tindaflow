@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { shortId } from './formatters';
 
 /**
  * Single-select, searchable picker for a report's entity filter (product / category / cashier).
@@ -24,7 +25,7 @@ export default function EntityCombobox({ id, label, noun, searchPlaceholder, opt
     }, [options, needle, noun]);
 
     const selected = options.find((option) => option.value === value);
-    const selectedLabel = value === '' ? 'All' : selected ? `${selected.code ? `${selected.code} ` : ''}${selected.name}` : value.slice(0, 8);
+    const selectedLabel = value === '' ? 'All' : selected ? `${selected.code ? `${selected.code} ` : ''}${selected.name}` : shortId(value);
 
     useEffect(() => {
         if (!open) {
@@ -174,7 +175,7 @@ export default function EntityCombobox({ id, label, noun, searchPlaceholder, opt
                                     {item.all ? (
                                         <span className="block font-mono text-[11px] text-slate-500">Resets the filter</span>
                                     ) : (
-                                        <span className="block font-mono text-[11px] text-slate-500">id: {item.value.slice(0, 8)}</span>
+                                        <span className="block font-mono text-[11px] text-slate-500">id: {shortId(item.value)}</span>
                                     )}
                                 </span>
                             </li>

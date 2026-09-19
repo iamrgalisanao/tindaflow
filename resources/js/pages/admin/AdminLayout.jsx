@@ -11,6 +11,12 @@ export const STORE_SETUP_NAV = [
     { to: '/admin/store-setup/tax-registrations', label: 'Tax Registrations' },
 ];
 
+const CATALOG_NAV = [
+    { to: '/admin/catalog/products', label: 'Products' },
+    { to: '/admin/catalog/categories', label: 'Categories' },
+    { to: '/admin/catalog/brands', label: 'Brands' },
+];
+
 function Icon({ children }) {
     return (
         <svg
@@ -45,6 +51,12 @@ const ICONS = {
             <rect x="5" y="11" width="3" height="9" />
             <rect x="10.5" y="5" width="3" height="15" />
             <rect x="16" y="14" width="3" height="6" />
+        </Icon>
+    ),
+    catalog: (
+        <Icon>
+            <path d="M21 8l-9-5-9 5v8l9 5 9-5V8z" />
+            <path d="M3 8l9 5 9-5M12 13v8" />
         </Icon>
     ),
     store: (
@@ -94,6 +106,15 @@ const SECTIONS = [
         capability: 'REPORT_VIEW',
         matches: (path) => path.startsWith('/admin/reports'),
         links: REPORT_LINKS,
+    },
+    {
+        id: 'catalog',
+        label: 'Catalog',
+        to: '/admin/catalog/products',
+        icon: 'catalog',
+        capability: 'CATALOG_MANAGE',
+        matches: (path) => path.startsWith('/admin/catalog'),
+        links: CATALOG_NAV,
     },
     {
         id: 'store-setup',

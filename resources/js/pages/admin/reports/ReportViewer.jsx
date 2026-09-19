@@ -18,7 +18,7 @@ import {
     exportFailureMessage,
 } from './ReportParts';
 import { reportBySlug } from './reportsRegistry';
-import { cellValue, datePreset, sumIntegers, sumMoney } from './formatters';
+import { cellValue, datePreset, shortId, sumIntegers, sumMoney } from './formatters';
 
 const PAGE_SIZE = 50;
 const RETURN_KEY = 'tindaflow.returnTo';
@@ -611,7 +611,7 @@ export default function ReportViewer() {
                     <span className="text-slate-600">Applied:</span>
                     {applied.map(([key, value]) => (
                         <span key={key} className="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 font-mono text-slate-300">
-                            {key} = {String(value).length > 12 ? String(value).slice(0, 8) : String(value)}
+                            {key} = {shortId(value)}
                             {entityFilter && key === entityFilter.key && selectedOption
                                 ? ` (${selectedOption.code ?? selectedOption.name})`
                                 : ''}
@@ -741,7 +741,7 @@ export default function ReportViewer() {
                                                 {showGroup && (
                                                     <tr className="bg-slate-900">
                                                         <td colSpan={report.columns.length} className="px-3 py-1.5 text-xs font-semibold text-slate-400">
-                                                            {report.groupBy.label}: <span className="font-mono text-emerald-400">{String(groupValue).slice(0, 8)}</span>
+                                                            {report.groupBy.label}: <span className="font-mono text-emerald-400">{shortId(groupValue)}</span>
                                                         </td>
                                                     </tr>
                                                 )}

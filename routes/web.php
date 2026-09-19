@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BrandController;
+use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\FiscalDayController;
 use App\Http\Controllers\FiscalInstallationController;
 use App\Http\Controllers\InventoryLocationController;
@@ -97,11 +99,31 @@ Route::prefix('api/v1')->group(function () {
     Route::get('/fiscal-days/{fiscalDayId}/z-reading', [FiscalDayController::class, 'getZReading'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
 
-    // openapi.yaml Catalog tag -- productList only (see ProductController's
-    // own docblock for what remains out of scope). No x-capability, no
-    // terminal credential required (operation-inventory.md).
+    // openapi.yaml Catalog tag. Reads need only the session (operation-inventory.md);
+    // every mutation is CATALOG_MANAGE. No terminal credential. {productId} is
+    // constrained to a UUID so the not-yet-built literal paths (/products/import,
+    // /products/export, /products/by-barcode/...) can never be captured by it.
     Route::get('/products', [ProductController::class, 'list'])
         ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/products', [ProductController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    Route::get('/products/{productId}', [ProductController::class, 'get'])->whereUuid('productId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::patch('/products/{productId}', [ProductController::class, 'update'])->whereUuid('productId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    Route::post('/products/{productId}/activate', [ProductController::class, 'activate'])->whereUuid('productId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    Route::post('/products/{productId}/deactivate', [ProductController::class, 'deactivate'])->whereUuid('productId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+
+    Route::get('/categories', [CategoryController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/categories', [CategoryController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    Route::get('/brands', [BrandController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/brands', [BrandController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
 
     // Store setup (docs/06-ui/stage-8-store-setup.md). Admin CRUD is
     // FISCAL_CONFIGURATION_MANAGE-gated, store-scoped, no terminal

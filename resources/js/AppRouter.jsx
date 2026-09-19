@@ -9,6 +9,8 @@ import FiscalInstallations from './pages/admin/FiscalInstallations';
 import InvoiceSeriesPage from './pages/admin/InvoiceSeriesPage';
 import InventoryLocations from './pages/admin/InventoryLocations';
 import TaxRegistrations from './pages/admin/TaxRegistrations';
+import ProductsPage from './pages/admin/catalog/ProductsPage';
+import CatalogNamesPage from './pages/admin/catalog/CatalogNamesPage';
 import ReportsHub from './pages/admin/reports/ReportsHub';
 import ReportViewer from './pages/admin/reports/ReportViewer';
 
@@ -113,6 +115,31 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <TaxRegistrations />
+                        </RequireAuth>
+                    }
+                />
+                <Route path="/admin/catalog" element={<Navigate to="/admin/catalog/products" replace />} />
+                <Route
+                    path="/admin/catalog/products"
+                    element={
+                        <RequireAuth>
+                            <ProductsPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/catalog/categories"
+                    element={
+                        <RequireAuth>
+                            <CatalogNamesPage kind="categories" />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/catalog/brands"
+                    element={
+                        <RequireAuth>
+                            <CatalogNamesPage kind="brands" />
                         </RequireAuth>
                     }
                 />

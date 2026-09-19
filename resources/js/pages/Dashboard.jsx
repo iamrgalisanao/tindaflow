@@ -70,6 +70,14 @@ export default function Dashboard() {
                             Store setup
                         </Link>
                     )}
+                    {user.capabilities.includes('CATALOG_MANAGE') && (
+                        <Link
+                            to="/admin/catalog/products"
+                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-center text-sm hover:bg-gray-50"
+                        >
+                            Catalog
+                        </Link>
+                    )}
                     {user.capabilities.includes('REPORT_VIEW') && (
                         <Link
                             to="/admin/reports"
@@ -81,8 +89,8 @@ export default function Dashboard() {
                 </div>
 
                 <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    Back-office screens beyond terminal management, store setup, and
-                    reports (products, users) are not built yet — their backend
+                    Back-office screens beyond terminal management, store setup,
+                    catalog, and reports (users) are not built yet — their backend
                     endpoints don't exist yet.
                 </p>
             </div>
