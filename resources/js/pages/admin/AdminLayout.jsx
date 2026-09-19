@@ -22,6 +22,11 @@ const SALES_NAV = [
     { to: '/admin/sales/approvals', label: 'Approvals', capability: 'SALE_VOID_APPROVE' },
 ];
 
+const RECORDS_NAV = [
+    { to: '/admin/audit', label: 'Audit log', capability: 'AUDIT_VIEW' },
+    { to: '/admin/journal', label: 'Electronic journal', capability: 'JOURNAL_VIEW' },
+];
+
 const INVENTORY_NAV = [
     { to: '/admin/inventory/stock', label: 'Stock' },
     { to: '/admin/inventory/movements', label: 'Movements' },
@@ -74,6 +79,12 @@ const ICONS = {
         <Icon>
             <path d="M21 8l-9-5-9 5v8l9 5 9-5V8z" />
             <path d="M3 8l9 5 9-5M12 13v8" />
+        </Icon>
+    ),
+    records: (
+        <Icon>
+            <path d="M6 3h9l4 4v14H6V3z" />
+            <path d="M14 3v5h5M9 13h7M9 17h7" />
         </Icon>
     ),
     sales: (
@@ -163,6 +174,15 @@ const SECTIONS = [
         capability: 'STOCK_ADJUST',
         matches: (path) => path.startsWith('/admin/inventory'),
         links: INVENTORY_NAV,
+    },
+    {
+        id: 'records',
+        label: 'Records',
+        to: '/admin/audit',
+        icon: 'records',
+        capability: ['AUDIT_VIEW', 'JOURNAL_VIEW'],
+        matches: (path) => path.startsWith('/admin/audit') || path.startsWith('/admin/journal'),
+        links: RECORDS_NAV,
     },
     {
         id: 'users',
@@ -344,9 +364,10 @@ export default function AdminLayout({
     const { user, logout } = useAuth();
     const { pathname } = useLocation();
     const allowed = user.capabilities.includes(requiredCapability);
-    const sections = SECTIONS.filter((section) => !section.capability || user.capabilities.includes(section.capability)).map((section) => ({
+    const holds = (capability) => [capability].flat().some((name) => user.capabilities.includes(name));
+    const sections = SECTIONS.filter((section) => !section.capability || holds(section.capability)).map((section) => ({
         ...section,
-        links: section.links?.filter((link) => !link.capability || user.capabilities.includes(link.capability)),
+        links: section.links?.filter((link) => !link.capability || holds(link.capability)),
     }));
 
     const [drawerOpen, setDrawerOpen] = useState(false);

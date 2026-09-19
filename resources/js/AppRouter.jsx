@@ -16,6 +16,8 @@ import StockPage from './pages/admin/inventory/StockPage';
 import SalesPage from './pages/admin/sales/SalesPage';
 import SaleDetailPage from './pages/admin/sales/SaleDetailPage';
 import ApprovalsPage from './pages/admin/sales/ApprovalsPage';
+import AuditLogPage from './pages/admin/records/AuditLogPage';
+import JournalPage from './pages/admin/records/JournalPage';
 import MovementsPage from './pages/admin/inventory/MovementsPage';
 import ReportsHub from './pages/admin/reports/ReportsHub';
 import ReportViewer from './pages/admin/reports/ReportViewer';
@@ -153,6 +155,22 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <SaleDetailPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/audit"
+                    element={
+                        <RequireAuth>
+                            <AuditLogPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/journal"
+                    element={
+                        <RequireAuth>
+                            <JournalPage />
                         </RequireAuth>
                     }
                 />

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AuditEventController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
@@ -8,6 +9,7 @@ use App\Http\Controllers\FiscalInstallationController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\InventoryLocationController;
 use App\Http\Controllers\InvoiceSeriesController;
+use App\Http\Controllers\JournalEntryController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\RefundController;
 use App\Http\Controllers\Reports\InventoryReportController;
@@ -108,6 +110,14 @@ Route::prefix('api/v1')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:SALE_REFUND_APPROVE']);
     Route::post('/refunds/{refundId}/reject', [RefundController::class, 'reject'])->whereUuid('refundId')
         ->middleware(['auth', EnsureUserIsActive::class, 'can:SALE_REFUND_APPROVE']);
+
+    // openapi.yaml Audit and ElectronicJournal tags: read-only lists, session only (no terminal), gated by
+    // AUDIT_VIEW / JOURNAL_VIEW. No create, update or delete exists for either log. auditEventGet and
+    // journalEntryGet are not registered yet (their 404 has no error code; see AuditEventController).
+    Route::get('/audit-events', [AuditEventController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:AUDIT_VIEW']);
+    Route::get('/electronic-journal-entries', [JournalEntryController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:JOURNAL_VIEW']);
 
     // openapi.yaml Shifts tag. security: cookieAuth AND terminalCookieAuth
     // conjunctively, same as saleFinalize -- no x-capability declared, so

@@ -47,7 +47,7 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     <Link
                         to="/pos"
                         className="flex-1 rounded-md bg-gray-900 px-4 py-2 text-center text-sm font-medium text-white hover:bg-gray-800"
@@ -94,6 +94,22 @@ export default function Dashboard() {
                             Inventory
                         </Link>
                     )}
+                    {user.capabilities.includes('AUDIT_VIEW') && (
+                        <Link
+                            to="/admin/audit"
+                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-center text-sm hover:bg-gray-50"
+                        >
+                            Audit log
+                        </Link>
+                    )}
+                    {user.capabilities.includes('JOURNAL_VIEW') && (
+                        <Link
+                            to="/admin/journal"
+                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-center text-sm hover:bg-gray-50"
+                        >
+                            Journal
+                        </Link>
+                    )}
                     {user.capabilities.includes('USER_MANAGE') && (
                         <Link
                             to="/admin/users"
@@ -111,11 +127,6 @@ export default function Dashboard() {
                         </Link>
                     )}
                 </div>
-
-                <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    The audit log and the electronic journal have no screens
-                    yet — their backend endpoints don't exist yet.
-                </p>
             </div>
         </div>
     );
