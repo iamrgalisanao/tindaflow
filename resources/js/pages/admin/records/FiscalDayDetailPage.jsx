@@ -112,7 +112,9 @@ export default function FiscalDayDetailPage() {
                                         <Link to={`/admin/shifts/${shift.id}`} className="font-mono text-[12px] text-emerald-400 hover:underline">
                                             {formatDateTime(shift.opened_at)}
                                         </Link>
-                                        <DayStatusBadge status={shift.status} />
+                                        <span className="w-16 shrink-0">
+                                            <DayStatusBadge status={shift.status} />
+                                        </span>
                                         <span className="font-mono text-[12px] text-slate-400" title={shift.cashier_id}>
                                             cashier {shortId(shift.cashier_id)}
                                         </span>

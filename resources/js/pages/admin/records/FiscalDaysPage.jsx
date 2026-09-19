@@ -90,7 +90,9 @@ export default function FiscalDaysPage() {
                                 <Link to={`/admin/fiscal-days/${day.id}`} className="w-28 shrink-0 font-mono text-sm text-emerald-400 hover:underline">
                                     {day.business_date}
                                 </Link>
-                                <DayStatusBadge status={day.status} />
+                                <span className="w-16 shrink-0">
+                                    <DayStatusBadge status={day.status} />
+                                </span>
                                 <span className="font-mono text-[12px] text-slate-400" title={day.terminal_id}>
                                     terminal {shortId(day.terminal_id)}
                                 </span>

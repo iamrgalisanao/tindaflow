@@ -147,9 +147,9 @@ export default function ProductsPage() {
         }
     }
 
-    function imported(result) {
+    // The panel shows the result itself; the list behind it only needs to refresh.
+    function imported() {
         reload();
-        setToast(`Import finished: ${result.created} created, ${result.updated} updated${result.failed > 0 ? `, ${result.failed} skipped` : ''}`);
     }
 
     function saved(product, wasEditing) {
