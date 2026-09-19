@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Pos from './pages/Pos';
 import TerminalEnroll from './pages/TerminalEnroll';
 import StoreSetupOverview from './pages/admin/StoreSetupOverview';
+import StoreSettingsPage from './pages/admin/StoreSettingsPage';
 import FiscalInstallations from './pages/admin/FiscalInstallations';
 import InvoiceSeriesPage from './pages/admin/InvoiceSeriesPage';
 import InventoryLocations from './pages/admin/InventoryLocations';
@@ -91,6 +92,14 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <StoreSetupOverview />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/store-setup/business"
+                    element={
+                        <RequireAuth>
+                            <StoreSettingsPage />
                         </RequireAuth>
                     }
                 />

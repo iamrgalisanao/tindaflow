@@ -43,10 +43,17 @@ final class InvoiceSnapshotV1Renderer
         if ($this->has($snapshot, 'seller_address')) {
             $html[] = '<div class="wrap">'.$this->text($snapshot['seller_address']).'</div>';
         }
-        if ($this->has($snapshot, 'seller_tin')) {
-            $html[] = '<div>TIN: '.$this->text($snapshot['seller_tin']).'</div>';
+        $identity = array_filter([
+            $this->has($snapshot, 'seller_tin') ? 'TIN: '.$this->text($snapshot['seller_tin']) : null,
+            $this->has($snapshot, 'seller_branch_code') ? 'Branch: '.$this->text($snapshot['seller_branch_code']) : null,
+        ]);
+        if ($identity !== []) {
+            $html[] = '<div class="wrap">'.implode(' &middot; ', $identity).'</div>';
         }
         $html[] = '<div>'.($isVat ? 'VAT REGISTERED' : 'NON-VAT REGISTERED').'</div>';
+        if ($this->has($snapshot, 'invoice_header')) {
+            $html[] = '<div class="pre">'.$this->text($snapshot['invoice_header']).'</div>';
+        }
         $html[] = '</div><div class="sep"></div>';
 
         $html[] = '<div class="c b title">INVOICE</div>';
@@ -94,6 +101,9 @@ final class InvoiceSnapshotV1Renderer
         $html[] = '<div class="row b total"><span>TOTAL</span><span>'.$this->money($snapshot['grand_total'] ?? '0.00').'</span></div>';
         $html[] = '<div class="sep"></div>';
         $html[] = '<div class="legend">V VATable &middot; E VAT-exempt &middot; Z Zero-rated &middot; N Non-VAT</div>';
+        if ($this->has($snapshot, 'invoice_footer')) {
+            $html[] = '<div class="sep"></div><div class="c pre">'.$this->text($snapshot['invoice_footer']).'</div>';
+        }
 
         if ($reprint) {
             $html[] = '<div class="mark">REPRINT &mdash; COPY</div>';
@@ -115,6 +125,7 @@ final class InvoiceSnapshotV1Renderer
             .'.row{display:flex;justify-content:space-between;gap:8px}'
             .'.row span:last-child{text-align:right;white-space:nowrap}'
             .'.wrap{overflow-wrap:anywhere}'
+            .'.pre{white-space:pre-line;overflow-wrap:anywhere}'
             .'.item{margin-bottom:3px;break-inside:avoid}'
             .'.sep{border-top:1px dashed #000;margin:6px 0}'
             .'.total{font-size:14px}'

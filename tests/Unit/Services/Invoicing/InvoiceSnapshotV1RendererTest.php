@@ -140,6 +140,39 @@ class InvoiceSnapshotV1RendererTest extends TestCase
         $this->assertStringNotContainsString('VATable Sales', $html);
     }
 
+    public function test_branch_code_header_and_footer_print_when_present_and_are_escaped(): void
+    {
+        $html = $this->render($this->snapshot([
+            'seller_branch_code' => '0007',
+            'invoice_header' => 'Fresh & hot
+<b>Open daily</b>',
+            'invoice_footer' => 'Thank you! <script>x()</script>',
+        ]));
+
+        $this->assertStringContainsString('TIN: 123-456-789-000 &middot; Branch: 0007', $html);
+        $this->assertStringContainsString('Fresh &amp; hot', $html);
+        $this->assertStringContainsString('&lt;b&gt;Open daily&lt;/b&gt;', $html);
+        $this->assertStringContainsString('Thank you! &lt;script&gt;x()&lt;/script&gt;', $html);
+        $this->assertStringNotContainsString('<script', strtolower($html));
+        $this->assertStringContainsString('white-space:pre-line', $html);
+    }
+
+    public function test_an_invoice_issued_without_the_optional_keys_prints_none_of_them(): void
+    {
+        $html = $this->render($this->snapshot());
+
+        $this->assertStringNotContainsString('Branch:', $html);
+        $this->assertStringNotContainsString('class="pre"', $html);
+    }
+
+    public function test_a_branch_code_without_a_tin_still_prints(): void
+    {
+        $html = $this->render($this->snapshot(['seller_tin' => null, 'seller_branch_code' => '0009']));
+
+        $this->assertStringContainsString('Branch: 0009', $html);
+        $this->assertStringNotContainsString('TIN:', $html);
+    }
+
     public function test_it_is_laid_out_for_an_80mm_roll_and_carries_no_script(): void
     {
         $html = $this->render($this->snapshot());

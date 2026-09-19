@@ -287,6 +287,12 @@ final class CheckoutService
             'seller_registered_name' => $storeSettings->registered_name ?? null,
             'seller_tin' => $storeSettings->tin ?? null,
             'seller_address' => $storeSettings->business_address ?? null,
+            // Optional, additive keys of schema_version 1: an invoice issued before these existed simply lacks
+            // them and its renderer prints nothing for them (ADR-006). Header and footer are the store's own
+            // free text (Module B); the branch code is part of the seller's identity.
+            'seller_branch_code' => $storeSettings->branch_code ?? null,
+            'invoice_header' => $storeSettings->invoice_header ?? null,
+            'invoice_footer' => $storeSettings->invoice_footer ?? null,
             'tax_registration_type' => $taxRegistrationType,
             'terminal_code' => $terminal->terminal_code,
             'buyer_name' => $sale->buyer_name,

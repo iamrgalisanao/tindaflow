@@ -5,6 +5,7 @@ import { REPORT_CATEGORIES, REPORTS } from './reports/reportsRegistry';
 
 export const STORE_SETUP_NAV = [
     { to: '/admin/store-setup', label: 'Overview' },
+    { to: '/admin/store-setup/business', label: 'Business Details', capability: 'STORE_SETTINGS_MANAGE' },
     { to: '/admin/store-setup/fiscal-installations', label: 'Fiscal Installations' },
     { to: '/admin/store-setup/invoice-series', label: 'Invoice Series' },
     { to: '/admin/store-setup/inventory-locations', label: 'Inventory Locations' },

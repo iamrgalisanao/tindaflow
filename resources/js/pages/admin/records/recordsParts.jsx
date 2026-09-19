@@ -5,6 +5,7 @@ import { MOVEMENT_TYPES } from '../inventory/inventoryParts';
 export const AUDIT_TYPES = [
     { id: 'SALE_FINALIZED', label: 'Sale finalized' },
     { id: 'INVOICE_REPRINTED', label: 'Invoice reprinted' },
+    { id: 'SETTINGS_CHANGED', label: 'Business details changed' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -57,6 +58,8 @@ export function describeAudit(event) {
             return `Sale finalized${after.invoice_number ? `, invoice ${after.invoice_number}` : ''}`;
         case 'INVOICE_REPRINTED':
             return `Invoice ${after.invoice_number ?? '—'} reprinted; no new number was issued`;
+        case 'SETTINGS_CHANGED':
+            return `Business details changed: ${Object.keys(after).map((field) => field.replaceAll('_', ' ')).join(', ') || 'nothing recorded'}`;
         case 'SALE_VOID_REQUESTED':
             return 'Void requested for a sale';
         case 'SALE_VOIDED':

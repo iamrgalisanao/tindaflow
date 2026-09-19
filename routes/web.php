@@ -19,6 +19,7 @@ use App\Http\Controllers\Reports\ShiftReportController;
 use App\Http\Controllers\Reports\VoidRefundReportController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\ShiftController;
+use App\Http\Controllers\StoreSettingsController;
 use App\Http\Controllers\StoreSetupController;
 use App\Http\Controllers\TaxRegistrationController;
 use App\Http\Controllers\TerminalController;
@@ -111,6 +112,13 @@ Route::prefix('api/v1')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:SALE_REFUND_APPROVE']);
     Route::post('/refunds/{refundId}/reject', [RefundController::class, 'reject'])->whereUuid('refundId')
         ->middleware(['auth', EnsureUserIsActive::class, 'can:SALE_REFUND_APPROVE']);
+
+    // openapi.yaml StoreSettings tag: business identity for the actor's own store. Reading needs only a
+    // session; changing it needs STORE_SETTINGS_MANAGE. (tax-registrations are registered separately, below.)
+    Route::get('/store-settings', [StoreSettingsController::class, 'get'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::patch('/store-settings', [StoreSettingsController::class, 'update'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
 
     // openapi.yaml Invoices tag. invoiceGet: session only, store-scoped, the plain original rendered from
     // the immutable snapshot. invoiceReprint: enrolled terminal + Idempotency-Key, no dedicated capability
