@@ -108,7 +108,15 @@ export default function ReportViewer() {
             setStatus('loading');
             setError(null);
             const query = buildQuery(filters);
-            const { ok, body } = await apiFetch(`/api/v1/reports/${report.slug}${query ? `?${query}` : ''}`);
+            let result;
+            try {
+                result = await apiFetch(`/api/v1/reports/${report.slug}${query ? `?${query}` : ''}`);
+            } catch {
+                setStatus('error');
+                setError('The report could not be loaded. Check your connection and try again.');
+                return;
+            }
+            const { ok, body } = result;
             if (!ok) {
                 setStatus('error');
                 setError(body?.error?.message ?? 'The report could not be loaded.');

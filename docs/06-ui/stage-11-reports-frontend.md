@@ -12,8 +12,9 @@ POS screen.
 ## 1. Stitch mockup inventory
 
 Source: Stitch project `13465419248509126107` ("TindaFlow Store Setup &
-Fiscal Configuration Module", 24 screens; design system "TindaFlow
-Industrial Retail Back Office"). Eight screens are report-relevant:
+Fiscal Configuration Module", 26 screens before the 2026-09-19
+additions; design system "TindaFlow Industrial Retail Back Office").
+Ten screens plus the spec document are report-relevant:
 
 | Mockup | Used for |
 |---|---|
@@ -22,6 +23,8 @@ Industrial Retail Back Office"). Eight screens are report-relevant:
 | Shared Report Viewer (Inventory On Hand) | Grouped-by-location table layout |
 | Shared Report Viewer (Inventory Movement Ledger) | Movement table with type badges |
 | Shared Report Viewer (Cash Variance Register) | Shortage/overage styling |
+| Daily Sales Summary (SR-001) | `daily-sales-summary` (added to the inventory 2026-09-19; it was missed in the first pass) |
+| Shared Report Viewer (Voids Audit Ledger EA-001) / (Refunds Audit Ledger EA-002) | `voids` / `refunds` layout only. Both carry invented BIR/dual-key/hash/print content and show no requested/approved/rejected outcomes, so §6 supersedes them |
 | VAT Breakdown (Statutory BIR TR-001) | `tax-breakdown` (retitled — see §3) |
 | Reports Access Denied (403 Inline) | `ReportsAccessDenied.jsx`, rendered inside the shell |
 | TindaFlow 15-Report Code Schema & Architecture Specification (markdown) | The registry architecture: one declarative config + one shared viewer |
@@ -29,16 +32,18 @@ Industrial Retail Back Office"). Eight screens are report-relevant:
 Not report-related, unused: *Operational Dashboard*, *POS Terminal Login
 & Shift Initialization* (both need endpoints that don't exist).
 
-**Coverage of the 15 reports.** Five have a dedicated mockup
-(`sales-by-date-range`, `inventory-on-hand`, `inventory-movement`,
-`cash-variance`, `tax-breakdown`). The other ten (`daily-sales-summary`,
-`sales-by-product`, `sales-by-category`, `sales-by-cashier`,
-`sales-by-payment-method`, `discounts`, `voids`, `refunds`, `low-stock`,
+**Coverage of the 15 reports.** Eight have a dedicated mockup
+(`daily-sales-summary`, `sales-by-date-range`, `inventory-on-hand`,
+`inventory-movement`, `cash-variance`, `tax-breakdown`, `voids`,
+`refunds`). The other seven (`sales-by-product`, `sales-by-category`,
+`sales-by-cashier`, `sales-by-payment-method`, `discounts`, `low-stock`,
 `shifts`) have none and are rendered from the shared template.
+(An earlier revision of this document listed ten, missing the Daily Sales
+Summary, Voids and Refunds mockups; corrected 2026-09-19.)
 
-**Mockups that do not exist yet** (none blocked the build; each was
-built from the design system's tokens and can be mocked in Stitch if
-wanted):
+**Mockups that did not exist at build time** (none blocked the build; each
+was built from the design system's tokens). All six were generated in the
+same Stitch project on 2026-09-19 — see §6:
 
 1. Report **load-error** state (network/server failure) — built as an inline alert.
 2. **CSV export** failure/progress state — built as a disabled "Exporting…" button plus the same alert.
@@ -128,3 +133,40 @@ Not exercised in the browser: the remaining nine reports' rendering
 `ReportsHttpTest`), and pagination (no dev report exceeds 50 rows).
 
 Full regression: Unit 102 + Feature 1 + Database 302 = 405 passing.
+
+## 6. Generated mockups for the missing states (2026-09-19)
+
+Generated in Stitch project `13465419248509126107` with the "TindaFlow
+Industrial Retail Back Office" design system, then reviewed against the
+real API. Stitch invented copy on several screens; the ones below were
+corrected in Stitch, and the rest are listed as **ignore** so they are not
+implemented.
+
+| # | Screen (Stitch id) | Implementation delta |
+|---|---|---|
+| 1 | Report Viewer - Load Error States (`c1725058…`) | Distinct panels for network / 5xx / 401 / invalid range, each with **Retry**. Today only a generic alert exists (the network catch was added 2026-09-19). Ignore the request-reference id unless the server starts returning one. |
+| 2 | Report Viewer - CSV Export States (`76860a49…`) | Inline dismissible export-failure banner (separate from load errors), success toast with the filename, Export disabled when there are no rows. |
+| 3 | Report Viewer - Single-Select Entity Filter (`d77d3979…`, corrected copy of `a9cfd2f8…`) | Searchable combobox replacing the native select, a "no matches" state, and a stale-options hint after the date range changes. Options stay derived from the unfiltered result. |
+| 4a | Voids Ledger with Outcomes (`40808743…`) | Client-side status chips with counts, outcome summary cards, neutral status legend. Statuses are `REQUESTED / APPROVED / REJECTED / VOIDED`. |
+| 4b | Refunds Ledger with Outcomes (`5bb760d4…`) | Same, with `COMPLETED` in place of `VOIDED`. |
+| 5 | Low Stock Triage (`7364d334…`) | Shortfall-sorted, tier badges (out of stock = 0, critical < 50% of reorder level, low = rest), stock-level bar, healthy empty state. Tiers are a display convention computed in the browser. |
+| 6a | Daily Sales Summary (Tablet 768px) (`8fe8ed38…`) | Icon rail nav, 40px tap targets, **frozen first column**, scroll affordance. |
+| 6b | Mobile 375px: `0788bdc9…` (key-value cards, the main deliverable) and `e3201297…` (nav drawer) | Cards per business date with an expandable VAT breakdown, sticky totals, drawer nav. |
+
+Decisions taken (design-system rules, not new business rules): tablet
+uses a frozen first column and mobile uses key-value cards, exactly as
+the design system's responsive section prescribes; the voids/refunds
+status filter is client-side over the loaded rows, so the frozen
+contract is untouched.
+
+**Ignore in the mockups** (no backing data or not real): the report codes
+(SR-003, IV-002 …), "Filter spec / Evaluation testbed / Diagnostic board"
+annotations, "Supervisor" wording, the "Direct Synchronous" badge, the
+mobile board's residual strikethrough on the totals bar in
+`e3201297…`, and the sample figures (they do not match dev data). The
+original entity-filter (`a9cfd2f8…`) and mobile (`21bc6ba3…`) screens are
+superseded duplicates left behind because Stitch's edit tool creates a
+new screen.
+
+Not yet implemented in code: everything in this table. Implementing it
+is a separate, optional stage.
