@@ -164,12 +164,18 @@ Route::prefix('api/v1')->group(function () {
 
     // openapi.yaml Catalog tag. Reads need only the session (operation-inventory.md);
     // every mutation is CATALOG_MANAGE. No terminal credential. {productId} is
-    // constrained to a UUID so the not-yet-built literal paths (/products/import,
-    // /products/export, /products/by-barcode/...) can never be captured by it.
+    // constrained to a UUID so the literal paths (/products/import, /products/export,
+    // /products/by-barcode/...) can never be captured by it.
     Route::get('/products', [ProductController::class, 'list'])
         ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/products', [ProductController::class, 'create'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    // productImport (CATALOG_MANAGE) and productExport (any authenticated user, like productList): the CSV
+    // layout is App\Services\Catalog\ProductCsv.
+    Route::post('/products/import', [ProductController::class, 'import'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    Route::get('/products/export', [ProductController::class, 'export'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
     // productLookupByBarcode is a cashier-scanning operation (operation-inventory.md: session + enrolled
     // terminal, no capability), unlike the catalog reads around it which need only the session.
     Route::get('/products/by-barcode/{barcode}', [ProductController::class, 'lookupByBarcode'])

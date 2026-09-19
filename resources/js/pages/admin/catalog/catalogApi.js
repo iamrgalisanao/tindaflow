@@ -71,4 +71,29 @@ export const TAX_CLASSES = [
     { id: 'NON_VAT', label: 'NON-VAT', hint: 'Not subject to VAT.' },
 ];
 
+/**
+ * productExport as a file download. Resolves { ok, status, filename }; a failure carries the status so the
+ * caller can say why (401 -> sign in again, 403 -> not allowed).
+ */
+export async function downloadProductsCsv() {
+    try {
+        const response = await fetch('/api/v1/products/export', { headers: { Accept: 'text/csv' }, credentials: 'same-origin' });
+        if (!response.ok) {
+            return { ok: false, status: response.status };
+        }
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        const filename = `products_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        return { ok: true, status: 200, filename };
+    } catch {
+        return { ok: false, status: 0 };
+    }
+}
+
 export const RETURN_KEY = 'tindaflow.returnTo';

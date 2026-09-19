@@ -20,6 +20,11 @@ use Illuminate\Validation\Rule;
  */
 class ProductInputRequest extends FormRequest
 {
+    /** openapi.yaml Money: a decimal string with exactly two places. Shared with the CSV import, which must agree. */
+    public const MONEY_PATTERN = '/^\d{1,10}\.\d{2}$/';
+
+    public const TAX_CLASSES = ['VATABLE', 'VAT_EXEMPT', 'ZERO_RATED', 'NON_VAT'];
+
     public function authorize(): bool
     {
         return true;
@@ -30,7 +35,7 @@ class ProductInputRequest extends FormRequest
     {
         $storeId = Auth::guard('web')->user()->store_id;
         $productId = $this->route('productId');
-        $money = 'regex:/^\d{1,10}\.\d{2}$/';
+        $money = 'regex:'.self::MONEY_PATTERN;
 
         return [
             'sku' => ['required', 'string', 'max:255', Rule::unique('products', 'sku')->where('store_id', $storeId)->ignore($productId)],
@@ -42,7 +47,7 @@ class ProductInputRequest extends FormRequest
             'unit_of_measure' => ['required', 'string', 'max:255'],
             'cost' => ['nullable', $money],
             'selling_price' => ['required', $money],
-            'tax_class' => ['required', Rule::in(['VATABLE', 'VAT_EXEMPT', 'ZERO_RATED', 'NON_VAT'])],
+            'tax_class' => ['required', Rule::in(self::TAX_CLASSES)],
             'track_inventory' => ['sometimes', 'boolean'],
             'reorder_level' => ['sometimes', 'integer', 'min:0'],
         ];

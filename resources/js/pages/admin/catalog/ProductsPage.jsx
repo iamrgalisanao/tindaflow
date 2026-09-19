@@ -4,7 +4,8 @@ import AdminLayout from '../AdminLayout';
 import { formatMoney } from '../reports/formatters';
 import { ActiveBadge, ConfirmDialog, ErrorAlert, Pager, TaxBadge, Toast } from './CatalogParts';
 import ProductFormPanel from './ProductFormPanel';
-import { RETURN_KEY, failureMessage, fetchAll, request } from './catalogApi';
+import ProductImportPanel from './ProductImportPanel';
+import { RETURN_KEY, downloadProductsCsv, failureMessage, fetchAll, request } from './catalogApi';
 
 const PER_PAGE = 25;
 const STATUSES = [
@@ -22,7 +23,8 @@ const DEFAULT_FILTERS = { search: '', categoryId: '', status: 'active', sort: 'n
 
 /**
  * /admin/catalog/products -- productList (server-side filter/sort/pagination), productCreate/Update in
- * a slide-over, productActivate/Deactivate. Products are never deleted; deactivating retires them.
+ * a slide-over, productActivate/Deactivate, and productImport/Export (CSV). Products are never deleted;
+ * deactivating retires them.
  */
 export default function ProductsPage() {
     const { setUser } = useAuth();
@@ -36,12 +38,15 @@ export default function ProductsPage() {
     const [categories, setCategories] = useState([]);
     const [brands, setBrands] = useState([]);
     const [panel, setPanel] = useState(null); // null | { product?: object }
+    const [importOpen, setImportOpen] = useState(false);
+    const [exporting, setExporting] = useState(false);
     const [confirm, setConfirm] = useState(null);
     const [busy, setBusy] = useState(false);
     const [toast, setToast] = useState(null);
     const seq = useRef(0);
     const dismissToast = useCallback(() => setToast(null), []);
     const closePanel = useCallback(() => setPanel(null), []);
+    const closeImport = useCallback(() => setImportOpen(false), []);
 
     const categoryName = useMemo(() => new Map(categories.map((category) => [category.id, category.name])), [categories]);
     const brandName = useMemo(() => new Map(brands.map((brand) => [brand.id, brand.name])), [brands]);
@@ -129,6 +134,24 @@ export default function ProductsPage() {
         reload();
     }
 
+    async function exportCsv() {
+        setExporting(true);
+        const result = await downloadProductsCsv();
+        setExporting(false);
+        if (result.status === 401) {
+            signIn();
+        } else if (result.ok) {
+            setToast(`Exported ${result.filename}`);
+        } else {
+            setFailure(result);
+        }
+    }
+
+    function imported(result) {
+        reload();
+        setToast(`Import finished: ${result.created} created, ${result.updated} updated${result.failed > 0 ? `, ${result.failed} skipped` : ''}`);
+    }
+
     function saved(product, wasEditing) {
         setPanel(null);
         setToast(wasEditing ? 'Product saved' : 'Product created');
@@ -165,13 +188,30 @@ export default function ProductsPage() {
                         The items your store sells. Deactivating a product stops it being sold but keeps it in past sales.
                     </p>
                 </div>
-                <button
-                    type="button"
-                    onClick={() => setPanel({})}
-                    className="min-h-11 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 lg:min-h-0"
-                >
-                    New product
-                </button>
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setImportOpen(true)}
+                        className="min-h-11 rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 lg:min-h-0"
+                    >
+                        Import CSV
+                    </button>
+                    <button
+                        type="button"
+                        onClick={exportCsv}
+                        disabled={exporting}
+                        className="min-h-11 rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50 lg:min-h-0"
+                    >
+                        {exporting ? 'Exporting…' : 'Export CSV'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setPanel({})}
+                        className="min-h-11 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 lg:min-h-0"
+                    >
+                        New product
+                    </button>
+                </div>
             </div>
 
             <div className="mb-3 flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3 md:flex-row md:flex-wrap md:items-end">
@@ -382,6 +422,8 @@ export default function ProductsPage() {
                     onUnauthorized={signIn}
                 />
             )}
+
+            {importOpen && <ProductImportPanel onClose={closeImport} onImported={imported} onUnauthorized={signIn} />}
 
             {confirm && (
                 <ConfirmDialog

@@ -24,7 +24,9 @@ export async function apiFetch(path, options = {}) {
         ...options.headers,
     };
 
-    if (options.body !== undefined) {
+    // A caller that names its own Content-Type (a CSV upload) sends the body as it is; everything else is JSON.
+    const rawBody = options.headers?.['Content-Type'] !== undefined;
+    if (options.body !== undefined && !rawBody) {
         headers['Content-Type'] = 'application/json';
     }
 
@@ -40,7 +42,7 @@ export async function apiFetch(path, options = {}) {
         method,
         headers,
         credentials: 'same-origin',
-        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        body: options.body === undefined || rawBody ? options.body : JSON.stringify(options.body),
     });
 
     const text = await response.text();

@@ -6,13 +6,18 @@ use App\Domain\Exceptions\BarcodeNotFoundException;
 use App\Http\Controllers\Concerns\RespondsWithPagination;
 use App\Http\Requests\ProductInputRequest;
 use App\Http\Resources\ProductResource;
+use App\Models\Brand;
+use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductBarcode;
+use App\Services\Catalog\ProductCsv;
+use App\Services\Catalog\ProductImportService;
 use App\Services\Catalog\ProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * openapi.yaml Catalog tag -- productList/Get (any authenticated user, no terminal credential:
@@ -20,7 +25,8 @@ use Illuminate\Support\Str;
  * (CATALOG_MANAGE). Everything is scoped to the actor's own store_id (domain-model.md SS2.1);
  * a product in another store is indistinguishable from one that does not exist.
  *
- * Not implemented here: productLookupByBarcode (POS-side), productImport, productExport.
+ * productExport (any authenticated user, like productList) and productImport (CATALOG_MANAGE) use the CSV
+ * layout in ProductCsv; docs/06-backend/stage-21-product-csv.md.
  */
 class ProductController extends Controller
 {
@@ -79,6 +85,54 @@ class ProductController extends Controller
             ->first();
 
         return (new ProductResource($product ?? throw BarcodeNotFoundException::forBarcode($barcode)))->response();
+    }
+
+    /**
+     * openapi.yaml productExport: the whole catalog, active and inactive, in the ProductCsv column order, so the
+     * file can be edited and imported straight back. Streamed from a cursor; ordered by SKU. Category and brand
+     * are written as names, which is what people can read and what the import matches on.
+     */
+    public function export(): Response
+    {
+        $storeId = Auth::guard('web')->user()->store_id;
+        $categories = Category::where('store_id', $storeId)->pluck('name', 'id');
+        $brands = Brand::where('store_id', $storeId)->pluck('name', 'id');
+        $query = Product::where('store_id', $storeId)->orderBy('sku')->orderBy('id');
+
+        return response()->stream(function () use ($query, $categories, $brands) {
+            $out = fopen('php://output', 'wb');
+            fputcsv($out, ProductCsv::COLUMNS, ',', '"', '');
+            foreach ($query->cursor() as $product) {
+                fputcsv($out, [
+                    ProductCsv::guard($product->sku),
+                    ProductCsv::guard($product->barcode),
+                    ProductCsv::guard($product->name),
+                    ProductCsv::guard($product->description),
+                    ProductCsv::guard($categories[$product->category_id] ?? null),
+                    ProductCsv::guard($brands[$product->brand_id] ?? null),
+                    ProductCsv::guard($product->unit_of_measure),
+                    $product->cost,
+                    $product->selling_price,
+                    $product->tax_class,
+                    $product->track_inventory ? 'true' : 'false',
+                    $product->reorder_level,
+                    $product->active ? 'true' : 'false',
+                ], ',', '"', '');
+            }
+            fclose($out);
+        }, 200, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    /**
+     * openapi.yaml productImport: the request body is the CSV itself. Answers 202 with the ImportResult
+     * (created / updated / failed / errors, plus `unchanged`). `?dry_run=true` reports what an import would do
+     * and changes nothing.
+     */
+    public function import(Request $request, ProductImportService $service): JsonResponse
+    {
+        $actor = Auth::guard('web')->user();
+
+        return response()->json($service->import($actor->store_id, $request->getContent(), $request->boolean('dry_run')), 202);
     }
 
     public function get(ProductService $service, string $productId): JsonResponse
