@@ -167,7 +167,7 @@ addition is disclosed here, not silently made — see §28):
 | `CATALOG_MANAGE` | Create/update/activate/deactivate products; create categories/brands; CSV import |
 | `AUDIT_VIEW` | Read `audit_events` |
 | `JOURNAL_VIEW` | Read `electronic_journal_entries` |
-| `USER_MANAGE` | Create/update/deactivate users |
+| `USER_MANAGE` | Create/update/deactivate/activate users |
 | `TERMINAL_MANAGE` | Terminal enrollment tokens, enrollment, list/get/revoke |
 | `FISCAL_CONFIGURATION_MANAGE` | Tax-registration changes, fiscal-installation records |
 

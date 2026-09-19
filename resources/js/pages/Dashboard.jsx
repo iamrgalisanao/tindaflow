@@ -78,6 +78,14 @@ export default function Dashboard() {
                             Catalog
                         </Link>
                     )}
+                    {user.capabilities.includes('USER_MANAGE') && (
+                        <Link
+                            to="/admin/users"
+                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-center text-sm hover:bg-gray-50"
+                        >
+                            Users
+                        </Link>
+                    )}
                     {user.capabilities.includes('REPORT_VIEW') && (
                         <Link
                             to="/admin/reports"
@@ -89,8 +97,8 @@ export default function Dashboard() {
                 </div>
 
                 <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    Back-office screens beyond terminal management, store setup,
-                    catalog, and reports (users) are not built yet — their backend
+                    Stock receipts and adjustments, the audit log, and the
+                    electronic journal have no screens yet — their backend
                     endpoints don't exist yet.
                 </p>
             </div>

@@ -17,6 +17,7 @@ use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\StoreSetupController;
 use App\Http\Controllers\TaxRegistrationController;
 use App\Http\Controllers\TerminalController;
+use App\Http\Controllers\UserController;
 use App\Http\Middleware\ComposeAuthoritativeContext;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\ResolveTerminalContext;
@@ -124,6 +125,17 @@ Route::prefix('api/v1')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/brands', [BrandController::class, 'create'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+
+    // openapi.yaml Users tag -- all USER_MANAGE, session-only, no terminal credential.
+    // userActivate is forward-committed (docs/06-backend/stage-13-users.md).
+    Route::middleware(['auth', EnsureUserIsActive::class, 'can:USER_MANAGE'])->group(function () {
+        Route::get('/users', [UserController::class, 'list']);
+        Route::post('/users', [UserController::class, 'create']);
+        Route::get('/users/{userId}', [UserController::class, 'get'])->whereUuid('userId');
+        Route::patch('/users/{userId}', [UserController::class, 'update'])->whereUuid('userId');
+        Route::post('/users/{userId}/deactivate', [UserController::class, 'deactivate'])->whereUuid('userId');
+        Route::post('/users/{userId}/activate', [UserController::class, 'activate'])->whereUuid('userId');
+    });
 
     // Store setup (docs/06-ui/stage-8-store-setup.md). Admin CRUD is
     // FISCAL_CONFIGURATION_MANAGE-gated, store-scoped, no terminal

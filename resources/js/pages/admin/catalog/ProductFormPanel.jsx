@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import SlideOver from '../SlideOver';
 import { TAX_CLASSES, failureMessage, fieldErrors, normalizeMoney, request } from './catalogApi';
 
 const UNIT_SUGGESTIONS = ['pc', 'kg', 'g', 'L', 'pack', 'box'];
@@ -159,44 +160,6 @@ export default function ProductFormPanel({
     const [formError, setFormError] = useState(null);
     const [saving, setSaving] = useState(false);
     const [inline, setInline] = useState(null); // 'category' | 'brand' | null
-    const panelRef = useRef(null);
-    const firstFieldRef = useRef(null);
-
-    useEffect(() => {
-        const opener = document.activeElement;
-        const previousOverflow = document.body.style.overflow;
-        document.body.style.overflow = 'hidden';
-        firstFieldRef.current?.focus();
-
-        function onKeyDown(event) {
-            if (event.key === 'Escape') {
-                onClose();
-                return;
-            }
-            if (event.key !== 'Tab' || !panelRef.current) {
-                return;
-            }
-            const focusable = panelRef.current.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])');
-            if (focusable.length === 0) {
-                return;
-            }
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-            if (event.shiftKey && document.activeElement === first) {
-                event.preventDefault();
-                last.focus();
-            } else if (!event.shiftKey && document.activeElement === last) {
-                event.preventDefault();
-                first.focus();
-            }
-        }
-        document.addEventListener('keydown', onKeyDown);
-        return () => {
-            document.removeEventListener('keydown', onKeyDown);
-            document.body.style.overflow = previousOverflow;
-            opener?.focus?.();
-        };
-    }, [onClose]);
 
     function set(field, value) {
         setValues((prior) => ({ ...prior, [field]: value }));
@@ -254,30 +217,31 @@ export default function ProductFormPanel({
         setFormError(failureMessage(result, 'The product could not be saved.'));
     }
 
-    return (
-        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby="product_panel_title">
-            <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
-            <div
-                ref={panelRef}
-                className="absolute inset-y-0 right-0 flex w-full max-w-[480px] flex-col border-l border-slate-700 bg-slate-900 shadow-[0_4px_12px_rgba(0,0,0,0.45)]"
+    const footer = (
+        <div className="flex items-center justify-between border-t border-slate-800 bg-slate-950/80 px-5 py-3">
+            <button type="button" onClick={onClose} className="min-h-11 rounded px-3 text-sm text-slate-300 hover:text-white lg:min-h-0">
+                Cancel
+            </button>
+            <button
+                type="submit"
+                form="product_form"
+                disabled={saving}
+                className="min-h-11 rounded-md bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 lg:min-h-0"
             >
-                <div className="flex items-center gap-3 border-b border-slate-800 px-5 py-4">
-                    <h2 id="product_panel_title" className="text-base font-semibold text-slate-100">
-                        {editing ? 'Edit product' : 'New product'}
-                    </h2>
-                    {editing && (
-                        <span className="rounded border border-slate-700 bg-slate-800/70 px-2 py-0.5 font-mono text-[11px] text-emerald-400">{product.sku}</span>
-                    )}
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        aria-label="Close"
-                        className="ml-auto flex h-11 w-11 items-center justify-center rounded text-slate-400 hover:bg-slate-800 hover:text-slate-100 lg:h-8 lg:w-8"
-                    >
-                        &times;
-                    </button>
-                </div>
+                {saving ? 'Saving…' : editing ? 'Save changes' : 'Create product'}
+            </button>
+        </div>
+    );
 
+    return (
+        <SlideOver
+            titleId="product_panel_title"
+            title={editing ? 'Edit product' : 'New product'}
+            badge={editing ? product.sku : null}
+            onClose={onClose}
+            footer={footer}
+        >
+            <>
                 <form id="product_form" onSubmit={submit} noValidate className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
                     {formError && (
                         <p role="alert" className="rounded-md border border-rose-800 bg-rose-950/40 px-3 py-2 text-sm text-slate-100">
@@ -287,7 +251,6 @@ export default function ProductFormPanel({
 
                     <Field id="product_sku" label="SKU" required error={errors.sku}>
                         <input
-                            ref={firstFieldRef}
                             id="product_sku"
                             type="text"
                             value={values.sku}
@@ -541,21 +504,7 @@ export default function ProductFormPanel({
                         </div>
                     )}
                 </form>
-
-                <div className="flex items-center justify-between border-t border-slate-800 bg-slate-950/80 px-5 py-3">
-                    <button type="button" onClick={onClose} className="min-h-11 rounded px-3 text-sm text-slate-300 hover:text-white lg:min-h-0">
-                        Cancel
-                    </button>
-                    <button
-                        type="submit"
-                        form="product_form"
-                        disabled={saving}
-                        className="min-h-11 rounded-md bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 lg:min-h-0"
-                    >
-                        {saving ? 'Saving…' : editing ? 'Save changes' : 'Create product'}
-                    </button>
-                </div>
-            </div>
-        </div>
+            </>
+        </SlideOver>
     );
 }

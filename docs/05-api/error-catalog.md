@@ -20,6 +20,17 @@ while completing a gap in an *already-frozen* response (as `TERMINAL_NOT_
 FOUND`/`NO_CURRENT_SHIFT` did) still requires the full reconstruction
 discipline.
 
+**Governance exception (2026-09-19, users pass)**: `USER_NOT_FOUND` was
+likewise added as a plain forward commit, but — unlike the store-setup
+codes — it *does* complete a gap in already-frozen responses
+(`userGet`/`userUpdate`/`userDeactivate`'s `404`s), so the strict rule
+above calls for reconstruction. The owner explicitly chose to forward-
+commit it instead, mainly because the repository is now published and a
+reconstruction would mean force-pushing `main` and the baseline tags. This
+is a recorded, one-time exception, not a new default: the next code that
+fills a gap in an already-frozen response reopens the question. No
+`stage-*-baseline` tag moved.
+
 ## Standard error envelope
 
 ```json
@@ -106,6 +117,7 @@ with the envelope above.
 | `INVOICE_SERIES_ALREADY_ACTIVE` | 409 | `invoice_series_one_active_per_installation` already has an ACTIVE row for this fiscal installation; the existing one must be closed (`invoiceSeriesClose`) before a new one can be activated — deliberately not an implicit auto-supersede, since silently retiring a fiscally-significant numbering sequence is not this API's decision to make | Store-setup pass (2026-09-18) — `invoiceSeriesCreate`, a wholly new operation with no prior frozen draft |
 | `INVOICE_SERIES_ALREADY_CLOSED` | 409 | `invoiceSeriesClose` called against a series that is already CLOSED | Store-setup pass (2026-09-18) — mirrors the existing `SHIFT_ALREADY_CLOSED` shape exactly; wholly new operation with no prior frozen draft |
 | `INVENTORY_LOCATION_NOT_FOUND` | 404 | Referenced inventory location does not exist, or exists only in a different store than the authenticated actor's own | Store-setup pass (2026-09-18) — `inventoryLocationUpdate`, a wholly new operation with no prior frozen draft |
+| `USER_NOT_FOUND` | 404 | Referenced user does not exist, or exists only in a different store than the authenticated actor's own | Users pass (2026-09-19) — the `404` of the new `userActivate` operation and of the already-frozen `userGet`/`userUpdate`/`userDeactivate`, whose `NotFound` responses had no code registered. **Forward-committed by explicit owner decision** (see the governance note above) rather than reconstructed |
 
 No further codes are defined speculatively. A new code is added only when
 implementation surfaces a real, distinct failure mode this list doesn't

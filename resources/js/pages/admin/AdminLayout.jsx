@@ -53,6 +53,13 @@ const ICONS = {
             <rect x="16" y="14" width="3" height="6" />
         </Icon>
     ),
+    users: (
+        <Icon>
+            <circle cx="9" cy="8" r="3.5" />
+            <path d="M2.5 20v-1a5.5 5.5 0 0 1 5.5-5.5h2A5.5 5.5 0 0 1 15.5 19v1" />
+            <path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14a5.5 5.5 0 0 1 3 5v1" />
+        </Icon>
+    ),
     catalog: (
         <Icon>
             <path d="M21 8l-9-5-9 5v8l9 5 9-5V8z" />
@@ -115,6 +122,14 @@ const SECTIONS = [
         capability: 'CATALOG_MANAGE',
         matches: (path) => path.startsWith('/admin/catalog'),
         links: CATALOG_NAV,
+    },
+    {
+        id: 'users',
+        label: 'Users',
+        to: '/admin/users',
+        icon: 'users',
+        capability: 'USER_MANAGE',
+        matches: (path) => path.startsWith('/admin/users'),
     },
     {
         id: 'store-setup',

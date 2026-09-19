@@ -367,15 +367,18 @@ Read-only, non-authoritative aggregate across the four checkout-time resolver pr
 | GET | /electronic-journal-entries | journalEntryList | session | false | `JOURNAL_VIEW` | no | filters | 200 paginated / CSV | 403 |
 | GET | /electronic-journal-entries/{journalEntryId} | journalEntryGet | session | false | `JOURNAL_VIEW` | no | — | 200 entry | 403, 404 |
 
-## Users (5)
+## Users (6)
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
 |---|---|---|---|---|---|---|---|---|---|
 | GET | /users | userList | session | false | `USER_MANAGE` | no | filters | 200 paginated | 403 |
 | POST | /users | userCreate | session | false | `USER_MANAGE` | no | UserInput | 201 UserSummary | 403, 422 |
-| GET | /users/{userId} | userGet | session | false | `USER_MANAGE` | no | — | 200 UserSummary | 403, 404 |
-| PATCH | /users/{userId} | userUpdate | session | false | `USER_MANAGE` | no | UserInput | 200 UserSummary | 403, 422, 404 |
-| POST | /users/{userId}/deactivate | userDeactivate | session | false | `USER_MANAGE` | no | — | 200 UserSummary | 403, 404 |
+| GET | /users/{userId} | userGet | session | false | `USER_MANAGE` | no | — | 200 UserSummary | 403, `USER_NOT_FOUND` |
+| PATCH | /users/{userId} | userUpdate | session | false | `USER_MANAGE` | no | UserInput | 200 UserSummary | 403, 422, `USER_NOT_FOUND` |
+| POST | /users/{userId}/deactivate | userDeactivate | session | false | `USER_MANAGE` | no | — | 200 UserSummary | 403, `USER_NOT_FOUND` |
+| POST | /users/{userId}/activate | userActivate | session | false | `USER_MANAGE` | no | — | 200 UserSummary | 403, `USER_NOT_FOUND` |
+
+`userActivate` is a **wholly new operation** forward-committed on 2026-09-19 (no prior draft at any stage; owner-approved when the gap was raised): `userDeactivate` had no inverse, so a deactivation was permanent. The same pass registered `USER_NOT_FOUND` for the four `404`s above; three of those (`userGet`/`userUpdate`/`userDeactivate`) already existed, so under the strict rule this was reconstruction territory — the owner approved forward-committing it instead, as a recorded exception (see `error-catalog.md`'s governance note and `docs/PROJECT-MANIFEST.md`'s Stage 13 section).
 
 ## Idempotency inventory (cross-checked programmatically against openapi.yaml — item 10)
 
@@ -473,7 +476,7 @@ ran the reverse check too:
 | `CATALOG_MANAGE` | 7 catalog-mutation operations |
 | `AUDIT_VIEW` | `auditEventList`, `auditEventGet` |
 | `JOURNAL_VIEW` | `journalEntryList`, `journalEntryGet` |
-| `USER_MANAGE` | 5 user-management operations |
+| `USER_MANAGE` | 6 user-management operations (5 original + `userActivate`) |
 | `TERMINAL_MANAGE` | 5 terminal-management operations |
 | `FISCAL_CONFIGURATION_MANAGE` | 4 fiscal-configuration operations |
 

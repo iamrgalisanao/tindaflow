@@ -2139,6 +2139,27 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /users/{userId}/activate:
+    post:
+      operationId: userActivate
+      tags: [Users]
+      x-capability: USER_MANAGE
+      summary: Reactivate a deactivated user
+      description: 'Added 2026-09-19 (forward commit, no prior draft): userDeactivate had no inverse, so a deactivation was permanent. Idempotent -- activating an already-active user returns them unchanged. The user signs in again with their existing password; sessions that ended at deactivation are not resurrected.'
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: User activated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UserSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
 components:
   securitySchemes:
     cookieAuth: {type: apiKey, in: cookie, name: tindaflow_session, description: 'Laravel-compatible session cookie (HttpOnly, Secure, SameSite=Strict). All state-changing requests additionally require a valid CSRF token via the standard Laravel double-submit-cookie mechanism (X-XSRF-TOKEN header sourced from the XSRF-TOKEN cookie); this is enforced by global middleware and is not repeated as a parameter on every operation in this document — see api-design.md, Authentication.'}
