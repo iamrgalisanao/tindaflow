@@ -70,4 +70,21 @@ class Refund extends Model
     {
         return $this->hasMany(RefundSettlement::class);
     }
+
+    /**
+     * What was asked for, as recorded on the REFUND_REQUESTED audit event. refund_item and
+     * refund_settlement rows are append-only and only exist once the refund is COMPLETED (invariant
+     * #72), so a pending or rejected refund's lines live here, in the immutable audit record.
+     *
+     * @return array{items: list<array<string, string>>, settlements: list<array<string, string|null>>, refund_total: string}|null
+     */
+    public function requestedPayload(): ?array
+    {
+        $metadata = AuditEvent::where('entity_type', 'refund')
+            ->where('entity_id', $this->id)
+            ->where('event_type', 'REFUND_REQUESTED')
+            ->first()?->after_metadata;
+
+        return is_array($metadata) ? $metadata : null;
+    }
 }

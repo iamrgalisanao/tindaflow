@@ -63,8 +63,20 @@ class SaleDetailResource extends JsonResource
             'amount_tendered' => $amountTendered->toApiString(),
             'change' => $change->toApiString(),
             'invoice' => $this->resource->invoice ? new InvoiceSummaryResource($this->resource->invoice) : null,
-            'void' => null,
-            'refunds' => [],
+            'void' => $this->currentVoid(),
+            'refunds' => RefundSummaryResource::collection($this->resource->refunds()->orderBy('requested_at')->get()),
         ];
+    }
+
+    /**
+     * The void that matters for this sale: the one that took effect, otherwise the one still waiting for
+     * a decision. Rejected attempts are history, reachable through GET /voids?sale_id=.
+     */
+    private function currentVoid(): ?VoidSummaryResource
+    {
+        $voids = $this->resource->voids()->get();
+        $void = $voids->firstWhere('status', 'VOIDED') ?? $voids->where('status', 'REQUESTED')->sortByDesc('requested_at')->first();
+
+        return $void ? new VoidSummaryResource($void) : null;
     }
 }

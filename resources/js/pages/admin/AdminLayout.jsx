@@ -17,6 +17,11 @@ const CATALOG_NAV = [
     { to: '/admin/catalog/brands', label: 'Brands' },
 ];
 
+const SALES_NAV = [
+    { to: '/admin/sales', label: 'Sales history' },
+    { to: '/admin/sales/approvals', label: 'Approvals', capability: 'SALE_VOID_APPROVE' },
+];
+
 const INVENTORY_NAV = [
     { to: '/admin/inventory/stock', label: 'Stock' },
     { to: '/admin/inventory/movements', label: 'Movements' },
@@ -71,6 +76,12 @@ const ICONS = {
             <path d="M3 8l9 5 9-5M12 13v8" />
         </Icon>
     ),
+    sales: (
+        <Icon>
+            <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z" />
+            <path d="M9 8h6M9 12h6" />
+        </Icon>
+    ),
     inventory: (
         <Icon>
             <rect x="3" y="12" width="8" height="8" rx="1" />
@@ -117,6 +128,15 @@ const REPORT_LINKS = [
 
 const SECTIONS = [
     { id: 'dashboard', label: 'Dashboard', to: '/', icon: 'dashboard', matches: (path) => path === '/' },
+    {
+        id: 'sales',
+        label: 'Sales',
+        to: '/admin/sales',
+        icon: 'sales',
+        capability: 'SALE_VOID',
+        matches: (path) => path.startsWith('/admin/sales'),
+        links: SALES_NAV,
+    },
     {
         id: 'reports',
         label: 'Reports',
@@ -324,7 +344,10 @@ export default function AdminLayout({
     const { user, logout } = useAuth();
     const { pathname } = useLocation();
     const allowed = user.capabilities.includes(requiredCapability);
-    const sections = SECTIONS.filter((section) => !section.capability || user.capabilities.includes(section.capability));
+    const sections = SECTIONS.filter((section) => !section.capability || user.capabilities.includes(section.capability)).map((section) => ({
+        ...section,
+        links: section.links?.filter((link) => !link.capability || user.capabilities.includes(link.capability)),
+    }));
 
     const [drawerOpen, setDrawerOpen] = useState(false);
     const drawerRef = useRef(null);

@@ -13,6 +13,9 @@ import ProductsPage from './pages/admin/catalog/ProductsPage';
 import CatalogNamesPage from './pages/admin/catalog/CatalogNamesPage';
 import UsersPage from './pages/admin/users/UsersPage';
 import StockPage from './pages/admin/inventory/StockPage';
+import SalesPage from './pages/admin/sales/SalesPage';
+import SaleDetailPage from './pages/admin/sales/SaleDetailPage';
+import ApprovalsPage from './pages/admin/sales/ApprovalsPage';
 import MovementsPage from './pages/admin/inventory/MovementsPage';
 import ReportsHub from './pages/admin/reports/ReportsHub';
 import ReportViewer from './pages/admin/reports/ReportViewer';
@@ -126,6 +129,30 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <UsersPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/sales"
+                    element={
+                        <RequireAuth>
+                            <SalesPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/sales/approvals"
+                    element={
+                        <RequireAuth>
+                            <ApprovalsPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/sales/:saleId"
+                    element={
+                        <RequireAuth>
+                            <SaleDetailPage />
                         </RequireAuth>
                     }
                 />

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Domain\Exceptions\IdempotencyKeyRequiredException;
+use App\Http\Controllers\Concerns\ParsesListFilters;
 use App\Http\Controllers\Concerns\RespondsWithPagination;
 use App\Http\Requests\StockAdjustmentRequest;
 use App\Http\Requests\StockReceiptRequest;
@@ -13,13 +14,10 @@ use App\Models\StockMovement;
 use App\Services\Auth\PosRequestContext;
 use App\Services\Inventory\StockLedger;
 use App\Services\Inventory\StockService;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
-use Throwable;
 
 /**
  * openapi.yaml Inventory tag. The three reads need only the session (operation-inventory.md) and are
@@ -29,7 +27,7 @@ use Throwable;
  */
 class InventoryController extends Controller
 {
-    use RespondsWithPagination;
+    use ParsesListFilters, RespondsWithPagination;
 
     /** On-hand balances of tracked products; a product that does not track inventory has no stock to report. */
     public function stock(Request $request): JsonResponse
@@ -70,10 +68,10 @@ class InventoryController extends Controller
                 ? $query->where('stock_movements.movement_type', $type)
                 : $query->whereRaw('1 = 0');
         }
-        if ($from = $this->date($request->query('from'))) {
+        if ($from = $this->dateFilter($request->query('from'))) {
             $query->where('stock_movements.occurred_at', '>=', $from->startOfDay());
         }
-        if ($to = $this->date($request->query('to'))) {
+        if ($to = $this->dateFilter($request->query('to'))) {
             $query->where('stock_movements.occurred_at', '<=', $to->endOfDay());
         }
 
@@ -118,25 +116,6 @@ class InventoryController extends Controller
         }
 
         return $query;
-    }
-
-    /** A value that is not a UUID can match no row; comparing it to a uuid column would be a database error. */
-    private function whereUuid(Builder $query, string $column, string $value): void
-    {
-        Str::isUuid($value) ? $query->where($column, $value) : $query->whereRaw('1 = 0');
-    }
-
-    private function date(mixed $value): ?Carbon
-    {
-        if (! is_string($value) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
-            return null;
-        }
-
-        try {
-            return Carbon::createFromFormat('Y-m-d', $value, config('app.timezone'));
-        } catch (Throwable) {
-            return null;
-        }
     }
 
     private function context(Request $request): PosRequestContext

@@ -9,6 +9,7 @@ use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\InventoryLocationController;
 use App\Http\Controllers\InvoiceSeriesController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\RefundController;
 use App\Http\Controllers\Reports\InventoryReportController;
 use App\Http\Controllers\Reports\SalesReportController;
 use App\Http\Controllers\Reports\ShiftReportController;
@@ -19,6 +20,7 @@ use App\Http\Controllers\StoreSetupController;
 use App\Http\Controllers\TaxRegistrationController;
 use App\Http\Controllers\TerminalController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\VoidController;
 use App\Http\Middleware\ComposeAuthoritativeContext;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\ResolveTerminalContext;
@@ -74,6 +76,38 @@ Route::prefix('api/v1')->group(function () {
     // own OPEN-shift/cashier-match check is the remaining gate.
     Route::post('/sales', [SaleController::class, 'finalize'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+
+    // Sales history and the Void/Refund workflow (Stage 15). Reads need only the session, scoped to the
+    // actor's store. saleVoid/saleRefund and the two approve operations are terminal-scoped like
+    // checkout (they are attributed to the executing terminal's own shift and fiscal day) and gated by
+    // the capability the contract names. The two reject operations are human decisions with no
+    // processing context: session + capability only, no terminal (openapi.yaml voidReject/refundReject).
+    Route::get('/sales', [SaleController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/sales/{saleId}', [SaleController::class, 'get'])->whereUuid('saleId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/sales/{saleId}/void', [SaleController::class, 'void'])->whereUuid('saleId')
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:SALE_VOID']);
+    Route::post('/sales/{saleId}/refunds', [SaleController::class, 'refund'])->whereUuid('saleId')
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:SALE_REFUND']);
+
+    Route::get('/voids', [VoidController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/voids/{voidId}', [VoidController::class, 'get'])->whereUuid('voidId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/voids/{voidId}/approve', [VoidController::class, 'approve'])->whereUuid('voidId')
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:SALE_VOID_APPROVE']);
+    Route::post('/voids/{voidId}/reject', [VoidController::class, 'reject'])->whereUuid('voidId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:SALE_VOID_APPROVE']);
+
+    Route::get('/refunds', [RefundController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/refunds/{refundId}', [RefundController::class, 'get'])->whereUuid('refundId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/refunds/{refundId}/approve', [RefundController::class, 'approve'])->whereUuid('refundId')
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:SALE_REFUND_APPROVE']);
+    Route::post('/refunds/{refundId}/reject', [RefundController::class, 'reject'])->whereUuid('refundId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:SALE_REFUND_APPROVE']);
 
     // openapi.yaml Shifts tag. security: cookieAuth AND terminalCookieAuth
     // conjunctively, same as saleFinalize -- no x-capability declared, so

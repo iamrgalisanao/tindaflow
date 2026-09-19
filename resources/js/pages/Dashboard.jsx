@@ -78,6 +78,14 @@ export default function Dashboard() {
                             Catalog
                         </Link>
                     )}
+                    {user.capabilities.includes('SALE_VOID') && (
+                        <Link
+                            to="/admin/sales"
+                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-center text-sm hover:bg-gray-50"
+                        >
+                            Sales
+                        </Link>
+                    )}
                     {user.capabilities.includes('STOCK_ADJUST') && (
                         <Link
                             to="/admin/inventory/stock"
