@@ -16,20 +16,14 @@ use App\Services\Idempotency\IdempotencyService;
 use App\Services\Shift\ShiftOpenService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
+use Tests\Database\PostgresTestConnection;
 
 [, $terminalId, $cashierId, $idempotencyKey, $openingCash, $readyFile, $goFile, $outputFile, $databaseName] = $argv;
 
 $app = require __DIR__.'/../../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
-config([
-    'database.default' => 'pgsql',
-    'database.connections.pgsql.host' => '127.0.0.1',
-    'database.connections.pgsql.port' => '5432',
-    'database.connections.pgsql.database' => $databaseName,
-    'database.connections.pgsql.username' => 'postgres',
-    'database.connections.pgsql.password' => '',
-]);
+config(PostgresTestConnection::settings($databaseName));
 DB::purge('pgsql');
 DB::setDefaultConnection('pgsql');
 

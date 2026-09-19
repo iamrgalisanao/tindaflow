@@ -28,14 +28,7 @@ abstract class PostgresSchemaTestCase extends TestCase
     {
         parent::setUp();
 
-        config([
-            'database.default' => 'pgsql',
-            'database.connections.pgsql.host' => env('PGSQL_TEST_HOST', '127.0.0.1'),
-            'database.connections.pgsql.port' => env('PGSQL_TEST_PORT', '5432'),
-            'database.connections.pgsql.database' => env('PGSQL_TEST_DATABASE', 'tindaflow_schema_test'),
-            'database.connections.pgsql.username' => env('PGSQL_TEST_USERNAME', 'postgres'),
-            'database.connections.pgsql.password' => env('PGSQL_TEST_PASSWORD', ''),
-        ]);
+        config(PostgresTestConnection::settings(env('PGSQL_TEST_DATABASE', 'tindaflow_schema_test')));
 
         DB::purge('pgsql');
         DB::setDefaultConnection('pgsql');

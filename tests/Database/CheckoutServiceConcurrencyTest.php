@@ -49,14 +49,7 @@ class CheckoutServiceConcurrencyTest extends TestCase
     {
         parent::setUp();
 
-        config([
-            'database.default' => 'pgsql',
-            'database.connections.pgsql.host' => '127.0.0.1',
-            'database.connections.pgsql.port' => '5432',
-            'database.connections.pgsql.database' => self::DATABASE,
-            'database.connections.pgsql.username' => 'postgres',
-            'database.connections.pgsql.password' => '',
-        ]);
+        config(PostgresTestConnection::settings(self::DATABASE));
         DB::purge('pgsql');
         DB::setDefaultConnection('pgsql');
 

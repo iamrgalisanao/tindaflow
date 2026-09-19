@@ -15,20 +15,14 @@ require __DIR__.'/../../../vendor/autoload.php';
 use App\Services\Terminal\TerminalEnrollmentService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
+use Tests\Database\PostgresTestConnection;
 
 [, $plaintextToken, $actorStoreId, $readyFile, $goFile, $outputFile, $databaseName] = $argv;
 
 $app = require __DIR__.'/../../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
-config([
-    'database.default' => 'pgsql',
-    'database.connections.pgsql.host' => '127.0.0.1',
-    'database.connections.pgsql.port' => '5432',
-    'database.connections.pgsql.database' => $databaseName,
-    'database.connections.pgsql.username' => 'postgres',
-    'database.connections.pgsql.password' => '',
-]);
+config(PostgresTestConnection::settings($databaseName));
 DB::purge('pgsql');
 DB::setDefaultConnection('pgsql');
 

@@ -23,6 +23,7 @@ use App\Services\InvoiceNumbering\InvoiceSeriesAllocator;
 use App\Support\GlobalLockOrder;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
+use Tests\Database\PostgresTestConnection;
 
 [, $storeId, $fiscalInstallationId, $readyFile, $goFile, $outputFile, $databaseName, $behavior, $sleepMsAfterAllocate] = array_pad($argv, 9, null);
 $sleepMsAfterAllocate = (int) ($sleepMsAfterAllocate ?? 0);
@@ -30,14 +31,7 @@ $sleepMsAfterAllocate = (int) ($sleepMsAfterAllocate ?? 0);
 $app = require __DIR__.'/../../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
-config([
-    'database.default' => 'pgsql',
-    'database.connections.pgsql.host' => '127.0.0.1',
-    'database.connections.pgsql.port' => '5432',
-    'database.connections.pgsql.database' => $databaseName,
-    'database.connections.pgsql.username' => 'postgres',
-    'database.connections.pgsql.password' => '',
-]);
+config(PostgresTestConnection::settings($databaseName));
 DB::purge('pgsql');
 DB::setDefaultConnection('pgsql');
 

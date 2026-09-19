@@ -65,6 +65,9 @@ jobs:
       - name: Unit and feature tests
         run: php artisan test --compact
 
+      - name: Create the database the concurrency tests use
+        run: PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c 'create database tindaflow_concurrency_test'
+
       - name: Database tests (PostgreSQL)
         run: php artisan test --compact tests/Database
 

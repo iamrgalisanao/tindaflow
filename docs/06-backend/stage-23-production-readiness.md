@@ -237,8 +237,16 @@ self-signed certificate), probed, and torn down. What was checked:
   685 backups spread over 16 months (kept exactly the expected 66); irregular gaps with encrypted names; a lone very old
   backup (never deleted); and an empty directory.
 
-**Not run from here:** the GitHub Actions workflow itself (every step in it was run locally; both YAML files parse), and a
-real certificate. Two things to know: a redirect from plain HTTP drops a non-standard HTTPS port (only when 80 and 443 are
+**The first real CI run** (on GitHub, after the push) passed the frontend build, `pint --test`, the Unit and Feature
+tests, and the **production images build**, and failed in the Database tests: 508 of 522 passed, and the 14 that failed were
+all the multi-process concurrency tests, `no password supplied`. They (and their six worker scripts) hard-coded
+`127.0.0.1` / `postgres` / no password, so they only ever ran against a local trust-authenticated server, and they connect
+to their own database, `tindaflow_concurrency_test`, which nothing created. That is a portability defect in the test suite
+(no one with a password on their local PostgreSQL could have run them either), not in the application. Fixed the right way:
+one `Tests\Database\PostgresTestConnection` helper driven by the same `PGSQL_TEST_*` variables the rest of the suite already
+used, called by all six tests, all six workers and the base test case, with the same local defaults; and a CI step that
+creates the concurrency database. The full Database suite passes locally (522); the workflow needs one more run to show
+green on GitHub. Not run from here: a real certificate. Two things to know: a redirect from plain HTTP drops a non-standard HTTPS port (only when 80 and 443 are
 not the published ports), and running the certificate command in Git Bash needs `MSYS_NO_PATHCONV=1`; both are in
 `docker/README.md`.
 
