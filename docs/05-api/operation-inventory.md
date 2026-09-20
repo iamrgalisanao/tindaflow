@@ -70,6 +70,16 @@ admin operations that make sense from any authenticated browser, and
 | POST | /products/import | productImport | session | false | `CATALOG_MANAGE` | no | CSV | 202 ImportResult | 422 |
 | GET | /products/export | productExport | session | false | — | no | — | 200 CSV | 401 |
 
+### Alternate barcodes (3) — stage 26 (2026-09-20), forward-committed, no prior draft at any stage
+
+`productLookupByBarcode` has matched a product's alternate `product_barcodes` rows since stage 20, but nothing could create them. These three operations manage them. A barcode identifies at most one product per store across a product's own `barcode` and every alternate; a code already in use is the catalog's usual `422 VALIDATION_FAILED` field error on `barcode`, so **no new error code** was needed. Reads need only the session like the other catalog reads; adding and removing are `CATALOG_MANAGE`. See `docs/06-backend/stage-26-alternate-barcodes.md`.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /products/{productId}/barcodes | productBarcodeList | session | false | — | no | — | 200 paginated ProductBarcode | 401, `PRODUCT_NOT_FOUND` |
+| POST | /products/{productId}/barcodes | productBarcodeCreate | session | false | `CATALOG_MANAGE` | no | barcode | 201 ProductBarcode | 403, `PRODUCT_NOT_FOUND`, 422 |
+| DELETE | /products/{productId}/barcodes/{barcodeId} | productBarcodeDelete | session | false | `CATALOG_MANAGE` | no | — | 204 (also when nothing was there) | 403, `PRODUCT_NOT_FOUND` |
+
 ## Inventory (5)
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
@@ -494,7 +504,7 @@ ran the reverse check too:
 | `REPORT_VIEW` | all 15 report operations |
 | `STORE_SETTINGS_MANAGE` | `storeSettingsUpdate` |
 | `FISCAL_DAY_CLOSE` | `fiscalDayClose` |
-| `CATALOG_MANAGE` | 7 catalog-mutation operations |
+| `CATALOG_MANAGE` | 7 catalog-mutation operations, plus (stage 26) `productBarcodeCreate` and `productBarcodeDelete` |
 | `AUDIT_VIEW` | `auditEventList`, `auditEventGet` |
 | `JOURNAL_VIEW` | `journalEntryList`, `journalEntryGet` |
 | `USER_MANAGE` | 6 user-management operations (5 original + `userActivate`) |

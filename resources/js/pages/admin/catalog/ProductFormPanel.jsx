@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import SlideOver from '../SlideOver';
+import AlternateBarcodes from './AlternateBarcodes';
 import { TAX_CLASSES, failureMessage, fieldErrors, normalizeMoney, request } from './catalogApi';
 
 const UNIT_SUGGESTIONS = ['pc', 'kg', 'g', 'L', 'pack', 'box'];
@@ -272,6 +273,12 @@ export default function ProductFormPanel({
                             className={inputClass(errors.barcode, true)}
                         />
                     </Field>
+
+                    {editing ? (
+                        <AlternateBarcodes productId={product.id} onUnauthorized={onUnauthorized} />
+                    ) : (
+                        <p className="-mt-2 text-[11px] text-slate-500">Save the product first, then add other barcodes it can be scanned by.</p>
+                    )}
 
                     <Field id="product_name" label="Name" required error={errors.name}>
                         <input

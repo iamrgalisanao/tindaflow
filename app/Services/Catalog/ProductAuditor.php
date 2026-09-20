@@ -64,6 +64,18 @@ final class ProductAuditor
         $this->write($actor, 'PRODUCT_UPDATED', $product->id, $before, $after + ['sku' => $product->sku], $reason);
     }
 
+    /** An alternate barcode was added: the code a product can now also be scanned by (stage 26). */
+    public function barcodeAdded(User $actor, Product $product, string $barcode): void
+    {
+        $this->write($actor, 'PRODUCT_BARCODE_ADDED', $product->id, null, ['sku' => $product->sku, 'barcode' => $barcode], null);
+    }
+
+    /** An alternate barcode was removed; the product can no longer be scanned by it. */
+    public function barcodeRemoved(User $actor, Product $product, string $barcode): void
+    {
+        $this->write($actor, 'PRODUCT_BARCODE_REMOVED', $product->id, ['sku' => $product->sku, 'barcode' => $barcode], [], null);
+    }
+
     /** @param  array<string, mixed>  $summary */
     public function imported(User $actor, string $batchId, array $summary): void
     {

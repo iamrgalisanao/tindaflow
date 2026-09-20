@@ -19,7 +19,7 @@ use Illuminate\Validation\ValidationException;
  */
 final class ProductService
 {
-    public function __construct(private ProductAuditor $auditor) {}
+    public function __construct(private ProductAuditor $auditor, private ProductBarcodeService $barcodes) {}
 
     private const FIELDS = [
         'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'unit_of_measure',
@@ -31,6 +31,8 @@ final class ProductService
     {
         try {
             return DB::transaction(function () use ($actor, $data) {
+                // The barcode lock makes "is this code free?" and the write one step (see ProductBarcodeService).
+                $this->barcodes->claim($actor->store_id, $data['barcode'] ?? null, null);
                 $product = Product::create(array_merge(
                     ['track_inventory' => true, 'reorder_level' => 0],
                     Arr::only($data, self::FIELDS),
@@ -63,8 +65,12 @@ final class ProductService
             return DB::transaction(function () use ($actor, $productId, $data) {
                 $product = $this->lock($actor->store_id, $productId);
                 $product->fill(Arr::only($data, self::FIELDS));
+                if ($product->isDirty('barcode')) {
+                    $this->barcodes->claim($actor->store_id, $product->barcode, $product->id);
+                }
                 [$before, $after] = $this->auditor->diff($product);
                 $product->save();
+                $this->barcodes->dropAlternateEqualToMain($product);
                 $this->auditor->changed($actor, $product, $before, $after);
 
                 return $product;

@@ -50,6 +50,7 @@ The search box now takes a scan. A scanner types the code and presses Enter, whi
 ## 4. Not built
 
 Managing **alternate barcodes** from the catalog screen (the lookup honours them, but no operation creates them
-and the product form edits only the primary barcode), matching a barcode inside the ordinary text search,
+and the product form edits only the primary barcode; **built in stage 26**, see
+`docs/06-backend/stage-26-alternate-barcodes.md`), matching a barcode inside the ordinary text search,
 scanning on the other screens, product CSV import/export, `auditEventGet`/`journalEntryGet` (owner decision,
 stage 16), and the deferred shift and fiscal-day read endpoints.

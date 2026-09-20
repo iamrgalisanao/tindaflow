@@ -343,6 +343,81 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  # ---- Alternate barcodes (stage 26) ------------------------------------------------------------
+  # Added 2026-09-20 as a forward commit: no prior draft at any stage (docs/06-backend/stage-26-alternate-barcodes.md).
+  # productLookupByBarcode already matched alternates from stage 20; nothing could create them until now. A code identifies
+  # at most one product per store across a product's own barcode and every alternate. A code already in use is the
+  # catalog's usual 422 VALIDATION_FAILED field error on `barcode`; no new error code.
+  /products/{productId}/barcodes:
+    get:
+      operationId: productBarcodeList
+      tags: [Catalog]
+      summary: List a product's alternate barcodes
+      description: Session only, like the other catalog reads. The product's own barcode is Product.barcode and is not repeated here. Oldest first (codes added in the same second by code).
+      parameters:
+      - {$ref: '#/components/parameters/ProductIdPath'}
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      responses:
+        '200':
+          description: Paginated alternate barcodes
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/ProductBarcode'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      operationId: productBarcodeCreate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: Add an alternate barcode to a product
+      description: 'Another code the product can be scanned by, for example a different supplier''s packaging. Surrounding whitespace (a scanner''s line break) is trimmed; the code is otherwise stored exactly as given (matching is exact, so case matters). A code already in use in the store, as any product''s own barcode or alternate, is 422 VALIDATION_FAILED on `barcode`; another store''s identical code is not a conflict. Allowed for an inactive product. Audited as PRODUCT_BARCODE_ADDED.'
+      parameters:
+      - {$ref: '#/components/parameters/ProductIdPath'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [barcode]
+              properties:
+                barcode: {type: string, minLength: 1, maxLength: 255}
+      responses:
+        '201':
+          description: Alternate barcode added
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProductBarcode'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /products/{productId}/barcodes/{barcodeId}:
+    delete:
+      operationId: productBarcodeDelete
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: Remove an alternate barcode
+      description: 'The product can no longer be scanned by that code (its own barcode and other alternates are unaffected). Idempotent: removing a barcode that is not there, or one that belongs to another product, is a 204 that changes nothing. Audited as PRODUCT_BARCODE_REMOVED when a barcode was actually removed. A real delete is fine here: an alternate barcode is a lookup key, not accounting data, and sale lines keep their own barcode snapshot.'
+      parameters:
+      - {$ref: '#/components/parameters/ProductIdPath'}
+      - name: barcodeId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '204': {description: 'Barcode removed, or was not there'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /products/by-barcode/{barcode}:
     get:
       operationId: productLookupByBarcode
@@ -2670,6 +2745,14 @@ components:
       properties:
         id: {type: string, format: uuid}
         name: {type: string}
+    ProductBarcode:
+      description: Stage 26. An alternate barcode of a product; the product's own barcode is Product.barcode.
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        product_id: {type: string, format: uuid}
+        barcode: {type: string}
+        created_at: {type: string, format: date-time}
     Product:
       type: object
       properties:

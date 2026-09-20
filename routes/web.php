@@ -11,6 +11,7 @@ use App\Http\Controllers\InventoryLocationController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceSeriesController;
 use App\Http\Controllers\JournalEntryController;
+use App\Http\Controllers\ProductBarcodeController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\RefundController;
 use App\Http\Controllers\Reports\InventoryReportController;
@@ -199,6 +200,14 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     Route::post('/products/{productId}/activate', [ProductController::class, 'activate'])->whereUuid('productId')
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
     Route::post('/products/{productId}/deactivate', [ProductController::class, 'deactivate'])->whereUuid('productId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    // Alternate barcodes (stage 26, forward-committed; docs/06-backend/stage-26-alternate-barcodes.md): reads need
+    // only the session like the other catalog reads, adding and removing are CATALOG_MANAGE.
+    Route::get('/products/{productId}/barcodes', [ProductBarcodeController::class, 'list'])->whereUuid('productId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/products/{productId}/barcodes', [ProductBarcodeController::class, 'create'])->whereUuid('productId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    Route::delete('/products/{productId}/barcodes/{barcodeId}', [ProductBarcodeController::class, 'delete'])->whereUuid(['productId', 'barcodeId'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
 
     Route::get('/categories', [CategoryController::class, 'list'])

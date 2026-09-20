@@ -9,6 +9,8 @@ export const AUDIT_TYPES = [
     { id: 'PRODUCT_CREATED', label: 'Product created' },
     { id: 'PRODUCT_UPDATED', label: 'Product changed' },
     { id: 'PRODUCT_IMPORTED', label: 'Products imported' },
+    { id: 'PRODUCT_BARCODE_ADDED', label: 'Barcode added' },
+    { id: 'PRODUCT_BARCODE_REMOVED', label: 'Barcode removed' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -113,6 +115,12 @@ export function describeAudit(event) {
             return `Product ${after.sku ?? '—'} changed: ${describeProductChange(event.before_metadata ?? {}, after) || 'no listed field'}`;
         case 'PRODUCT_IMPORTED':
             return `Product CSV import: ${after.created ?? 0} created, ${after.updated ?? 0} updated, ${after.unchanged ?? 0} unchanged${after.failed ? `, ${after.failed} skipped` : ''}`;
+        case 'PRODUCT_BARCODE_ADDED':
+            return `Barcode ${after.barcode ?? '—'} added to product ${after.sku ?? '—'}; it can now be scanned to find this product`;
+        case 'PRODUCT_BARCODE_REMOVED': {
+            const removed = event.before_metadata ?? {};
+            return `Barcode ${removed.barcode ?? '—'} removed from product ${removed.sku ?? '—'}`;
+        }
         case 'SALE_VOID_REQUESTED':
             return 'Void requested for a sale';
         case 'SALE_VOIDED':

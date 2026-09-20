@@ -30,7 +30,7 @@ use Throwable;
  */
 final class ProductImportService
 {
-    public function __construct(private ProductAuditor $auditor) {}
+    public function __construct(private ProductAuditor $auditor, private ProductBarcodeService $barcodes) {}
 
     public const MAX_ROWS = 5000;
 
@@ -234,11 +234,18 @@ final class ProductImportService
 
         try {
             $reason = "Product CSV import {$batchId}";
-            $outcome = DB::transaction(fn () => $existing === null
-                ? $this->create($actor, $sku, $attributes, $reason)
-                : $this->update($actor, $existing, $attributes, $reason));
+            $outcome = DB::transaction(function () use ($actor, $existing, $sku, $attributes, $reason) {
+                // Same barcode lock as the catalog screens, so a code cannot be given to this row while it is being added as another product's alternate.
+                $this->barcodes->claim($actor->store_id, $attributes['barcode'] ?? null, $existing?->id);
+
+                return $existing === null
+                    ? $this->create($actor, $sku, $attributes, $reason)
+                    : $this->update($actor, $existing, $attributes, $reason);
+            });
 
             return [$outcome, null];
+        } catch (ValidationException) {
+            return ['failed', 'The barcode '.($attributes['barcode'] ?? '').' was assigned to another product while the import was running. Import the file again.'];
         } catch (UniqueConstraintViolationException) {
             return ['failed', 'Another change took this SKU or barcode while the import was running. Import the file again.'];
         }
@@ -386,6 +393,7 @@ final class ProductImportService
             $previousBarcode = $snapshot->barcode;
             [$before, $after] = $this->auditor->diff($product);
             $product->save();
+            $this->barcodes->dropAlternateEqualToMain($product);
             $this->auditor->changed($actor, $product, $before, $after, $reason);
             if ($previousBarcode !== null && $previousBarcode !== $product->barcode) {
                 unset($this->barcodeOwners[$previousBarcode]);
