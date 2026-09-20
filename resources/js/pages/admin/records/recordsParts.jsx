@@ -6,6 +6,9 @@ export const AUDIT_TYPES = [
     { id: 'SALE_FINALIZED', label: 'Sale finalized' },
     { id: 'INVOICE_REPRINTED', label: 'Invoice reprinted' },
     { id: 'SETTINGS_CHANGED', label: 'Business details changed' },
+    { id: 'PRODUCT_CREATED', label: 'Product created' },
+    { id: 'PRODUCT_UPDATED', label: 'Product changed' },
+    { id: 'PRODUCT_IMPORTED', label: 'Products imported' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -50,6 +53,47 @@ export function journalLabel(type) {
     return JOURNAL_TYPES.find((entry) => entry.id === type)?.label ?? humanize(type);
 }
 
+const PRODUCT_FIELDS = {
+    sku: 'SKU',
+    barcode: 'barcode',
+    name: 'name',
+    description: 'description',
+    category_id: 'category',
+    brand_id: 'brand',
+    unit_of_measure: 'unit',
+    cost: 'cost',
+    selling_price: 'price',
+    tax_class: 'tax class',
+    track_inventory: 'stock tracking',
+    reorder_level: 'reorder level',
+    active: 'status',
+};
+
+function productValue(field, value) {
+    if (value === null || value === undefined || value === '') {
+        return 'none';
+    }
+    if (field === 'cost' || field === 'selling_price') {
+        return formatMoney(value);
+    }
+    if (field === 'active') {
+        return value ? 'active' : 'inactive';
+    }
+    if (field === 'track_inventory') {
+        return value ? 'on' : 'off';
+    }
+    if (field === 'category_id' || field === 'brand_id') {
+        return shortId(value);
+    }
+    return String(value);
+}
+
+/** "price ₱55.00 → ₱60.00, status active → inactive" from a product change's before and after. */
+function describeProductChange(before = {}, after = {}) {
+    const fields = Object.keys(before).filter((field) => field in PRODUCT_FIELDS);
+    return fields.map((field) => `${PRODUCT_FIELDS[field]} ${productValue(field, before[field])} → ${productValue(field, after[field])}`).join(', ');
+}
+
 /** One plain sentence for an audit event, from what the event recorded. Unknown types fall back to their name. */
 export function describeAudit(event) {
     const after = event.after_metadata ?? {};
@@ -60,6 +104,12 @@ export function describeAudit(event) {
             return `Invoice ${after.invoice_number ?? '—'} reprinted; no new number was issued`;
         case 'SETTINGS_CHANGED':
             return `Business details changed: ${Object.keys(after).map((field) => field.replaceAll('_', ' ')).join(', ') || 'nothing recorded'}`;
+        case 'PRODUCT_CREATED':
+            return `Product ${after.sku ?? '—'} created: ${after.name ?? 'unnamed'} at ${money(after.selling_price)}`;
+        case 'PRODUCT_UPDATED':
+            return `Product ${after.sku ?? '—'} changed: ${describeProductChange(event.before_metadata ?? {}, after) || 'no listed field'}`;
+        case 'PRODUCT_IMPORTED':
+            return `Product CSV import: ${after.created ?? 0} created, ${after.updated ?? 0} updated, ${after.unchanged ?? 0} unchanged${after.failed ? `, ${after.failed} skipped` : ''}`;
         case 'SALE_VOID_REQUESTED':
             return 'Void requested for a sale';
         case 'SALE_VOIDED':

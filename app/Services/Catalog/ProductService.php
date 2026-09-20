@@ -4,6 +4,7 @@ namespace App\Services\Catalog;
 
 use App\Domain\Exceptions\ProductNotFoundException;
 use App\Models\Product;
+use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -18,20 +19,27 @@ use Illuminate\Validation\ValidationException;
  */
 final class ProductService
 {
+    public function __construct(private ProductAuditor $auditor) {}
+
     private const FIELDS = [
         'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'unit_of_measure',
         'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level',
     ];
 
     /** @param  array<string, mixed>  $data  the already-validated ProductInput */
-    public function create(string $storeId, array $data): Product
+    public function create(User $actor, array $data): Product
     {
         try {
-            return Product::create(array_merge(
-                ['track_inventory' => true, 'reorder_level' => 0],
-                Arr::only($data, self::FIELDS),
-                ['store_id' => $storeId, 'active' => true],
-            ));
+            return DB::transaction(function () use ($actor, $data) {
+                $product = Product::create(array_merge(
+                    ['track_inventory' => true, 'reorder_level' => 0],
+                    Arr::only($data, self::FIELDS),
+                    ['store_id' => $actor->store_id, 'active' => true],
+                ));
+                $this->auditor->created($actor, $product);
+
+                return $product;
+            });
         } catch (UniqueConstraintViolationException $exception) {
             throw $this->duplicate($exception);
         }
@@ -49,12 +57,15 @@ final class ProductService
     }
 
     /** @param  array<string, mixed>  $data  the already-validated ProductInput; absent optional keys are left untouched */
-    public function update(string $storeId, string $productId, array $data): Product
+    public function update(User $actor, string $productId, array $data): Product
     {
         try {
-            return DB::transaction(function () use ($storeId, $productId, $data) {
-                $product = $this->lock($storeId, $productId);
-                $product->fill(Arr::only($data, self::FIELDS))->save();
+            return DB::transaction(function () use ($actor, $productId, $data) {
+                $product = $this->lock($actor->store_id, $productId);
+                $product->fill(Arr::only($data, self::FIELDS));
+                [$before, $after] = $this->auditor->diff($product);
+                $product->save();
+                $this->auditor->changed($actor, $product, $before, $after);
 
                 return $product;
             });
@@ -64,14 +75,16 @@ final class ProductService
     }
 
     /** Idempotent: activating an active product (or deactivating an inactive one) returns it unchanged. */
-    public function setActive(string $storeId, string $productId, bool $active): Product
+    public function setActive(User $actor, string $productId, bool $active): Product
     {
-        return DB::transaction(function () use ($storeId, $productId, $active) {
-            $product = $this->lock($storeId, $productId);
+        return DB::transaction(function () use ($actor, $productId, $active) {
+            $product = $this->lock($actor->store_id, $productId);
 
             if ($product->active !== $active) {
                 $product->active = $active;
+                [$before, $after] = $this->auditor->diff($product);
                 $product->save();
+                $this->auditor->changed($actor, $product, $before, $after);
             }
 
             return $product;

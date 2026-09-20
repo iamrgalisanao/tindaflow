@@ -47,7 +47,7 @@ class InvoiceHttpTest extends PostgresSchemaTestCase
             'invoice_number' => $invoice['number'],
             'sale_id' => $invoice['sale_id'],
             'terminal_id' => $w['t1']->id,
-            'schema_version' => 1,
+            'schema_version' => 2,
             'tax_registration_type_snapshot' => 'VAT',
         ]);
         $this->assertSame(

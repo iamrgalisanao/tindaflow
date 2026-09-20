@@ -132,7 +132,7 @@ class ProductController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        return response()->json($service->import($actor->store_id, $request->getContent(), $request->boolean('dry_run')), 202);
+        return response()->json($service->import($actor, $request->getContent(), $request->boolean('dry_run')), 202);
     }
 
     public function get(ProductService $service, string $productId): JsonResponse
@@ -146,7 +146,7 @@ class ProductController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        return (new ProductResource($service->create($actor->store_id, $request->validated())))
+        return (new ProductResource($service->create($actor, $request->validated())))
             ->response()
             ->setStatusCode(201);
     }
@@ -155,20 +155,20 @@ class ProductController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        return (new ProductResource($service->update($actor->store_id, $productId, $request->validated())))->response();
+        return (new ProductResource($service->update($actor, $productId, $request->validated())))->response();
     }
 
     public function activate(ProductService $service, string $productId): JsonResponse
     {
         $actor = Auth::guard('web')->user();
 
-        return (new ProductResource($service->setActive($actor->store_id, $productId, true)))->response();
+        return (new ProductResource($service->setActive($actor, $productId, true)))->response();
     }
 
     public function deactivate(ProductService $service, string $productId): JsonResponse
     {
         $actor = Auth::guard('web')->user();
 
-        return (new ProductResource($service->setActive($actor->store_id, $productId, false)))->response();
+        return (new ProductResource($service->setActive($actor, $productId, false)))->response();
     }
 }

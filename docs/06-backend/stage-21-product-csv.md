@@ -102,4 +102,5 @@ from the file, importing opening **stock quantities** (stock has its own receipt
 separated or Windows-1252 files, asynchronous import beyond 5,000 rows (the contract's synchronous 202 is kept),
 and an **audit trail for product changes**: product create/update are not audited today either, so a bulk import
 is no different, but it makes that gap more visible and is worth a decision if catalog changes need to be
-traceable (it would need an audit event type, which is a contract question).
+traceable (it would need an audit event type, which is a contract question). **Resolved in stage 24 (D2):** product create, update, activate/deactivate and CSV import are now audited
+(`PRODUCT_CREATED`, `PRODUCT_UPDATED`, `PRODUCT_IMPORTED`).

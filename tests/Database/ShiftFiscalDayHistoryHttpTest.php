@@ -44,14 +44,14 @@ class ShiftFiscalDayHistoryHttpTest extends PostgresSchemaTestCase
 
     // ---------------------------------------------------------------- shiftList
 
-    public function test_the_shift_list_is_the_actors_store_newest_first_for_any_signed_in_user_without_a_terminal(): void
+    public function test_the_shift_list_is_the_actors_store_newest_first_for_a_manager_without_a_terminal(): void
     {
         $w = $this->world();
         [, $older] = $this->closedDay($w, '2026-03-09', '2026-03-09 08:00:00');
         [, $newer] = $this->closedDay($w, '2026-03-10', '2026-03-10 08:00:00');
         $other = $this->world();
 
-        $response = $this->asUser($w['cashier'])->getJson('/api/v1/shifts');
+        $response = $this->asUser($w['manager'])->getJson('/api/v1/shifts');
 
         $response->assertOk();
         $ids = array_column($response->json('data'), 'id');

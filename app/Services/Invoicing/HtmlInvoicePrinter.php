@@ -4,6 +4,7 @@ namespace App\Services\Invoicing;
 
 use App\Models\Invoice;
 use App\Services\Invoicing\Renderers\InvoiceSnapshotV1Renderer;
+use App\Services\Invoicing\Renderers\InvoiceSnapshotV2Renderer;
 use Carbon\CarbonInterface;
 use LogicException;
 
@@ -23,6 +24,7 @@ final class HtmlInvoicePrinter implements InvoicePrinter
 
         return match ($version) {
             1 => (new InvoiceSnapshotV1Renderer)->render($snapshot, $reprintedAt),
+            2 => (new InvoiceSnapshotV2Renderer)->render($snapshot, $reprintedAt),
             default => throw new LogicException('No invoice renderer exists for snapshot schema_version '.var_export($version, true)." (invoice {$invoice->id})."),
         };
     }

@@ -159,7 +159,7 @@ class CheckoutServiceTest extends PostgresSchemaTestCase
         $series = InvoiceSeries::findOrFail($invoice->invoice_series_id);
         $this->assertSame($series->store_id, $sale->store_id);
         $this->assertSame('VAT', $invoice->tax_registration_type_snapshot);
-        $this->assertSame(1, $invoice->invoice_snapshot_json['schema_version']);
+        $this->assertSame(2, $invoice->invoice_snapshot_json['schema_version']);
         $this->assertSame($invoice->invoice_number, $invoice->invoice_snapshot_json['invoice_number']);
 
         // --- stock_movements: location, product, reference, and the

@@ -7,8 +7,10 @@ use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductBarcode;
+use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -28,6 +30,8 @@ use Throwable;
  */
 final class ProductImportService
 {
+    public function __construct(private ProductAuditor $auditor) {}
+
     public const MAX_ROWS = 5000;
 
     public const MAX_BYTES = 5 * 1024 * 1024;
@@ -49,19 +53,22 @@ final class ProductImportService
     /**
      * @return array{created: int, updated: int, unchanged: int, failed: int, errors: list<array{row: int, message: string}>}
      */
-    public function import(string $storeId, string $csv, bool $dryRun = false): array
+    public function import(User $actor, string $csv, bool $dryRun = false): array
     {
+        $storeId = $actor->store_id;
         [$header, $rows] = $this->parse($csv);
         $this->loadLookups($storeId);
 
         $result = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'failed' => 0, 'errors' => []];
         $seenSkus = [];
+        // Ties every row's audit event to the one summary event; the audit rows roll back with a dry run.
+        $batchId = (string) Str::uuid();
 
         DB::beginTransaction();
 
         try {
             foreach ($rows as $rowNumber => $cells) {
-                [$outcome, $message] = $this->importRow($storeId, $header, $cells, $rowNumber, $seenSkus);
+                [$outcome, $message] = $this->importRow($actor, $batchId, $header, $cells, $rowNumber, $seenSkus);
 
                 if ($outcome === 'failed') {
                     $result['failed']++;
@@ -70,6 +77,15 @@ final class ProductImportService
                     $result[$outcome]++;
                 }
             }
+
+            $this->auditor->imported($actor, $batchId, [
+                'rows' => count($rows),
+                'created' => $result['created'],
+                'updated' => $result['updated'],
+                'unchanged' => $result['unchanged'],
+                'failed' => $result['failed'],
+                'sha256' => hash('sha256', $csv),
+            ]);
 
             if ($dryRun) {
                 DB::rollBack();
@@ -180,7 +196,7 @@ final class ProductImportService
      * @param  array<string, int>  $seenSkus
      * @return array{0: 'created'|'updated'|'unchanged'|'failed', 1: string|null} the outcome, and why when it failed
      */
-    private function importRow(string $storeId, array $header, array $record, int $rowNumber, array &$seenSkus): array
+    private function importRow(User $actor, string $batchId, array $header, array $record, int $rowNumber, array &$seenSkus): array
     {
         if (count($record) !== count($header)) {
             return ['failed', 'Expected '.count($header).' values but found '.count($record).'. Check for a stray comma or an unclosed quote.'];
@@ -217,9 +233,10 @@ final class ProductImportService
         }
 
         try {
+            $reason = "Product CSV import {$batchId}";
             $outcome = DB::transaction(fn () => $existing === null
-                ? $this->create($storeId, $sku, $attributes)
-                : $this->update($storeId, $existing, $attributes));
+                ? $this->create($actor, $sku, $attributes, $reason)
+                : $this->update($actor, $existing, $attributes, $reason));
 
             return [$outcome, null];
         } catch (UniqueConstraintViolationException) {
@@ -338,13 +355,14 @@ final class ProductImportService
      * @param  array<string, mixed>  $attributes
      * @return 'created'
      */
-    private function create(string $storeId, string $sku, array $attributes): string
+    private function create(User $actor, string $sku, array $attributes, string $reason): string
     {
         $product = Product::create(array_merge(
             ['track_inventory' => true, 'reorder_level' => 0, 'active' => true],
             $attributes,
-            ['store_id' => $storeId, 'sku' => $sku],
+            ['store_id' => $actor->store_id, 'sku' => $sku],
         ));
+        $this->auditor->created($actor, $product, $reason);
 
         $this->productsBySku[$sku] = $product;
         if ($product->barcode !== null) {
@@ -358,15 +376,17 @@ final class ProductImportService
      * @param  array<string, mixed>  $attributes
      * @return 'updated'|'unchanged'
      */
-    private function update(string $storeId, Product $snapshot, array $attributes): string
+    private function update(User $actor, Product $snapshot, array $attributes, string $reason): string
     {
-        $product = Product::where('store_id', $storeId)->lockForUpdate()->findOrFail($snapshot->id);
+        $product = Product::where('store_id', $actor->store_id)->lockForUpdate()->findOrFail($snapshot->id);
         $product->fill($attributes);
         $changed = $product->isDirty();
 
         if ($changed) {
             $previousBarcode = $snapshot->barcode;
+            [$before, $after] = $this->auditor->diff($product);
             $product->save();
+            $this->auditor->changed($actor, $product, $before, $after, $reason);
             if ($previousBarcode !== null && $previousBarcode !== $product->barcode) {
                 unset($this->barcodeOwners[$previousBarcode]);
             }

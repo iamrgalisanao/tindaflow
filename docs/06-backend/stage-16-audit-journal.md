@@ -40,6 +40,9 @@ values match nothing rather than being ignored. Neither log has any create, upda
 
 ## 3. The open question: `auditEventGet` and `journalEntryGet`
 
+**Decided in stage 24 (D1): leave both unbuilt**, with the names `AUDIT_EVENT_NOT_FOUND` and `ELECTRONIC_JOURNAL_ENTRY_NOT_FOUND`
+reserved if they are ever wanted; see `docs/06-backend/stage-24-owner-decisions.md`. The analysis below is kept as written.
+
 Both declare a `404` with no registered error code, and `error-catalog.md` has no
 `AUDIT_EVENT_NOT_FOUND` / `JOURNAL_ENTRY_NOT_FOUND`. Registering one completes a gap in an
 **already-frozen response**, which the governance note reserves for reconstruction, and the Stage 13

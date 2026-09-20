@@ -33,7 +33,9 @@ use Illuminate\Support\Str;
  * attaches to the request.
  *
  * saleList/saleGet are session-only reads scoped to the actor's store (a sale of another store is
- * SALE_NOT_FOUND). saleVoid/saleRefund are terminal-scoped like checkout.
+ * SALE_NOT_FOUND). A user without REPORT_VIEW (a cashier) reads only their own sales: with every sale visible a
+ * cashier could add up the cash sales and rebuild the drawer's expected cash, defeating the blind close
+ * (docs/06-backend/stage-24-owner-decisions.md, decision 3). saleVoid/saleRefund are terminal-scoped like checkout.
  */
 class SaleController extends Controller
 {
@@ -63,7 +65,8 @@ class SaleController extends Controller
     public function list(Request $request): JsonResponse
     {
         $actor = Auth::guard('web')->user();
-        $query = Sale::query()->where('store_id', $actor->store_id)->with('invoice');
+        $query = Sale::query()->where('store_id', $actor->store_id)->with('invoice')
+            ->when(! $actor->can('REPORT_VIEW'), fn (Builder $sales) => $sales->where('cashier_id', $actor->id));
 
         if ($request->filled('transaction_number')) {
             $query->where('transaction_number', (string) $request->query('transaction_number'));
@@ -110,7 +113,9 @@ class SaleController extends Controller
     public function get(string $saleId): JsonResponse
     {
         $actor = Auth::guard('web')->user();
-        $sale = Sale::where('store_id', $actor->store_id)->with(['items', 'payments', 'invoice'])->find($saleId)
+        $sale = Sale::where('store_id', $actor->store_id)->with(['items', 'payments', 'invoice'])
+            ->when(! $actor->can('REPORT_VIEW'), fn (Builder $sales) => $sales->where('cashier_id', $actor->id))
+            ->find($saleId)
             ?? throw SaleNotFoundException::forId($saleId);
 
         return (new SaleDetailResource($sale))->response();

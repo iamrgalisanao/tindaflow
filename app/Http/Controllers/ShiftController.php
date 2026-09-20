@@ -35,7 +35,9 @@ use Illuminate\Support\Facades\Auth;
  * shiftList/shiftGet/shiftXReadingList are session-only reads (operation-inventory.md: not terminal
  * enrolled, no capability) scoped to the actor's store, like saleList/saleGet. A shift has no store_id of
  * its own; it belongs to its terminal's store. One in another store is SHIFT_NOT_FOUND
- * (docs/06-backend/stage-22-shift-fiscal-day-history.md).
+ * (docs/06-backend/stage-22-shift-fiscal-day-history.md). A user without REPORT_VIEW (a cashier) reads only the
+ * shifts they worked: someone else's is SHIFT_NOT_FOUND too, so a till never reveals another cashier's drawer
+ * (docs/06-backend/stage-24-owner-decisions.md, decision 3).
  */
 class ShiftController extends Controller
 {
@@ -153,9 +155,11 @@ class ShiftController extends Controller
     /** @return Builder<Shift> */
     private function storeShifts(): Builder
     {
-        $storeId = Auth::guard('web')->user()->store_id;
+        $actor = Auth::guard('web')->user();
 
-        return Shift::query()->whereIn('terminal_id', Terminal::where('store_id', $storeId)->select('id'));
+        return Shift::query()
+            ->whereIn('terminal_id', Terminal::where('store_id', $actor->store_id)->select('id'))
+            ->when(! $actor->can('REPORT_VIEW'), fn (Builder $shifts) => $shifts->where('cashier_id', $actor->id));
     }
 
     private function findInStore(string $shiftId): Shift

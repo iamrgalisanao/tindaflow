@@ -14,6 +14,9 @@ use App\Domain\Money;
 use App\Domain\Quantity;
 use App\Models\AuditEvent;
 use App\Models\ElectronicJournalEntry;
+use App\Models\FiscalInstallation;
+use App\Models\FiscalInstallationAccreditation;
+use App\Models\FiscalInstallationPermitToUse;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Product;
@@ -280,7 +283,7 @@ final class CheckoutService
         $storeSettings = DB::table('store_settings')->where('store_id', $storeId)->first();
 
         $invoiceSnapshot = [
-            'schema_version' => 1,
+            'schema_version' => 2,
             'sale_id' => $sale->id,
             'invoice_number' => $allocated->formattedNumber,
             'issued_at' => $soldAt->toIso8601String(),
@@ -316,6 +319,15 @@ final class CheckoutService
             'vat_amount' => $sale->vat_amount,
             'non_vat_sales' => $sale->non_vat_sales,
             'grand_total' => $sale->grand_total,
+            // Schema version 2 (docs/06-backend/stage-24-owner-decisions.md, decision 4): everything above is version
+            // 1's shape. These four are new and nullable. The registration data is copied from the terminal's
+            // fiscal installation as it stood at the moment of sale, so a later change never rewrites an issued
+            // invoice; nothing is invented for a terminal that has none on file.
+            'registration' => $this->registrationSnapshot($fiscalInstallationId, $soldAt->toDateString()),
+            'payments' => array_map(fn (array $payment) => ['method' => $payment['method'], 'amount' => (string) $payment['amount']], $payload['payments']),
+            'amount_tendered' => $tendered = $this->sumAmounts($payload['payments']),
+            'change' => bccomp($tendered, $sale->grand_total, 2) === 1 ? bcsub($tendered, $sale->grand_total, 2) : '0.00',
+            'discount_beneficiary' => null,
         ];
 
         $invoice = Invoice::create([
@@ -375,5 +387,42 @@ final class CheckoutService
         // ADR-003 step 9 (commit) happens implicitly when
         // IdempotencyService::execute()'s enclosing transaction commits.
         return new OperationOutcome(resultType: 'sale', resultResourceId: $sale->id);
+    }
+
+    /**
+     * The machine registration data on file for a fiscal installation on a given date: MIN and PTU from its Permit to
+     * Use, accreditation number and validity, machine serial and software version. Absent data is null, never guessed.
+     *
+     * @return array<string, string|null>
+     */
+    private function registrationSnapshot(string $fiscalInstallationId, string $onDate): array
+    {
+        $effective = fn ($model) => $model::where('fiscal_installation_id', $fiscalInstallationId)
+            ->where('effective_from', '<=', $onDate)
+            ->where(fn ($query) => $query->whereNull('effective_to')->orWhere('effective_to', '>=', $onDate))
+            ->orderByDesc('effective_from')
+            ->first();
+
+        $installation = FiscalInstallation::find($fiscalInstallationId);
+        $permit = $effective(FiscalInstallationPermitToUse::class);
+        $accreditation = $effective(FiscalInstallationAccreditation::class);
+
+        return [
+            'min' => $permit?->min,
+            'machine_serial_number' => $installation?->machine_serial_number,
+            'software_version' => $installation?->software_version,
+            'ptu_number' => $permit?->number,
+            'ptu_date' => $permit?->date?->toDateString(),
+            'accreditation_number' => $accreditation?->number,
+            'accreditation_date' => $accreditation?->date?->toDateString(),
+            'accreditation_valid_from' => $accreditation?->effective_from?->toDateString(),
+            'accreditation_valid_to' => $accreditation?->effective_to?->toDateString(),
+        ];
+    }
+
+    /** @param  list<array<string, mixed>>  $payments */
+    private function sumAmounts(array $payments): string
+    {
+        return array_reduce($payments, fn (string $carry, array $payment) => bcadd($carry, (string) $payment['amount'], 2), '0.00');
     }
 }
