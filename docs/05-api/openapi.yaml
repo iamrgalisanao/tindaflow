@@ -636,6 +636,282 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # ---- Stock counts and transfers (stage 25) ---------------------------------------------------
+  # Added 2026-09-20 as a forward commit: none of these operations had a prior draft at any stage
+  # (docs/06-backend/stage-25-stock-counts-and-transfers.md). Scope note: scope.md lists stocktake and inter-store
+  # transfers as Phase 2; the owner chose to build counts and transfers between one store's own locations now.
+  # Every operation needs STOCK_ADJUST and is scoped to the caller's store. Posting a count and creating a transfer
+  # write the ledger, so, like receipts and adjustments, they need an enrolled terminal and an Idempotency-Key.
+  /inventory/counts:
+    get:
+      operationId: stockCountList
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: List stock counts, newest first
+      description: Carries lines_count, not the lines; stockCountGet carries the lines. An unknown status or a malformed location_id matches nothing.
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: status
+        in: query
+        schema: {$ref: '#/components/schemas/StockCountStatus'}
+      - name: location_id
+        in: query
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Paginated stock counts
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/StockCount'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: stockCountCreate
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: Start a stock count of one location
+      description: Session only (nothing is written to the ledger until the count is posted). Without location_id the store's default location is counted. A location has at most one OPEN count, so two people counting the same shelf share it; a second start is STOCK_COUNT_ALREADY_OPEN, whose details carry the open count's id.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                location_id: {type: string, format: uuid}
+                note: {type: string, maxLength: 255}
+      responses:
+        '201':
+          description: Count started
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockCount'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /inventory/counts/{stockCountId}:
+    get:
+      operationId: stockCountGet
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: Get a stock count with its lines and the summary of what posting does
+      parameters:
+      - {$ref: '#/components/parameters/StockCountId'}
+      responses:
+        '200':
+          description: The count, its lines ordered by product name, and a summary
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockCount'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /inventory/counts/{stockCountId}/lines:
+    put:
+      operationId: stockCountLinesRecord
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: Record what was found for one or more products
+      description: 'Session only. Each line remembers what the ledger expected at the moment it was recorded (expected_quantity), so posting corrects counted minus expected and sales made while people count are never overwritten. Counting a product again replaces its line and reads the expected quantity again. The request is all or nothing. Only tracked products of the store can be counted (an untracked product is VALIDATION_FAILED); zero is a valid count. Only an OPEN count can be changed (STOCK_COUNT_NOT_OPEN).'
+      parameters:
+      - {$ref: '#/components/parameters/StockCountId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lines]
+              properties:
+                lines:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items:
+                    type: object
+                    required: [product_id, counted_quantity]
+                    properties:
+                      product_id: {type: string, format: uuid}
+                      counted_quantity: {$ref: '#/components/schemas/Quantity'}
+      responses:
+        '200':
+          description: The count after the change
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockCount'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /inventory/counts/{stockCountId}/lines/{productId}:
+    delete:
+      operationId: stockCountLineRemove
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: Remove a product from the count
+      description: Session only. Removing a product that is not in the count is not an error; the count simply does not include it. Only an OPEN count can be changed (STOCK_COUNT_NOT_OPEN).
+      parameters:
+      - {$ref: '#/components/parameters/StockCountId'}
+      - name: productId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The count after the change
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockCount'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /inventory/counts/{stockCountId}/post:
+    post:
+      operationId: stockCountPost
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: Post the count
+      description: 'Every line whose variance is not zero becomes one STOCK_ADJUSTMENT_IN (found more) or STOCK_ADJUSTMENT_OUT (found fewer) movement at the count''s location, referencing the count, with the reason "Stock count". Products nobody counted are left alone, never assumed to be zero. Writes an audit event STOCK_COUNT_POSTED and one journal entry per movement. A count with no lines is VALIDATION_FAILED. Posting is final: correct a wrong count with a later count or adjustment. Terminal-scoped and idempotent; a retry with the same key returns the same count.'
+      parameters:
+      - {$ref: '#/components/parameters/StockCountId'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      responses:
+        '200':
+          description: The posted count
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockCount'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /inventory/counts/{stockCountId}/cancel:
+    post:
+      operationId: stockCountCancel
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: Cancel an open count
+      description: Session only. Discards the count without touching stock and frees the location for a new one. Writes an audit event STOCK_COUNT_CANCELLED. A count that is already posted or cancelled is STOCK_COUNT_NOT_OPEN.
+      parameters:
+      - {$ref: '#/components/parameters/StockCountId'}
+      responses:
+        '200':
+          description: The cancelled count
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockCount'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /inventory/transfers:
+    get:
+      operationId: stockTransferList
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: List stock transfers, newest first
+      description: Carries lines_count, not the lines. location_id matches a transfer on either side. An unknown or malformed filter id matches nothing.
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - name: location_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: product_id
+        in: query
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Paginated stock transfers
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/StockTransfer'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: stockTransferCreate
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: Move stock between two locations of the same store
+      description: 'Immediate: one TRANSFER_OUT at the source and one TRANSFER_IN at the destination per product, written in one transaction with the transfer record, so total stock never changes and the two legs cannot be separated. There is no in-transit state, edit or cancel: a wrong transfer is corrected by transferring back. As with every outflow in V1 the source may go below zero rather than block the move. A location of another store is INVENTORY_LOCATION_NOT_FOUND (transfers between stores are Phase 2). Writes an audit event STOCK_TRANSFERRED. Terminal-scoped and idempotent.'
+      parameters:
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_location_id, to_location_id, items]
+              properties:
+                from_location_id: {type: string, format: uuid}
+                to_location_id: {type: string, format: uuid, description: Must differ from from_location_id}
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [product_id, quantity]
+                    properties:
+                      product_id: {type: string, format: uuid}
+                      quantity: {$ref: '#/components/schemas/Quantity'}
+                note: {type: string, maxLength: 255}
+      responses:
+        '201':
+          description: Transfer recorded
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockTransfer'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /inventory/transfers/{stockTransferId}:
+    get:
+      operationId: stockTransferGet
+      tags: [Inventory]
+      x-capability: STOCK_ADJUST
+      summary: Get a stock transfer with its lines
+      parameters:
+      - name: stockTransferId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The transfer and its lines ordered by product name
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockTransfer'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   # --------------------------------------------------------------- Sales
   /sales:
     get:
@@ -1818,8 +2094,8 @@ paths:
     get:
       operationId: inventoryLocationList
       tags: [Inventory]
-      x-capability: FISCAL_CONFIGURATION_MANAGE
       summary: List inventory locations for the store
+      description: 'Loosened 2026-09-20 (stage 25): session only, no capability. A location is just a name, and the stock, count and transfer screens of a MANAGER (STOCK_ADJUST without FISCAL_CONFIGURATION_MANAGE) need the list to say where stock is. Creating and editing stay FISCAL_CONFIGURATION_MANAGE.'
       parameters:
       - {$ref: '#/components/parameters/PageParam'}
       - {$ref: '#/components/parameters/PerPageParam'}
@@ -1837,7 +2113,6 @@ paths:
                       type: array
                       items: {$ref: '#/components/schemas/InventoryLocation'}
         '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
     post:
       operationId: inventoryLocationCreate
       tags: [Inventory]
@@ -2197,6 +2472,11 @@ components:
       required: true
       description: 'Client-generated UUIDv4, scoped to (authenticated terminal, key) per ADR-010. The terminal component is resolved server-side from the enrolled terminal credential, never from this header or the request body. Reused across retries of the same attempt; never reused for a genuinely new attempt.'
       schema: {type: string, format: uuid, example: 0f3c9b1a-6e2d-4c7a-9a2e-1b4d5f6a7c8b}
+    StockCountId:
+      name: stockCountId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
     TerminalIdPath:
       name: terminalId
       in: path
@@ -2468,6 +2748,98 @@ components:
         location_id: {type: string, format: uuid}
         quantity_on_hand: {$ref: '#/components/schemas/Quantity'}
         updated_at: {type: string, format: date-time}
+    StockCountStatus:
+      type: string
+      enum: [OPEN, POSTED, CANCELLED]
+      description: Stage 25. OPEN counts can be edited, posted or cancelled; POSTED and CANCELLED are final.
+    StockCount:
+      description: 'Stage 25. The list omits lines and summary and carries lines_count; the detail (stockCountGet, and what the write operations return) carries both.'
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        location_id: {type: string, format: uuid}
+        location_name: {type: string}
+        status: {$ref: '#/components/schemas/StockCountStatus'}
+        note:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        created_by: {type: string, format: uuid}
+        posted_by:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        posted_at:
+          anyOf:
+          - {type: string, format: date-time}
+          - {type: 'null'}
+        cancelled_at:
+          anyOf:
+          - {type: string, format: date-time}
+          - {type: 'null'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        lines_count: {type: integer}
+        summary:
+          type: object
+          description: What posting does (or did). units_over is stock found beyond the books, units_short is stock the books had that was not found.
+          properties:
+            lines_counted: {type: integer}
+            lines_with_variance: {type: integer}
+            units_over: {$ref: '#/components/schemas/Quantity'}
+            units_short: {$ref: '#/components/schemas/Quantity'}
+        lines:
+          type: array
+          items: {$ref: '#/components/schemas/StockCountLine'}
+    StockCountLine:
+      type: object
+      properties:
+        product_id: {type: string, format: uuid}
+        sku: {type: string}
+        product_name: {type: string}
+        counted_quantity: {$ref: '#/components/schemas/Quantity'}
+        expected_quantity:
+          description: What the ledger said was on hand when this line was recorded; may be negative.
+          type: string
+        variance:
+          description: counted_quantity minus expected_quantity, signed. Negative means stock the books had was not found.
+          type: string
+        counted_by: {type: string, format: uuid}
+        counted_at: {type: string, format: date-time}
+        stock_movement_id:
+          description: The adjustment this line produced once the count was posted; null before posting and for a line with no variance.
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+    StockTransfer:
+      description: 'Stage 25. The list omits lines and carries lines_count; the detail carries the lines.'
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        from_location_id: {type: string, format: uuid}
+        from_location_name: {type: string}
+        to_location_id: {type: string, format: uuid}
+        to_location_name: {type: string}
+        note:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        terminal_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        created_by: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+        lines_count: {type: integer}
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id: {type: string, format: uuid}
+              sku: {type: string}
+              product_name: {type: string}
+              quantity: {$ref: '#/components/schemas/Quantity'}
     StockMovement:
       type: object
       properties:

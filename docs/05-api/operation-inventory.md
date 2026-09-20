@@ -80,6 +80,23 @@ admin operations that make sense from any authenticated browser, and
 | POST | /inventory/receipts | inventoryReceiptCreate | session | true | `STOCK_ADJUST` | **yes** | product/qty/type | 201 StockMovement | 404, 422 |
 | POST | /inventory/adjustments | inventoryAdjustmentCreate | session | true | `STOCK_ADJUST` | **yes** | product/qty/type/reason | 201 StockMovement | `STOCK_ADJUSTMENT_REASON_REQUIRED`, 404 |
 
+### Stock counts and transfers (10) — stage 25 (2026-09-20), forward-committed, no prior draft at any stage
+
+All ten need `STOCK_ADJUST` and are scoped to the caller's store (another store's record is its own `404`, never a `403`). The two that write the ledger, `stockCountPost` and `stockTransferCreate`, are terminal-scoped and idempotent like receipts and adjustments; drafting a count writes nothing to the ledger and needs only the session. `scope.md` lists stocktake and inter-store transfers as Phase 2; the owner chose on 2026-09-20 to build counts and transfers **between one store's own locations** now (transfers between stores stay Phase 2 and need multi-store tenancy). See `docs/06-backend/stage-25-stock-counts-and-transfers.md`.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /inventory/counts | stockCountList | session | false | `STOCK_ADJUST` | no | filters | 200 paginated | 403 |
+| POST | /inventory/counts | stockCountCreate | session | false | `STOCK_ADJUST` | no | location_id?, note? | 201 StockCount | 403, `INVENTORY_LOCATION_NOT_FOUND`, 409 `STOCK_COUNT_ALREADY_OPEN` |
+| GET | /inventory/counts/{stockCountId} | stockCountGet | session | false | `STOCK_ADJUST` | no | — | 200 StockCount (with lines) | 403, `STOCK_COUNT_NOT_FOUND` |
+| PUT | /inventory/counts/{stockCountId}/lines | stockCountLinesRecord | session | false | `STOCK_ADJUST` | no | lines[product_id, counted_quantity] | 200 StockCount | 403, 404, 409 `STOCK_COUNT_NOT_OPEN`, 422 |
+| DELETE | /inventory/counts/{stockCountId}/lines/{productId} | stockCountLineRemove | session | false | `STOCK_ADJUST` | no | — | 200 StockCount | 403, `STOCK_COUNT_NOT_FOUND`, 409 `STOCK_COUNT_NOT_OPEN` |
+| POST | /inventory/counts/{stockCountId}/post | stockCountPost | session | true | `STOCK_ADJUST` | **yes** | — | 200 StockCount | 403, `STOCK_COUNT_NOT_FOUND`, 409 `STOCK_COUNT_NOT_OPEN`, 422 |
+| POST | /inventory/counts/{stockCountId}/cancel | stockCountCancel | session | false | `STOCK_ADJUST` | no | — | 200 StockCount | 403, `STOCK_COUNT_NOT_FOUND`, 409 `STOCK_COUNT_NOT_OPEN` |
+| GET | /inventory/transfers | stockTransferList | session | false | `STOCK_ADJUST` | no | filters | 200 paginated | 403 |
+| POST | /inventory/transfers | stockTransferCreate | session | true | `STOCK_ADJUST` | **yes** | from, to, items, note? | 201 StockTransfer | 403, `INVENTORY_LOCATION_NOT_FOUND`, `PRODUCT_NOT_FOUND`, 422 |
+| GET | /inventory/transfers/{stockTransferId} | stockTransferGet | session | false | `STOCK_ADJUST` | no | — | 200 StockTransfer (with lines) | 403, `STOCK_TRANSFER_NOT_FOUND` |
+
 ## Sales (13, was 5 — +8 in remediation pass 3) — the core financial surface
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
@@ -337,11 +354,13 @@ The table `InvoiceSeriesAllocator::allocateForFiscalInstallation` reads at check
 
 ## InventoryLocation (3) — store-setup pass (2026-09-18), tagged `Inventory` (existing tag), no prior draft at any stage
 
+**Loosened 2026-09-20 (stage 25):** `inventoryLocationList` is now session-only, no capability (it was `FISCAL_CONFIGURATION_MANAGE`). A location is just a name, and a MANAGER (`STOCK_ADJUST` without `FISCAL_CONFIGURATION_MANAGE`) needs the list for the stock, count and transfer screens; before this the Stock page could not show a manager where stock was. Create and update are unchanged.
+
 The table `InventoryLocationResolver::resolveDefaultForStore` reads at checkout time. A store's first location is always made the default (regardless of the submitted `is_default`), so a fresh store never needs a second call just to pass the checkout-time check. `Update`'s `is_default` may only be submitted as `true` — a location is promoted (transactionally demoting the current default), never explicitly demoted on its own, so this endpoint can never leave a store with zero defaults.
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
 |---|---|---|---|---|---|---|---|---|---|
-| GET | /inventory-locations | inventoryLocationList | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | — | 200 paginated array | 403 |
+| GET | /inventory-locations | inventoryLocationList | session | false | — | no | — | 200 paginated array | 401 |
 | POST | /inventory-locations | inventoryLocationCreate | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | InventoryLocationInput | 201 InventoryLocation | 403, 422 |
 | PATCH | /inventory-locations/{inventoryLocationId} | inventoryLocationUpdate | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | name?+is_default? (true only) | 200 InventoryLocation | 403, 404, 422 |
 
@@ -402,6 +421,8 @@ hand):
 | `voidReject` | POST | /voids/{voidId}/reject |
 | `refundApprove` | POST | /refunds/{refundId}/approve |
 | `refundReject` | POST | /refunds/{refundId}/reject |
+
+**+2 in stage 25 (2026-09-20), so 16 in total:** `stockCountPost` (POST /inventory/counts/{stockCountId}/post) and `stockTransferCreate` (POST /inventory/transfers). The `idempotency_records_operation_type_check` constraint and `IdempotencyOperationType` were extended to match (`STOCK_COUNT_POST`, `STOCK_TRANSFER`); the 14 original values are unchanged.
 
 For each, all four required properties hold (verified against openapi.yaml
 directly, not asserted narratively): `Idempotency-Key` required (parameter
@@ -468,7 +489,7 @@ ran the reverse check too:
 | `SALE_REFUND_APPROVE` | `refundApprove`, `refundReject` — **new pass 3** |
 | `PRICE_OVERRIDE` | *(none directly)* — conditional field inside `saleFinalize`'s `SaleItemInput.override_reason`, pre-existing |
 | `DISCOUNT_OVERRIDE` | *(none directly)* — same field, same endpoint, pre-existing |
-| `STOCK_ADJUST` | `inventoryReceiptCreate`, `inventoryAdjustmentCreate` |
+| `STOCK_ADJUST` | `inventoryReceiptCreate`, `inventoryAdjustmentCreate`, and (stage 25) the 10 stock count and transfer operations |
 | `CASH_OUT` | *(none directly)* — conditional inside `shiftCashMovementCreate` ("above a configurable threshold"), pre-existing |
 | `REPORT_VIEW` | all 15 report operations |
 | `STORE_SETTINGS_MANAGE` | `storeSettingsUpdate` |

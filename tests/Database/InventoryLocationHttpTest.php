@@ -100,4 +100,39 @@ class InventoryLocationHttpTest extends PostgresSchemaTestCase
         $response->assertStatus(403);
         $response->assertJson(['error' => ['code' => 'AUTHORIZATION_DENIED']]);
     }
+
+    // Stage 25: listing is session-only (a location is just a name, and a MANAGER's stock, count and transfer
+    // screens need it); creating and editing stay FISCAL_CONFIGURATION_MANAGE. Before this, a manager -- who has
+    // STOCK_ADJUST but not FISCAL_CONFIGURATION_MANAGE -- got a 403 here and the Stock page could not show location names.
+    public function test_any_signed_in_user_of_the_store_can_list_only_their_stores_locations(): void
+    {
+        $manager = User::factory()->manager()->create();
+        $own = InventoryLocation::factory()->create(['store_id' => $manager->store_id, 'name' => 'Counter']);
+        InventoryLocation::factory()->create(); // another store's
+
+        $names = fn (User $user) => array_column($this->forwardSessionCookie($this->login($user))->getJson('/api/v1/inventory-locations')->assertOk()->json('data'), 'name');
+
+        $this->assertSame(['Counter'], $names($manager));
+        $this->assertSame(['Counter'], $names(User::factory()->create(['store_id' => $manager->store_id])), 'a cashier too');
+        $this->assertSame([$own->id], array_column($this->forwardSessionCookie($this->login($manager))->getJson('/api/v1/inventory-locations')->json('data'), 'id'));
+    }
+
+    public function test_a_manager_still_cannot_create_or_edit_a_location(): void
+    {
+        $manager = User::factory()->manager()->create();
+        $location = InventoryLocation::factory()->create(['store_id' => $manager->store_id]);
+
+        $this->forwardSessionCookie($this->login($manager))->postJson('/api/v1/inventory-locations', ['name' => 'Backroom'])->assertStatus(403);
+        $this->forwardSessionCookie($this->login($manager))->patchJson("/api/v1/inventory-locations/{$location->id}", ['name' => 'Renamed'])->assertStatus(403);
+
+        $this->assertSame(1, InventoryLocation::where('store_id', $manager->store_id)->count());
+        $this->assertNotSame('Renamed', $location->refresh()->name);
+    }
+
+    public function test_an_unauthenticated_request_cannot_list_locations(): void
+    {
+        $this->app['session.store']->flush();
+
+        $this->getJson('/api/v1/inventory-locations')->assertStatus(401);
+    }
 }

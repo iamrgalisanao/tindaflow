@@ -24,6 +24,9 @@ import FiscalDaysPage from './pages/admin/records/FiscalDaysPage';
 import FiscalDayDetailPage from './pages/admin/records/FiscalDayDetailPage';
 import JournalPage from './pages/admin/records/JournalPage';
 import MovementsPage from './pages/admin/inventory/MovementsPage';
+import CountsPage from './pages/admin/inventory/CountsPage';
+import CountDetailPage from './pages/admin/inventory/CountDetailPage';
+import TransfersPage from './pages/admin/inventory/TransfersPage';
 import ReportsHub from './pages/admin/reports/ReportsHub';
 import ReportViewer from './pages/admin/reports/ReportViewer';
 
@@ -233,6 +236,30 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <MovementsPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/inventory/counts"
+                    element={
+                        <RequireAuth>
+                            <CountsPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/inventory/counts/:id"
+                    element={
+                        <RequireAuth>
+                            <CountDetailPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/inventory/transfers"
+                    element={
+                        <RequireAuth>
+                            <TransfersPage />
                         </RequireAuth>
                     }
                 />

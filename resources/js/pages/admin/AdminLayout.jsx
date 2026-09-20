@@ -32,6 +32,8 @@ const RECORDS_NAV = [
 
 const INVENTORY_NAV = [
     { to: '/admin/inventory/stock', label: 'Stock' },
+    { to: '/admin/inventory/counts', label: 'Counts' },
+    { to: '/admin/inventory/transfers', label: 'Transfers' },
     { to: '/admin/inventory/movements', label: 'Movements' },
 ];
 

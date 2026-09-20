@@ -31,6 +31,13 @@ is a recorded, one-time exception, not a new default: the next code that
 fills a gap in an already-frozen response reopens the question. No
 `stage-*-baseline` tag moved.
 
+**Governance note (2026-09-20, stage 25)**: the four `STOCK_COUNT_*` /
+`STOCK_TRANSFER_NOT_FOUND` rows were added as a plain forward commit under
+the store-setup rule above: every one belongs to a wholly new operation
+(stock counts and transfers, no prior draft at any stage), so none completes
+a gap in an already-frozen response and no reconstruction question arises.
+No `stage-*-baseline` tag moved.
+
 ## Standard error envelope
 
 ```json
@@ -118,6 +125,10 @@ with the envelope above.
 | `INVOICE_SERIES_ALREADY_CLOSED` | 409 | `invoiceSeriesClose` called against a series that is already CLOSED | Store-setup pass (2026-09-18) — mirrors the existing `SHIFT_ALREADY_CLOSED` shape exactly; wholly new operation with no prior frozen draft |
 | `INVENTORY_LOCATION_NOT_FOUND` | 404 | Referenced inventory location does not exist, or exists only in a different store than the authenticated actor's own | Store-setup pass (2026-09-18) — `inventoryLocationUpdate`, a wholly new operation with no prior frozen draft |
 | `USER_NOT_FOUND` | 404 | Referenced user does not exist, or exists only in a different store than the authenticated actor's own | Users pass (2026-09-19) — the `404` of the new `userActivate` operation and of the already-frozen `userGet`/`userUpdate`/`userDeactivate`, whose `NotFound` responses had no code registered. **Forward-committed by explicit owner decision** (see the governance note above) rather than reconstructed |
+| `STOCK_COUNT_NOT_FOUND` | 404 | Referenced stock count does not exist, or exists only in a different store than the authenticated actor's own | Stage 25 (2026-09-20) — the `404` of the ten new stock count and transfer operations; follows the resource-specific-404 pattern of `USER_NOT_FOUND`/`TERMINAL_NOT_FOUND` |
+| `STOCK_COUNT_NOT_OPEN` | 409 | A count that is already `POSTED` or `CANCELLED` was edited, posted or cancelled. `details.status` says which | Stage 25 — mirrors `SHIFT_ALREADY_CLOSED`/`INVOICE_SERIES_ALREADY_CLOSED`; one code for both final states because the caller's remedy is the same (start a new count) |
+| `STOCK_COUNT_ALREADY_OPEN` | 409 | The location already has a count in progress (at most one `OPEN` count per location: two open counts of the same shelf would each post a correction against the same stock). `details.stock_count_id` is the open count, so a second counter can join it | Stage 25 — mirrors `INVOICE_SERIES_ALREADY_ACTIVE`; backed by a partial unique index, not just a check |
+| `STOCK_TRANSFER_NOT_FOUND` | 404 | Referenced stock transfer does not exist, or exists only in a different store than the authenticated actor's own | Stage 25 — `stockTransferGet` |
 
 No further codes are defined speculatively. A new code is added only when
 implementation surfaces a real, distinct failure mode this list doesn't

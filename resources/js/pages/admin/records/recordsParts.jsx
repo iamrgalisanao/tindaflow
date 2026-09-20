@@ -16,6 +16,9 @@ export const AUDIT_TYPES = [
     { id: 'REFUND_CREATED', label: 'Refund completed' },
     { id: 'REFUND_REJECTED', label: 'Refund rejected' },
     { id: 'STOCK_ADJUSTED', label: 'Stock recorded' },
+    { id: 'STOCK_COUNT_POSTED', label: 'Stock count posted' },
+    { id: 'STOCK_COUNT_CANCELLED', label: 'Stock count cancelled' },
+    { id: 'STOCK_TRANSFERRED', label: 'Stock transferred' },
     { id: 'CASH_IN', label: 'Cash in' },
     { id: 'CASH_OUT', label: 'Cash out' },
     { id: 'SHIFT_CLOSED', label: 'Shift closed' },
@@ -124,6 +127,12 @@ export function describeAudit(event) {
             return 'Refund request turned down';
         case 'STOCK_ADJUSTED':
             return `${movementLabel(after.movement_type)}: ${after.quantity ? formatQuantity(after.quantity) : '—'}`;
+        case 'STOCK_COUNT_POSTED':
+            return `Stock count posted: ${after.lines_counted ?? 0} counted, ${after.lines_adjusted ?? 0} adjusted (${formatQuantity(after.units_found_over ?? '0')} over, ${formatQuantity(after.units_found_short ?? '0')} short)`;
+        case 'STOCK_COUNT_CANCELLED':
+            return `Stock count cancelled; ${after.lines_discarded ?? 0} counted ${after.lines_discarded === 1 ? 'line was' : 'lines were'} discarded and stock did not change`;
+        case 'STOCK_TRANSFERRED':
+            return `Stock transferred between locations: ${(after.items ?? []).length} ${(after.items ?? []).length === 1 ? 'product' : 'products'} moved`;
         case 'CASH_IN':
         case 'CASH_OUT':
             return `${event.event_type === 'CASH_IN' ? 'Cash added to' : 'Cash taken from'} the drawer: ${money(after.amount)}`;

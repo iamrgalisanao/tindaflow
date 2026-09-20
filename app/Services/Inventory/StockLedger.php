@@ -37,6 +37,17 @@ final class StockLedger
         };
     }
 
+    /** What the ledger says is on hand for a product at a location; zero where it has never moved. */
+    public function onHand(string $productId, string $locationId): string
+    {
+        $quantity = DB::table('stock_balances')
+            ->where('product_id', $productId)
+            ->where('location_id', $locationId)
+            ->value('quantity_on_hand');
+
+        return bcadd((string) ($quantity ?? '0'), '0', 3);
+    }
+
     /**
      * @param  array{product_id: string, location_id: string, terminal_id?: ?string, movement_type: string, quantity: string, reference_type?: ?string, reference_id?: ?string, reason?: ?string, unit_cost?: ?string, created_by: string}  $movement
      */

@@ -108,7 +108,8 @@ the screens reuse the established admin patterns.
 ## 6. Not built
 
 Stock transfers (`TRANSFER_IN`/`TRANSFER_OUT` exist as types but no operation writes
-them), stock counts and purchase orders (no contract operations), choosing a location for
-a write, resolving the "By" column to a name (a manager cannot list users, so a short id
+them), stock counts and purchase orders (no contract operations; **stage 25 later built stock counts
+and transfers between a store's own locations**, see `docs/06-backend/stage-25-stock-counts-and-transfers.md`),
+choosing a location for a write, resolving the "By" column to a name (a manager cannot list users, so a short id
 is shown), audit log and electronic journal screens, product CSV import/export, barcode
 lookup, and the deferred shift/fiscal-day read endpoints.

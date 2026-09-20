@@ -19,6 +19,8 @@ use App\Http\Controllers\Reports\ShiftReportController;
 use App\Http\Controllers\Reports\VoidRefundReportController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\ShiftController;
+use App\Http\Controllers\StockCountController;
+use App\Http\Controllers\StockTransferController;
 use App\Http\Controllers\StoreSettingsController;
 use App\Http\Controllers\StoreSetupController;
 use App\Http\Controllers\TaxRegistrationController;
@@ -222,6 +224,25 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     Route::post('/inventory/adjustments', [InventoryController::class, 'adjust'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:STOCK_ADJUST']);
 
+    // Stock counts and transfers between a store's own locations (stage 25, forward-committed; see
+    // docs/06-backend/stage-25-stock-counts-and-transfers.md). Everything needs STOCK_ADJUST. Drafting a count
+    // is session-only; the two operations that write the ledger (posting a count, creating a transfer) carry
+    // the terminal chain and an Idempotency-Key like every other stock write.
+    Route::middleware(['auth', EnsureUserIsActive::class, 'can:STOCK_ADJUST'])->group(function () {
+        Route::get('/inventory/counts', [StockCountController::class, 'list']);
+        Route::post('/inventory/counts', [StockCountController::class, 'create']);
+        Route::get('/inventory/counts/{stockCountId}', [StockCountController::class, 'get'])->whereUuid('stockCountId');
+        Route::put('/inventory/counts/{stockCountId}/lines', [StockCountController::class, 'recordLines'])->whereUuid('stockCountId');
+        Route::delete('/inventory/counts/{stockCountId}/lines/{productId}', [StockCountController::class, 'removeLine'])->whereUuid(['stockCountId', 'productId']);
+        Route::post('/inventory/counts/{stockCountId}/cancel', [StockCountController::class, 'cancel'])->whereUuid('stockCountId');
+        Route::get('/inventory/transfers', [StockTransferController::class, 'list']);
+        Route::get('/inventory/transfers/{stockTransferId}', [StockTransferController::class, 'get'])->whereUuid('stockTransferId');
+    });
+    Route::post('/inventory/counts/{stockCountId}/post', [StockCountController::class, 'post'])->whereUuid('stockCountId')
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:STOCK_ADJUST']);
+    Route::post('/inventory/transfers', [StockTransferController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:STOCK_ADJUST']);
+
     // openapi.yaml Users tag -- all USER_MANAGE, session-only, no terminal credential.
     // userActivate is forward-committed (docs/06-backend/stage-13-users.md).
     Route::middleware(['auth', EnsureUserIsActive::class, 'can:USER_MANAGE'])->group(function () {
@@ -255,8 +276,11 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     Route::post('/invoice-series/{invoiceSeriesId}/close', [InvoiceSeriesController::class, 'close'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
 
+    // Listing is session-only (like the tax-registration list): a location is just a name, and the stock,
+    // count and transfer screens of a MANAGER (STOCK_ADJUST without FISCAL_CONFIGURATION_MANAGE) need it to show
+    // where stock is. Creating and editing stay FISCAL_CONFIGURATION_MANAGE. Loosened in stage 25.
     Route::get('/inventory-locations', [InventoryLocationController::class, 'list'])
-        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+        ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/inventory-locations', [InventoryLocationController::class, 'create'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
     Route::patch('/inventory-locations/{inventoryLocationId}', [InventoryLocationController::class, 'update'])
