@@ -4,6 +4,7 @@ namespace App\Services\Catalog;
 
 use App\Models\AuditEvent;
 use App\Models\Product;
+use App\Models\ProductBarcode;
 use App\Models\User;
 use Illuminate\Support\Arr;
 
@@ -64,16 +65,32 @@ final class ProductAuditor
         $this->write($actor, 'PRODUCT_UPDATED', $product->id, $before, $after + ['sku' => $product->sku], $reason);
     }
 
-    /** An alternate barcode was added: the code a product can now also be scanned by (stage 26). */
-    public function barcodeAdded(User $actor, Product $product, string $barcode): void
+    /** A packaging was added: a code the product can now also be scanned by, and/or a named pack (stages 26 and 29). */
+    public function barcodeAdded(User $actor, Product $product, ProductBarcode $packaging): void
     {
-        $this->write($actor, 'PRODUCT_BARCODE_ADDED', $product->id, null, ['sku' => $product->sku, 'barcode' => $barcode], null);
+        $this->write($actor, 'PRODUCT_BARCODE_ADDED', $product->id, null, $this->packagingSnapshot($product, $packaging), null);
     }
 
-    /** An alternate barcode was removed; the product can no longer be scanned by it. */
-    public function barcodeRemoved(User $actor, Product $product, string $barcode): void
+    /** A packaging was removed; the product can no longer be scanned by it or received in it. */
+    public function barcodeRemoved(User $actor, Product $product, ProductBarcode $packaging): void
     {
-        $this->write($actor, 'PRODUCT_BARCODE_REMOVED', $product->id, ['sku' => $product->sku, 'barcode' => $barcode], [], null);
+        $this->write($actor, 'PRODUCT_BARCODE_REMOVED', $product->id, $this->packagingSnapshot($product, $packaging), [], null);
+    }
+
+    /**
+     * The sku and the barcode; a name and a pack size only when there is one, so a plain alias records exactly what it
+     * did before stage 29.
+     *
+     * @return array<string, mixed>
+     */
+    private function packagingSnapshot(Product $product, ProductBarcode $packaging): array
+    {
+        return array_filter([
+            'sku' => $product->sku,
+            'barcode' => $packaging->barcode,
+            'name' => $packaging->name,
+            'units_per_base' => bccomp((string) $packaging->units_per_base, '1', 3) === 0 ? null : (string) $packaging->units_per_base,
+        ], fn ($value) => $value !== null);
     }
 
     /** @param  array<string, mixed>  $summary */

@@ -30,42 +30,60 @@ final class ProductBarcodeService
     {
         $this->product($storeId, $productId);
 
-        return ProductBarcode::where('product_id', $productId)->orderBy('created_at')->orderBy('barcode')->get();
+        return ProductBarcode::where('product_id', $productId)->orderBy('created_at')->orderBy('name')->orderBy('barcode')->get();
     }
 
     /**
-     * @throws ValidationException the barcode is already in use in this store (field `barcode`)
+     * Adds a packaging: a barcode the product can be scanned by, a named pack that says how many single units one
+     * holds, or both. A barcode alone is an alias of the single unit (1 unit per pack); a pack without a barcode is
+     * a case you receive by count.
+     *
+     * @param  array{barcode?: ?string, name?: ?string, units_per_base?: ?string, can_receive?: ?bool}  $attributes
+     *
+     * @throws ValidationException the barcode is already in use in this store (field `barcode`), or the product already has a pack of that name (field `name`)
      */
-    public function add(User $actor, string $productId, string $barcode): ProductBarcode
+    public function add(User $actor, string $productId, array $attributes): ProductBarcode
     {
+        $barcode = ($attributes['barcode'] ?? null) === '' ? null : ($attributes['barcode'] ?? null);
+        $name = isset($attributes['name']) ? trim((string) $attributes['name']) : null;
+        $name = $name === '' ? null : $name;
+
         try {
-            return DB::transaction(function () use ($actor, $productId, $barcode) {
+            return DB::transaction(function () use ($actor, $productId, $barcode, $name, $attributes) {
                 $product = $this->product($actor->store_id, $productId, lock: true);
                 $this->claim($actor->store_id, $barcode, $product->id);
 
-                if ($product->barcode === $barcode) {
+                if ($barcode !== null && $product->barcode === $barcode) {
                     throw ValidationException::withMessages(['barcode' => "This is already the product's main barcode."]);
                 }
-                if (ProductBarcode::where('product_id', $product->id)->where('barcode', $barcode)->exists()) {
+                if ($barcode !== null && ProductBarcode::where('product_id', $product->id)->where('barcode', $barcode)->exists()) {
                     throw ValidationException::withMessages(['barcode' => 'This product already has this barcode.']);
+                }
+                if ($name !== null && ProductBarcode::where('product_id', $product->id)->whereRaw('lower(name) = ?', [mb_strtolower($name)])->exists()) {
+                    throw ValidationException::withMessages(['name' => 'This product already has a pack with this name.']);
                 }
 
                 $created = ProductBarcode::create([
                     'product_id' => $product->id,
                     'store_id' => $actor->store_id,
                     'barcode' => $barcode,
+                    'name' => $name,
+                    'units_per_base' => bcadd((string) ($attributes['units_per_base'] ?? '1'), '0', 3),
+                    'can_receive' => (bool) ($attributes['can_receive'] ?? true),
                     'is_primary' => false,
                 ]);
-                $this->auditor->barcodeAdded($actor, $product, $barcode);
+                $this->auditor->barcodeAdded($actor, $product, $created);
 
                 return $created;
             });
-        } catch (UniqueConstraintViolationException) {
-            throw ValidationException::withMessages(['barcode' => 'This barcode is already assigned to another product.']);
+        } catch (UniqueConstraintViolationException $exception) {
+            throw str_contains($exception->getMessage(), 'product_name_unique')
+                ? ValidationException::withMessages(['name' => 'This product already has a pack with this name.'])
+                : ValidationException::withMessages(['barcode' => 'This barcode is already assigned to another product.']);
         }
     }
 
-    /** Removing a barcode that is not there is not an error: the product simply is not scanned by it. */
+    /** Removing a packaging that is not there is not an error: the product simply is not scanned or received by it. */
     public function remove(User $actor, string $productId, string $barcodeId): void
     {
         DB::transaction(function () use ($actor, $productId, $barcodeId) {
@@ -78,7 +96,7 @@ final class ProductBarcodeService
             }
 
             $row->delete();
-            $this->auditor->barcodeRemoved($actor, $product, $row->barcode);
+            $this->auditor->barcodeRemoved($actor, $product, $row);
         });
     }
 

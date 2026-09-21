@@ -352,8 +352,8 @@ paths:
     get:
       operationId: productBarcodeList
       tags: [Catalog]
-      summary: List a product's alternate barcodes
-      description: Session only, like the other catalog reads. The product's own barcode is Product.barcode and is not repeated here. Oldest first (codes added in the same second by code).
+      summary: List a product's packagings (alternate barcodes and named packs)
+      description: Session only, like the other catalog reads. The product's own barcode and unit are Product.barcode and Product.unit_of_measure (the base unit) and are not repeated here. Oldest first (rows added in the same second by name, then code). Stage 29 gave each row an optional name and a pack size.
       parameters:
       - {$ref: '#/components/parameters/ProductIdPath'}
       - {$ref: '#/components/parameters/PageParam'}
@@ -377,8 +377,8 @@ paths:
       operationId: productBarcodeCreate
       tags: [Catalog]
       x-capability: CATALOG_MANAGE
-      summary: Add an alternate barcode to a product
-      description: 'Another code the product can be scanned by, for example a different supplier''s packaging. Surrounding whitespace (a scanner''s line break) is trimmed; the code is otherwise stored exactly as given (matching is exact, so case matters). A code already in use in the store, as any product''s own barcode or alternate, is 422 VALIDATION_FAILED on `barcode`; another store''s identical code is not a conflict. Allowed for an inactive product. Audited as PRODUCT_BARCODE_ADDED.'
+      summary: Add a packaging to a product (an alternate barcode and/or a named pack)
+      description: 'A code the product can be scanned by, for example a different supplier''s packaging, and/or (stage 29) a named pack such as "Case" that holds units_per_base single units, used when receiving stock. At least one of barcode and name is required; a barcode alone is an alias of the single unit (1 unit). Stock is always kept in the product''s one base unit; the pack size only says how to convert a pack count. Surrounding whitespace (a scanner''s line break) is trimmed; the code is otherwise stored exactly as given (matching is exact, so case matters). A code already in use in the store, as any product''s own barcode or alternate, is 422 VALIDATION_FAILED on `barcode`; a second pack of the same name on the product (any capitals) is 422 on `name`; another store''s identical code is not a conflict. Allowed for an inactive product. Audited as PRODUCT_BARCODE_ADDED. Selling by the pack is not available: the stored can_sell flag is not exposed and nothing reads it yet.'
       parameters:
       - {$ref: '#/components/parameters/ProductIdPath'}
       requestBody:
@@ -387,9 +387,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [barcode]
+              description: At least one of barcode and name.
               properties:
                 barcode: {type: string, minLength: 1, maxLength: 255}
+                name: {type: string, minLength: 1, maxLength: 60, description: 'A label such as Case or Tray; unique per product ignoring capitals.'}
+                units_per_base: {$ref: '#/components/schemas/Quantity', description: 'How many single units one of these holds; greater than zero, default 1.'}
+                can_receive: {type: boolean, description: 'May stock be received in this pack. Default true.'}
       responses:
         '201':
           description: Alternate barcode added
@@ -2746,12 +2749,21 @@ components:
         id: {type: string, format: uuid}
         name: {type: string}
     ProductBarcode:
-      description: Stage 26. An alternate barcode of a product; the product's own barcode is Product.barcode.
+      description: 'Stage 26, extended in stage 29. A packaging of a product: an alternate barcode and/or a named pack that holds units_per_base single units. The product''s own barcode and unit of measure are the base unit and are not a row.'
       type: object
       properties:
         id: {type: string, format: uuid}
         product_id: {type: string, format: uuid}
-        barcode: {type: string}
+        barcode:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        name:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        units_per_base: {$ref: '#/components/schemas/Quantity'}
+        can_receive: {type: boolean}
         created_at: {type: string, format: date-time}
     Product:
       type: object

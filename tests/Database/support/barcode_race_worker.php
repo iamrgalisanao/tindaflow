@@ -44,7 +44,7 @@ try {
     $user = User::findOrFail($job['user_id']);
 
     match ($job['type']) {
-        'add_alternate' => $app->make(ProductBarcodeService::class)->add($user, $job['product_id'], $job['barcode']),
+        'add_alternate' => $app->make(ProductBarcodeService::class)->add($user, $job['product_id'], ['barcode' => $job['barcode']]),
         'set_main' => $app->make(ProductService::class)->update($user, $job['product_id'], ['barcode' => $job['barcode']]),
     };
 

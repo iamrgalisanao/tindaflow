@@ -39,7 +39,7 @@ class ProductBarcodeController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        return (new ProductBarcodeResource($service->add($actor, $productId, $request->validated('barcode'))))
+        return (new ProductBarcodeResource($service->add($actor, $productId, $request->validated())))
             ->response()->setStatusCode(201);
     }
 

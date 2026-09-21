@@ -235,3 +235,9 @@ P1,153.92") to `inventoryReceiptCreate`, so **the receipt operation and the ledg
 touches no frozen server code either, but should be switched on only for shops whose packs really sell at N times the unit
 price (section 10). What this still cannot do is a pack **price** different from N x unit, or a unit cost finer than a
 centavo; both need a frozen-ledger or frozen-checkout decision.
+
+## 12. Follow-up: packs
+
+Stage 29 (`docs/06-backend/stage-29-packaging-and-pack-receiving.md`) builds the receiving-first pack quantity researched
+above on this table: a row now has a name and a size, may have no barcode, and a receipt can be entered in packs. A plain
+alternate barcode described in this stage is a pack of one unit and is unchanged.

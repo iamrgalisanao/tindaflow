@@ -99,6 +99,16 @@ function describeProductChange(before = {}, after = {}) {
     return fields.map((field) => `${PRODUCT_FIELDS[field]} ${productValue(field, before[field])} → ${productValue(field, after[field])}`).join(', ');
 }
 
+/** "Pack Case (24 units, barcode 4800…) added to product RIC-001" or, for a plain alias, "Barcode 4800… added to product RIC-001". */
+function describePackaging(snapshot, verb, suffix) {
+    const isPack = snapshot.name !== undefined || snapshot.units_per_base !== undefined;
+    const what = isPack
+        ? `Pack ${snapshot.name ?? '—'}${snapshot.units_per_base ? ` (${formatQuantity(snapshot.units_per_base)} units${snapshot.barcode ? `, barcode ${snapshot.barcode}` : ''})` : snapshot.barcode ? ` (barcode ${snapshot.barcode})` : ''}`
+        : `Barcode ${snapshot.barcode ?? '—'}`;
+
+    return `${what} ${verb} product ${snapshot.sku ?? '—'}${suffix && snapshot.barcode ? `; ${suffix}` : ''}`;
+}
+
 /** One plain sentence for an audit event, from what the event recorded. Unknown types fall back to their name. */
 export function describeAudit(event) {
     const after = event.after_metadata ?? {};
@@ -116,11 +126,9 @@ export function describeAudit(event) {
         case 'PRODUCT_IMPORTED':
             return `Product CSV import: ${after.created ?? 0} created, ${after.updated ?? 0} updated, ${after.unchanged ?? 0} unchanged${after.failed ? `, ${after.failed} skipped` : ''}`;
         case 'PRODUCT_BARCODE_ADDED':
-            return `Barcode ${after.barcode ?? '—'} added to product ${after.sku ?? '—'}; it can now be scanned to find this product`;
-        case 'PRODUCT_BARCODE_REMOVED': {
-            const removed = event.before_metadata ?? {};
-            return `Barcode ${removed.barcode ?? '—'} removed from product ${removed.sku ?? '—'}`;
-        }
+            return describePackaging(after, 'added to', 'it can now be scanned to find this product');
+        case 'PRODUCT_BARCODE_REMOVED':
+            return describePackaging(event.before_metadata ?? {}, 'removed from');
         case 'SALE_VOID_REQUESTED':
             return 'Void requested for a sale';
         case 'SALE_VOIDED':
@@ -134,7 +142,9 @@ export function describeAudit(event) {
         case 'REFUND_REJECTED':
             return 'Refund request turned down';
         case 'STOCK_ADJUSTED':
-            return `${movementLabel(after.movement_type)}: ${after.quantity ? formatQuantity(after.quantity) : '—'}`;
+            return `${movementLabel(after.movement_type)}: ${after.quantity ? formatQuantity(after.quantity) : '—'}${
+                after.packaging ? ` (${formatQuantity(after.packaging.packs)} x ${after.packaging.name ?? 'pack'} of ${formatQuantity(after.packaging.units_per_base)})` : ''
+            }`;
         case 'STOCK_COUNT_POSTED':
             return `Stock count posted: ${after.lines_counted ?? 0} counted, ${after.lines_adjusted ?? 0} adjusted (${formatQuantity(after.units_found_over ?? '0')} over, ${formatQuantity(after.units_found_short ?? '0')} short)`;
         case 'STOCK_COUNT_CANCELLED':

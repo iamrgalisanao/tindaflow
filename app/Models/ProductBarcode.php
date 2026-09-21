@@ -12,11 +12,16 @@ class ProductBarcode extends Model
 
     protected $table = 'product_barcodes';
 
-    protected $fillable = ['product_id', 'store_id', 'barcode', 'is_primary'];
+    protected $fillable = ['product_id', 'store_id', 'barcode', 'is_primary', 'name', 'units_per_base', 'can_receive', 'can_sell'];
 
     protected function casts(): array
     {
-        return ['is_primary' => 'boolean'];
+        return [
+            'is_primary' => 'boolean',
+            'units_per_base' => 'decimal:3',
+            'can_receive' => 'boolean',
+            'can_sell' => 'boolean',
+        ];
     }
 
     public function product(): BelongsTo

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import SlideOver from '../SlideOver';
 import { failureMessage, fieldErrors, normalizeMoney, request } from '../catalog/catalogApi';
 import { ProductPicker, QUANTITY_PATTERN, fromThousandths, quantityText, toThousandths } from './inventoryParts';
+import { packCostDividesExactly, packUnitCost, packUnits } from './packMath';
+import { plainQuantity } from './stockDocsParts';
 
 const RECEIPT_TYPES = [
     { id: 'PURCHASE_RECEIPT', label: 'Purchase receipt', hint: 'Stock delivered by a supplier.' },
@@ -38,12 +40,18 @@ function Field({ id, label, required, hint, error, children }) {
     );
 }
 
-function validate(mode, values) {
+function validate(mode, values, packaging) {
     const errors = {};
     if (values.product_id === '') {
         errors.product_id = 'Choose a product.';
     }
-    if (!QUANTITY_PATTERN.test(values.quantity.trim()) || toThousandths(values.quantity.trim()) <= 0) {
+    if (packaging) {
+        if (!QUANTITY_PATTERN.test(values.quantity.trim()) || toThousandths(values.quantity.trim()) <= 0) {
+            errors.quantity = 'Enter how many packs arrived, above zero, with up to 3 decimals.';
+        } else if (packUnits(values.quantity.trim(), packaging.units_per_base) === null) {
+            errors.quantity = 'That many packs does not come to a whole number of thousandths of a unit. Check the number of packs.';
+        }
+    } else if (!QUANTITY_PATTERN.test(values.quantity.trim()) || toThousandths(values.quantity.trim()) <= 0) {
         errors.quantity = 'Enter a quantity above zero, with up to 3 decimals.';
     }
     if (mode === 'receipt' && values.unit_cost.trim() !== '' && normalizeMoney(values.unit_cost) === null) {
@@ -66,6 +74,7 @@ export default function StockActionPanel({ mode, products, initialProductId = ''
     const isReceipt = mode === 'receipt';
     const [values, setValues] = useState({
         product_id: initialProductId,
+        packaging_id: '',
         movement_type: isReceipt ? 'PURCHASE_RECEIPT' : 'STOCK_ADJUSTMENT_IN',
         quantity: '',
         unit_cost: '',
@@ -76,7 +85,25 @@ export default function StockActionPanel({ mode, products, initialProductId = ''
     const [formError, setFormError] = useState(null);
     const [saving, setSaving] = useState(false);
     const [onHand, setOnHand] = useState(null); // null = unknown, otherwise a decimal string
+    const [packagings, setPackagings] = useState([]); // the product's packs that may be received in (receipts only)
     const keyRef = useRef(crypto.randomUUID());
+
+    useEffect(() => {
+        setPackagings([]);
+        setValues((prior) => (prior.packaging_id === '' ? prior : { ...prior, packaging_id: '' }));
+        if (!isReceipt || values.product_id === '') {
+            return undefined;
+        }
+        let cancelled = false;
+        request(`/api/v1/products/${values.product_id}/barcodes?per_page=100`).then((response) => {
+            if (!cancelled && response.ok) {
+                setPackagings(response.body.data.filter((row) => row.can_receive));
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [isReceipt, values.product_id]);
 
     useEffect(() => {
         setOnHand(null);
@@ -104,23 +131,32 @@ export default function StockActionPanel({ mode, products, initialProductId = ''
     }
 
     const direction = isReceipt ? 1 : (ADJUSTMENT_TYPES.find((type) => type.id === values.movement_type)?.direction ?? 1);
-    const quantityValid = QUANTITY_PATTERN.test(values.quantity.trim()) && toThousandths(values.quantity.trim()) > 0;
-    const after = onHand !== null && quantityValid ? fromThousandths(toThousandths(onHand) + direction * toThousandths(values.quantity.trim())) : null;
+    // Received in a pack: the server turns packs into single units and derives the unit cost; this only previews it.
+    const packaging = isReceipt ? packagings.find((candidate) => candidate.id === values.packaging_id) : undefined;
+    const packName = packaging ? (packaging.name ?? 'pack') : null;
+    const unitsText = packaging && QUANTITY_PATTERN.test(values.quantity.trim()) && toThousandths(values.quantity.trim()) > 0 ? packUnits(values.quantity.trim(), packaging.units_per_base) : null;
+    const packCostText = packaging && values.unit_cost.trim() !== '' ? normalizeMoney(values.unit_cost) : null;
+    const derivedUnitCost = unitsText && packCostText ? packUnitCost(packCostText, packaging.units_per_base) : null;
+    const effectiveUnits = packaging ? unitsText : values.quantity.trim();
+    const quantityValid = effectiveUnits !== null && QUANTITY_PATTERN.test(effectiveUnits) && toThousandths(effectiveUnits) > 0;
+    const after = onHand !== null && quantityValid ? fromThousandths(toThousandths(onHand) + direction * toThousandths(effectiveUnits)) : null;
     const product = products.find((candidate) => candidate.id === values.product_id);
 
     async function submit(event) {
         event.preventDefault();
-        const clientErrors = validate(mode, values);
+        const clientErrors = validate(mode, values, packaging);
         if (Object.keys(clientErrors).length > 0) {
             setErrors(clientErrors);
             return;
         }
         setSaving(true);
         setFormError(null);
-        const body = { product_id: values.product_id, quantity: values.quantity.trim(), movement_type: values.movement_type };
+        const body = packaging
+            ? { product_id: values.product_id, packaging_id: packaging.id, packs: values.quantity.trim(), movement_type: values.movement_type }
+            : { product_id: values.product_id, quantity: values.quantity.trim(), movement_type: values.movement_type };
         if (isReceipt) {
             if (values.unit_cost.trim() !== '') {
-                body.unit_cost = normalizeMoney(values.unit_cost);
+                body[packaging ? 'pack_cost' : 'unit_cost'] = normalizeMoney(values.unit_cost);
             }
             if (values.note.trim() !== '') {
                 body.note = values.note.trim();
@@ -148,8 +184,13 @@ export default function StockActionPanel({ mode, products, initialProductId = ''
             return;
         }
         const serverErrors = fieldErrors(result);
+        if (serverErrors.packaging_id) {
+            setFormError(serverErrors.packaging_id);
+            return;
+        }
         if (Object.keys(serverErrors).length > 0) {
-            setErrors(serverErrors);
+            // the panel's one quantity and cost boxes stand for packs and the pack cost when a pack is chosen
+            setErrors({ ...serverErrors, quantity: serverErrors.quantity ?? serverErrors.packs, unit_cost: serverErrors.unit_cost ?? serverErrors.pack_cost });
             return;
         }
         if (result.status === 0) {
@@ -208,6 +249,39 @@ export default function StockActionPanel({ mode, products, initialProductId = ''
                     />
                 </Field>
 
+                {isReceipt && packagings.length > 0 && (
+                    <fieldset>
+                        <legend className="mb-1 text-xs text-slate-400">Received as</legend>
+                        <div className="grid grid-cols-1 gap-2">
+                            {[{ id: '', label: `Single ${product?.unit_of_measure ?? 'units'}`, hint: 'Count each piece.' }, ...packagings.map((row) => ({
+                                id: row.id,
+                                label: row.name ?? `Barcode ${row.barcode}`,
+                                hint: `${plainQuantity(row.units_per_base)} ${product?.unit_of_measure ?? 'units'} in each.`,
+                            }))].map((option) => (
+                                <label
+                                    key={option.id || 'units'}
+                                    className={`flex cursor-pointer items-start gap-2 rounded-md border p-2.5 ${
+                                        values.packaging_id === option.id ? 'border-emerald-500 bg-emerald-950/20' : 'border-slate-700 bg-slate-950/40 hover:bg-slate-800/60'
+                                    }`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="received_as"
+                                        value={option.id}
+                                        checked={values.packaging_id === option.id}
+                                        onChange={() => set('packaging_id', option.id)}
+                                        className="mt-0.5 accent-emerald-500"
+                                    />
+                                    <span>
+                                        <span className="block text-sm font-medium text-slate-100">{option.label}</span>
+                                        <span className="block text-[11px] text-slate-400">{option.hint}</span>
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                    </fieldset>
+                )}
+
                 <fieldset>
                     <legend className="mb-1 text-xs text-slate-400">
                         {isReceipt ? 'Type' : 'What happened'} <span className="text-emerald-400">*</span>
@@ -239,9 +313,9 @@ export default function StockActionPanel({ mode, products, initialProductId = ''
 
                 <Field
                     id="stock_quantity"
-                    label={`Quantity${product ? ` (${product.unit_of_measure})` : ''}`}
+                    label={packaging ? `Number of ${packName}` : `Quantity${product ? ` (${product.unit_of_measure})` : ''}`}
                     required
-                    hint="Up to 3 decimals, for items sold by weight or volume."
+                    hint={packaging ? 'How many arrived. Up to 3 decimals, for a part of a pack.' : 'Up to 3 decimals, for items sold by weight or volume.'}
                     error={errors.quantity}
                 >
                     <input
@@ -255,6 +329,20 @@ export default function StockActionPanel({ mode, products, initialProductId = ''
                         className={inputClass(errors.quantity, true)}
                     />
                 </Field>
+
+                {packaging && unitsText && (
+                    <div className="rounded-md border border-emerald-900/60 bg-emerald-950/20 px-3 py-2 text-xs text-slate-200" aria-live="polite">
+                        <p className="font-mono">
+                            = {quantityText(unitsText)} {product?.unit_of_measure ?? 'units'}
+                            {derivedUnitCost && <> at ₱{derivedUnitCost} each</>}
+                        </p>
+                        {derivedUnitCost && !packCostDividesExactly(packCostText, packaging.units_per_base) && (
+                            <p className="mt-1 text-[11px] text-slate-400">
+                                The cost per {product?.unit_of_measure ?? 'unit'} is rounded to the centavo; the cost of one {packName} (₱{packCostText}) is kept on the record.
+                            </p>
+                        )}
+                    </div>
+                )}
 
                 {values.product_id !== '' && (
                     <div className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 font-mono text-xs" aria-live="polite">
@@ -276,7 +364,12 @@ export default function StockActionPanel({ mode, products, initialProductId = ''
 
                 {isReceipt ? (
                     <>
-                        <Field id="stock_unit_cost" label="Unit cost (₱)" hint="Optional. What you paid for one unit." error={errors.unit_cost}>
+                        <Field
+                            id="stock_unit_cost"
+                            label={packaging ? `Cost of one ${packName} (₱)` : 'Unit cost (₱)'}
+                            hint={packaging ? `Optional. What you paid for one ${packName}; the cost of each ${product?.unit_of_measure ?? 'unit'} is worked out from it.` : 'Optional. What you paid for one unit.'}
+                            error={errors.unit_cost}
+                        >
                             <input
                                 id="stock_unit_cost"
                                 type="text"

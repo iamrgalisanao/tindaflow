@@ -171,7 +171,7 @@ final class ProductImportService
                 $this->barcodeOwners[$product->barcode] = $product->id;
             }
         }
-        foreach (ProductBarcode::where('store_id', $storeId)->get(['product_id', 'barcode']) as $alternate) {
+        foreach (ProductBarcode::where('store_id', $storeId)->whereNotNull('barcode')->get(['product_id', 'barcode']) as $alternate) {
             $this->barcodeOwners[$alternate->barcode] = $alternate->product_id;
         }
 

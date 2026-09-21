@@ -70,14 +70,16 @@ admin operations that make sense from any authenticated browser, and
 | POST | /products/import | productImport | session | false | `CATALOG_MANAGE` | no | CSV | 202 ImportResult | 422 |
 | GET | /products/export | productExport | session | false | — | no | — | 200 CSV | 401 |
 
-### Alternate barcodes (3) — stage 26 (2026-09-20), forward-committed, no prior draft at any stage
+### Alternate barcodes and packs (3) — stage 26 (2026-09-20), forward-committed, no prior draft at any stage; extended in stage 29 (2026-09-21)
+
+**Stage 29:** a row is now a *packaging*: the barcode is optional, and a row may carry a `name` ("Case") and `units_per_base` (how many single units one holds; 1 for a plain alias), plus `can_receive`. `productBarcodeCreate` accepts `name`, `units_per_base` and `can_receive` and needs at least one of `barcode` and `name`; a duplicate name on the same product is a `422` on `name`. Stock is always kept in the base unit. See `docs/06-backend/stage-29-packaging-and-pack-receiving.md`.
 
 `productLookupByBarcode` has matched a product's alternate `product_barcodes` rows since stage 20, but nothing could create them. These three operations manage them. A barcode identifies at most one product per store across a product's own `barcode` and every alternate; a code already in use is the catalog's usual `422 VALIDATION_FAILED` field error on `barcode`, so **no new error code** was needed. Reads need only the session like the other catalog reads; adding and removing are `CATALOG_MANAGE`. See `docs/06-backend/stage-26-alternate-barcodes.md`.
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
 |---|---|---|---|---|---|---|---|---|---|
 | GET | /products/{productId}/barcodes | productBarcodeList | session | false | — | no | — | 200 paginated ProductBarcode | 401, `PRODUCT_NOT_FOUND` |
-| POST | /products/{productId}/barcodes | productBarcodeCreate | session | false | `CATALOG_MANAGE` | no | barcode | 201 ProductBarcode | 403, `PRODUCT_NOT_FOUND`, 422 |
+| POST | /products/{productId}/barcodes | productBarcodeCreate | session | false | `CATALOG_MANAGE` | no | barcode?, name?, units_per_base?, can_receive? (one of barcode, name) | 201 ProductBarcode | 403, `PRODUCT_NOT_FOUND`, 422 |
 | DELETE | /products/{productId}/barcodes/{barcodeId} | productBarcodeDelete | session | false | `CATALOG_MANAGE` | no | — | 204 (also when nothing was there) | 403, `PRODUCT_NOT_FOUND` |
 
 ## Inventory (5)

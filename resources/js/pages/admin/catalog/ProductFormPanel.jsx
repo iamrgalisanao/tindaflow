@@ -275,9 +275,9 @@ export default function ProductFormPanel({
                     </Field>
 
                     {editing ? (
-                        <AlternateBarcodes productId={product.id} onUnauthorized={onUnauthorized} />
+                        <AlternateBarcodes productId={product.id} unitOfMeasure={product.unit_of_measure} onUnauthorized={onUnauthorized} />
                     ) : (
-                        <p className="-mt-2 text-[11px] text-slate-500">Save the product first, then add other barcodes it can be scanned by.</p>
+                        <p className="-mt-2 text-[11px] text-slate-500">Save the product first, then add packs (such as a case) and other barcodes it can be scanned by.</p>
                     )}
 
                     <Field id="product_name" label="Name" required error={errors.name}>
