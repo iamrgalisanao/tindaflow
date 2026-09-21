@@ -135,3 +135,103 @@ add that many units. Stock, the invoice line (quantity N at the unit price, whic
 **unchanged**, so no frozen checkout code is touched; the new column and one response field are the whole change. It cannot
 express a pack **price** different from N x unit price; that needs pattern B or C and should wait until a store asks. Before
 building, confirm with the owner: do packs ever sell at a different total price than N units?
+
+## 10. Follow-up research on pack pricing (2026-09-20)
+
+The proposal in section 9 assumed a pack sells at N times the unit price. Research on that assumption (V = read at the
+source, I = inferred; UTAK, Kyte, Imonggo, Moneypad, Zettle PH, GCash and Grab merchant POS and eSari document nothing on
+packs or units that I could read, so they are "not documented"):
+
+- **A distinct pack price is the norm wherever a pack is sellable at all.** Loyverse (moderator advice: a separate "box" item
+  with its own barcode and price, stock drawn from the single item) and StoreHub (price books with minimum and maximum
+  quantities and customer tags, composite items) are the Philippine-relevant vendors; Lightspeed X price books, Shopify volume
+  pricing (up to 10 breaks, on a separate case product) and Odoo and ERPNext quantity-break rules do the same (V).
+  Loyverse users complain that this doubles the catalogue.
+- **Four patterns for pack pricing:** a separate pack item with its own price; a price per unit of measure; a quantity-break
+  rule on the line; and price levels per customer group.
+- **Philippine practice (V, thin).** A distributor price list shows the case price as primary and the unit price derived
+  and rounded (Fita crackers: case P1,153.92, per piece P4.81, but 240 x 4.81 = P1,154.40), so "N x unit" already fails at the
+  centavo. Tingi is priced above cost divided by N (secondary source). No DTI or DA document on pack versus unit price was
+  found.
+- **Rules (V).** RA 7394 Art. 81-82 requires a price per article, per unit in pesos and centavos, and that an article not be
+  sold above its tag "without discrimination to all buyers"; I: a pack with its own price is compatible, a **customer-group
+  wholesale price may be in tension** with that wording (needs legal judgement), and a quantity break open to every buyer is
+  safer. RA 11976 needs quantity, unit cost and description on the invoice; how ordinary line discounts must appear was not
+  verified.
+
+**What this changes.** "N x unit only" is arithmetically safe but not what competitors treat as basic, and **any distinct pack
+price needs checkout to know it**, because checkout recomputes every price from the product on the server (Stage 2
+invariant #4): a separate pack item with its own price, or a price per unit, is a **change to frozen checkout** and, for a
+separate item, a stock deduction of the single units too. That is a larger stage and an owner decision, not a small column.
+
+**A refinement that avoids the frozen path (I, mine).** Philippine distributors price by case and small stores usually buy
+by the case and sell by the piece (tingi), so the sharper need may be at **receiving**, not selling: scan the case code in
+Receive stock, add N units, and set the unit cost to the case cost divided by N. That uses the same `pack_quantity` on the
+barcode row, touches only the Stage 14 receipt code (not frozen), needs no pricing decision, and matches GS1's "quantity of
+items contained" link. Toast Retail lists "receiving units for cases" (a search snippet, not opened). **Options for the
+owner:** (a) leave alternates as one-unit aliases (today); (b) add `pack_quantity` and use it for **receiving** first, and for
+selling at N x unit price only for shops that confirm their packs are priced that way; (c) real pack pricing (pattern 1, 2 or
+3), which needs a frozen-checkout decision and should wait for a store to ask.
+
+## 11. Implementation research on multipacks (2026-09-21)
+
+Two more researchers looked at how others build the mechanics: receiving stock by the case, and how a pack line behaves
+once sold. V = read at the source (Odoo, ERPNext and Frappe code was read through summaries of the raw files), I =
+inferred. **Gaps:** UTAK documents nothing readable on either; ERPNext's Repack docs timed out; Revel returned 401; DTI DAO 09
+could not be fetched; how UTAK, StoreHub PH and Loyverse-in-PH print pack sales is not documented.
+
+**Receiving by the case (V).** "Receive in cases, keep stock in units, unit cost = case cost / pack size" is the **dominant,
+conventional design**: ERPNext (`conversion_factor` copied onto each receipt row, `valuation_rate = amount / (qty x factor)`),
+Odoo (`product.packaging` with a contained quantity and a barcode; scanning it adds its units; the PO line carries the
+packaging), Toast Retail (receiving unit with a quantity per unit, per-unit cost calculated), Katana and Clover Sport. Lightspeed
+X and R, Loyverse and StoreHub instead receive a separate case item and then **break** it into units (recorded as a queued
+breakdown, or a disassembly document), and Lightspeed's breakdown "cannot be undone". Square cannot receive a case at all unless
+it is the primary unit. **Our design keeps the piece as the only stock unit, so there is nothing to break and Square's limit
+does not apply.** Odoo's packaging record (a quantity plus a barcode) is the closest precedent to a `pack_quantity` on the
+barcode row; no source stores the pack size on a barcode row *for receiving* other than that. Cost after receiving is a rolling
+average or FIFO per **unit**, never per case (Lightspeed R, StoreHub, Square, Shopify).
+
+**Pitfalls the sources warn about (V, user reports and bug trackers).**
+- **Rounding.** A Square user's $65.43 box divided by 20 drifts a cent per unit and accumulates; an Odoo user's EUR 14.26 for
+  8 L needed 0.7825 per litre but the order showed 0.7800; StoreHub composite quantities stop at 3 decimals.
+  **Our ledger is worse off: `stock_movements.unit_cost` and the receipt request are exactly two decimals (`NUMERIC(12,2)`,
+  regex `\d{1,10}\.\d{2}`), so a case cost of 1153.92 for 240 units, which is 4.808, would be stored as 4.81 and 240 x 4.81 is
+  1154.40, not 1153.92.** Store what was received (the case count, the pack size and the case total) beside the rounded unit
+  cost, and do not treat the rounded figure as the truth.
+- **A pack size that changes.** ERPNext copies the factor onto every receipt row so old receipts stay right; two of its bugs
+  (#26789, #10889) are what happens otherwise. Snapshot the pack quantity on each receipt.
+- **Several suppliers with different case sizes for one product.** Only Odoo models it (a per-supplier unit). Giving each
+  barcode row its own pack quantity, and letting the user choose the row when receiving, covers it.
+
+**After a pack is sold (V unless marked).** Three models coexist: a separate pack item or kit (Loyverse, OSPOS), a pack as a
+unit of measure with its own row or variation (ERPNext, Square), and **a pack code that multiplies the quantity onto the base
+line (Odoo POS), which is our design**. Refunds in Odoo, Lightspeed and Square reference the original line, count in its unit
+and are capped at sold minus already refunded; none warns about part-pack returns. Counting in packs is a **display
+conversion** (Square converts to the stock unit; ERPNext counts in the stock unit only). ERPNext's documented row-merge bugs
+arise only when units are **mixed** on one line; a base-unit-only design always merges. RR 7-2024 requires "quantity, unit
+cost and description" (V, from a copy of the full text); whether quantity means packs or pieces is not stated, so "6 x P10.00"
+satisfies it (I). RA 7394 Art. 82 requires the price "per unit"; which unit is not stated.
+
+**Barcode collisions.** GS1 (V) says a multipack symbol "should be the only visible symbol" and that a change of pack quantity
+needs a new GTIN, so a manufacturer should never reuse one code for a case and a single. The POS documentation I found is
+silent on a case code that equals a single code and on a shop label placed over a manufacturer's pack code. Our uniqueness
+rule cannot represent one code with two multipliers and would reject the second, which is the safe answer.
+
+| Edge case | Our proposed design |
+|---|---|
+| Part-pack refund | Handled: refunds are per original line in units and capped |
+| Receipt "6 x P10.00" | Handled; meets RR 7-2024 (I). An optional "(1 pack)" note is a choice, not a requirement |
+| Counting packs | Handled with units as the ledger; entering packs is only a UI multiplier |
+| Merging lines | Handled: everything is base units, so lines merge. The cashier cannot tell one pack scan from six single scans (I) |
+| Case code equal to a single code | Rejected by the per-store uniqueness rule |
+| Unit cost from a case cost | **Needs care:** two-decimal `unit_cost`; record cases, pack size and case total beside it |
+
+**The proposal, now better supported (not built; needs the owner's yes).** Add `pack_quantity` (default 1, greater than zero)
+to `product_barcodes`, a forward migration, and accept and return it on the alternate-barcode operations (additive). It is used
+first for **receiving**: the Receive stock panel lets you scan or pick a pack barcode, enter the number of cases and the case
+cost, and sends the **existing** fields (`quantity` in units, a rounded `unit_cost`, and a `note` such as "5 cases of 24 at
+P1,153.92") to `inventoryReceiptCreate`, so **the receipt operation and the ledger need no change**. Selling by the pack
+(a scan adding `pack_quantity` units at the unit price, through an additive field on the scan lookup and the POS screen)
+touches no frozen server code either, but should be switched on only for shops whose packs really sell at N times the unit
+price (section 10). What this still cannot do is a pack **price** different from N x unit, or a unit cost finer than a
+centavo; both need a frozen-ledger or frozen-checkout decision.

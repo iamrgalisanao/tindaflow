@@ -161,3 +161,43 @@ Inventory sidebar gains **Counts** and **Transfers**.
 Transfers between stores; an in-transit or receive step; editing or cancelling a transfer; reversing a posted count;
 blind counts; count CSV import or export; choosing a location for receipts, adjustments or checkout; purchase orders;
 alternate-barcode management (still on the backlog).
+
+## 11. Research on the checkout deadlock (2026-09-20)
+
+Read from PostgreSQL 17's documentation, the source of eight open-source systems and your installed Laravel 13.32; V means
+read at the source, I means inferred.
+
+- **PostgreSQL (V).** "The best defense against deadlocks is generally to avoid them by being certain that all applications
+  using a database acquire locks on multiple objects in a consistent order", with two transactions updating the same two rows
+  in opposite order as the worked example; and "deadlocks can be handled on-the-fly by retrying transactions that abort due to
+  deadlocks" (SQLSTATE `40P01`). Which transaction is aborted "should not be relied upon". `INSERT ... ON CONFLICT DO UPDATE`
+  row-locks what it updates until the transaction ends, and the page says nothing about multi-row order.
+- **Who orders their stock writes (V).** Saleor (`order_by("pk")` with `select_for_update`), WooCommerce stock holds
+  (`ksort` before reserving, commented as avoiding "cross-product ordering deadlocks from concurrent orders with same products
+  added in different sequences"), and ERPNext (`sorted({(item_code, warehouse)})` before taking locks). Odoo retries instead:
+  `DeadlockDetected` is in its retry list, up to 5 tries with jittered backoff; Frappe maps a deadlock to HTTP 508.
+- **Who does neither (V).** OSPOS runs `quantity = quantity + delta` per cart line in cart order inside one transaction, which
+  is exactly our checkout and is exposed to the same cycle (no OSPOS report found); Bagisto and Medusa also do not order or
+  retry. Magento MSI avoids the shared row altogether with append-only reservations, and Shopify's inventory write-up uses one
+  row per unit with `SKIP LOCKED`; both are throughput solutions we do not need at a till (I).
+- **No system returns 409 for a deadlock (not found).** They hide it with a retry or fail it loudly. A 409 is our own choice.
+- **Laravel (V).** `DB::transaction($callback, $attempts)` retries a deadlock only when asked (default 1 attempt, so a
+  `QueryException`, which is our 500). Detection of `40P01` is by error-message text, not by code (I: a server with a
+  non-English `lc_messages` might be missed), and **a nested transaction never retries**, so a retry must sit at the
+  outermost boundary.
+- **Here (V, read from our code).** `DatabaseExceptionTranslator` (Stage 6A, frozen) maps only unique, foreign-key and check
+  violations to `409 CONCURRENCY_CONFLICT`; a `40P01` falls through and surfaces as a 500. That class is not wired into any
+  service today (only its own test uses it).
+
+**Options, from the evidence.** (1) **No frozen file touched:** render a deadlock (`40P01`, and `40001`) as the existing
+`409 CONCURRENCY_CONFLICT` in `bootstrap/app.php`'s exception handler (edited forward before, e.g. stage 23) and have the POS
+retry once with the same `Idempotency-Key`, which is already safe; this removes the 500 at the till but not the cycle.
+(2) **Removes the cycle, edits frozen `app/Services/Checkout/`:** sort checkout's stock writes by `(location_id, product_id)`,
+which has direct precedent in Saleor, WooCommerce and ERPNext and matches what the count and transfer services already do.
+(3) **Also needs a frozen edit** (`app/Services/Idempotency/`, stage 6a): a bounded retry of the whole checkout transaction at
+its outermost boundary, as Odoo does. Mature systems that handle this use ordering plus retry; none rely on the database's
+detection alone by design. My recommendation is (1) now and (2) once you approve a recorded exception for the frozen path.
+
+**Update (2026-09-21):** option 1 was built in stage 27 (`docs/06-backend/stage-27-deadlock-handling.md`); options 2 and 3 still need your approval of an exception for the frozen path.
+
+**Update (2026-09-21, stage 28):** option 2 was built as a documented concurrency invariant (all stock writers, one shared ordering) under an owner-approved exception to the frozen checkout folder. **Correction:** the section 7 claim that two concurrent sales with the same products in opposite order can deadlock was overstated. Checkout holds the invoice series row lock from numbering to commit, before it writes stock, so checkouts that share a series run one at a time and cannot deadlock on stock rows; a control test confirmed it. The cycle needs checkouts on different series, or a checkout against a count, transfer, void or refund. See `docs/06-backend/stage-28-stock-write-ordering.md`.

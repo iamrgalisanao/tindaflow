@@ -93,27 +93,25 @@ final class StockTransferService
 
             StockTransferLine::create(['stock_transfer_id' => $transfer->id, 'product_id' => $product->id, 'quantity' => $quantity]);
 
-            $legs[] = ['TRANSFER_OUT', $payload['from_location_id'], $product->id, $quantity];
-            $legs[] = ['TRANSFER_IN', $payload['to_location_id'], $product->id, $quantity];
+            foreach ([['TRANSFER_OUT', $payload['from_location_id']], ['TRANSFER_IN', $payload['to_location_id']]] as [$type, $locationId]) {
+                $legs[] = [
+                    'product_id' => $product->id,
+                    'location_id' => $locationId,
+                    'terminal_id' => $terminal->id,
+                    'movement_type' => $type,
+                    'quantity' => $quantity,
+                    'reference_type' => 'stock_transfer',
+                    'reference_id' => $transfer->id,
+                    'reason' => $note,
+                    'created_by' => $actor->id,
+                ];
+            }
             $summary[] = ['product_id' => $product->id, 'sku' => $product->sku, 'quantity' => $quantity];
         }
 
-        // Every balance row is updated in one fixed (location, product) order, whatever order the request listed
-        // them in, so two transfers moving the same products in opposite directions cannot deadlock each other.
-        usort($legs, fn (array $a, array $b) => [$a[1], $a[2]] <=> [$b[1], $b[2]]);
-        foreach ($legs as [$type, $locationId, $productId, $quantity]) {
-            $this->stockLedger->record([
-                'product_id' => $productId,
-                'location_id' => $locationId,
-                'terminal_id' => $terminal->id,
-                'movement_type' => $type,
-                'quantity' => $quantity,
-                'reference_type' => 'stock_transfer',
-                'reference_id' => $transfer->id,
-                'reason' => $note,
-                'created_by' => $actor->id,
-            ]);
-        }
+        // All legs in one call: the ledger writes them in the canonical stock order (stage 28), whatever order the
+        // request listed them in, so two transfers moving the same products in opposite directions cannot deadlock.
+        $this->stockLedger->recordMany($legs);
 
         AuditEvent::create([
             'store_id' => $terminal->store_id,

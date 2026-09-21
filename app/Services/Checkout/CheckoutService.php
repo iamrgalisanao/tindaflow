@@ -348,19 +348,24 @@ final class CheckoutService
         // all against the resolved default location. Written through the
         // StockLedger so stock_balances moves in the same transaction
         // (invariant #44); it was previously left untouched by sales.
-        foreach ($saleItems as $saleItem) {
-            $this->stockLedger->record([
-                'product_id' => $saleItem->product_id,
-                'location_id' => $locationId,
-                'terminal_id' => $terminalId,
-                'movement_type' => 'SALE',
-                'quantity' => (string) $saleItem->quantity,
-                'reference_type' => 'sale_item',
-                'reference_id' => $saleItem->id,
-                'unit_cost' => $saleItem->unit_cost_snapshot,
-                'created_by' => $cashierId,
-            ]);
-        }
+        //
+        // Stage 28 (owner-approved exception to this frozen file): all of the sale's movements go to the ledger in ONE
+        // call, which writes them in the canonical stock order (location, then product) instead of the order the
+        // cashier scanned. Each write holds its balance row's lock until commit, so two transactions that took the same
+        // two rows in opposite orders would deadlock; PostgreSQL's own advice is to acquire locks in a consistent
+        // order. The movements themselves are unchanged: still one per sale line.
+        // docs/06-backend/stage-28-stock-write-ordering.md.
+        $this->stockLedger->recordMany($saleItems->map(fn ($saleItem) => [
+            'product_id' => $saleItem->product_id,
+            'location_id' => $locationId,
+            'terminal_id' => $terminalId,
+            'movement_type' => 'SALE',
+            'quantity' => (string) $saleItem->quantity,
+            'reference_type' => 'sale_item',
+            'reference_id' => $saleItem->id,
+            'unit_cost' => $saleItem->unit_cost_snapshot,
+            'created_by' => $cashierId,
+        ])->all());
 
         // ADR-003 step 8: audit_event + electronic_journal_entry (ADR-005:
         // synchronous, same transaction, never queued).

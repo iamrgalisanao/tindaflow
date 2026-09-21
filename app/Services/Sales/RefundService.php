@@ -319,6 +319,7 @@ final class RefundService
             'shift_id' => $context['shift']->id,
         ]);
 
+        $returns = [];
         foreach ($lines as $line) {
             $refundItem = RefundItem::create([
                 'refund_id' => $refund->id,
@@ -330,7 +331,7 @@ final class RefundService
 
             // Invariant #30: only RETURN_TO_STOCK puts the unit back on the shelf.
             if ($line['disposition'] === 'RETURN_TO_STOCK') {
-                $this->stockLedger->record([
+                $returns[] = [
                     'product_id' => $line['item']->product_id,
                     'location_id' => $this->returnLocator->forSaleItem($line['item'], $sale),
                     'terminal_id' => $terminal->id,
@@ -340,9 +341,11 @@ final class RefundService
                     'reference_id' => $refundItem->id,
                     'unit_cost' => $line['item']->unit_cost_snapshot,
                     'created_by' => $approver->id,
-                ]);
+                ];
             }
         }
+        // One call, so the ledger writes the returns in the canonical stock order (stage 28), not line order.
+        $this->stockLedger->recordMany($returns);
 
         foreach ($settlements as $settlement) {
             RefundSettlement::create([

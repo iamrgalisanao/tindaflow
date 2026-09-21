@@ -49,6 +49,46 @@ final class StockLedger
     }
 
     /**
+     * Records several movements in the CANONICAL STOCK ORDER: by `location_id`, then `product_id`, then the order they
+     * were given (so two movements of the same product keep their relative order). Returns the movements in the order
+     * they were GIVEN, whatever order they were written in.
+     *
+     * This is the concurrency invariant for stock (docs/06-backend/stage-28-stock-write-ordering.md): every
+     * transaction that writes more than one stock balance row must write them in this order. Each write locks its
+     * (product, location) balance row until the transaction ends, so two transactions that take the same two rows in
+     * opposite orders deadlock and PostgreSQL aborts one. PostgreSQL's own advice is to acquire locks on multiple
+     * objects in a consistent order; retrying a deadlock (the stage 27 409) is only the fallback. Callers hand over ALL
+     * of a transaction's movements in one call; a caller that loops over `record()` in its own order breaks the invariant.
+     *
+     * Movements are not merged, because each one belongs to one sale line, refund line or count line (a void or refund
+     * restores exactly what that line took); movements of the same row sit next to each other after sorting, so the row
+     * is locked once and the later writes reuse the lock.
+     *
+     * @param  list<array{product_id: string, location_id: string, terminal_id?: ?string, movement_type: string, quantity: string, reference_type?: ?string, reference_id?: ?string, reason?: ?string, unit_cost?: ?string, created_by: string}>  $movements
+     * @return list<StockMovement>
+     */
+    public function recordMany(array $movements): array
+    {
+        $movements = array_values($movements);
+
+        $writeOrder = array_keys($movements);
+        usort($writeOrder, fn (int $a, int $b) => strcmp($movements[$a]['location_id'], $movements[$b]['location_id'])
+            ?: strcmp($movements[$a]['product_id'], $movements[$b]['product_id'])
+            ?: $a <=> $b);
+
+        $recorded = [];
+        foreach ($writeOrder as $index) {
+            $recorded[$index] = $this->record($movements[$index]);
+        }
+        ksort($recorded);
+
+        return array_values($recorded);
+    }
+
+    /**
+     * One movement. Fine on its own (one row cannot be part of a cycle), but a transaction that writes several
+     * movements must use {@see recordMany()} so they are written in the canonical order.
+     *
      * @param  array{product_id: string, location_id: string, terminal_id?: ?string, movement_type: string, quantity: string, reference_type?: ?string, reference_id?: ?string, reason?: ?string, unit_cost?: ?string, created_by: string}  $movement
      */
     public function record(array $movement): StockMovement

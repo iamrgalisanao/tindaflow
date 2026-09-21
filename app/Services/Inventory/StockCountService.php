@@ -169,7 +169,6 @@ final class StockCountService
     private function performPost(Terminal $terminal, User $actor, string $stockCountId): OperationOutcome
     {
         $count = $this->lockOpenCount($terminal->store_id, $stockCountId);
-        // Ordered by product so the balance rows are always updated in the same order (no deadlock with a transfer).
         $lines = StockCountLine::with('product')->where('stock_count_id', $count->id)->orderBy('product_id')->get();
 
         if ($lines->isEmpty()) {
@@ -198,21 +197,22 @@ final class StockCountService
             'request_id' => request()->attributes->get('request_id'),
         ]);
 
-        foreach ($adjusting as $line) {
-            $variance = $line->variance();
-            $isGain = bccomp($variance, '0', 3) > 0;
+        // All corrections in one call: the ledger writes them in the canonical stock order (stage 28).
+        $adjusting = $adjusting->values();
+        $movements = $this->stockLedger->recordMany($adjusting->map(fn (StockCountLine $line) => [
+            'product_id' => $line->product_id,
+            'location_id' => $count->location_id,
+            'terminal_id' => $terminal->id,
+            'movement_type' => bccomp($line->variance(), '0', 3) > 0 ? 'STOCK_ADJUSTMENT_IN' : 'STOCK_ADJUSTMENT_OUT',
+            'quantity' => ltrim($line->variance(), '-'),
+            'reference_type' => 'stock_count',
+            'reference_id' => $count->id,
+            'reason' => 'Stock count',
+            'created_by' => $actor->id,
+        ])->all());
 
-            $movement = $this->stockLedger->record([
-                'product_id' => $line->product_id,
-                'location_id' => $count->location_id,
-                'terminal_id' => $terminal->id,
-                'movement_type' => $isGain ? 'STOCK_ADJUSTMENT_IN' : 'STOCK_ADJUSTMENT_OUT',
-                'quantity' => ltrim($variance, '-'),
-                'reference_type' => 'stock_count',
-                'reference_id' => $count->id,
-                'reason' => 'Stock count',
-                'created_by' => $actor->id,
-            ]);
+        foreach ($adjusting as $position => $line) {
+            $movement = $movements[$position];
             $line->update(['stock_movement_id' => $movement->id]);
 
             ElectronicJournalEntry::create([

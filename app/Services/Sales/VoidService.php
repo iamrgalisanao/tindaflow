@@ -218,19 +218,18 @@ final class VoidService
     {
         $items = $sale->items()->orderBy('line_number')->get();
 
-        foreach ($items as $item) {
-            $this->stockLedger->record([
-                'product_id' => $item->product_id,
-                'location_id' => $this->returnLocator->forSaleItem($item, $sale),
-                'terminal_id' => $terminal->id,
-                'movement_type' => 'SALE_RETURN',
-                'quantity' => (string) $item->quantity,
-                'reference_type' => 'sale_item',
-                'reference_id' => $item->id,
-                'unit_cost' => $item->unit_cost_snapshot,
-                'created_by' => $approver->id,
-            ]);
-        }
+        // One call, so the ledger writes the returns in the canonical stock order (stage 28), not line order.
+        $this->stockLedger->recordMany($items->map(fn ($item) => [
+            'product_id' => $item->product_id,
+            'location_id' => $this->returnLocator->forSaleItem($item, $sale),
+            'terminal_id' => $terminal->id,
+            'movement_type' => 'SALE_RETURN',
+            'quantity' => (string) $item->quantity,
+            'reference_type' => 'sale_item',
+            'reference_id' => $item->id,
+            'unit_cost' => $item->unit_cost_snapshot,
+            'created_by' => $approver->id,
+        ])->all());
 
         $sale->update(['status' => 'VOIDED']);
 
