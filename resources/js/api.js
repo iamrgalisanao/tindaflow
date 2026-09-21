@@ -48,5 +48,20 @@ export async function apiFetch(path, options = {}) {
     const text = await response.text();
     const body = text ? JSON.parse(text) : null;
 
+    // The server answers 409 CONCURRENCY_CONFLICT when the database rolled a request back because it lost a race with
+    // another one (a deadlock), or when the same Idempotency-Key is still being processed. Nothing was saved, and a write
+    // that carries an Idempotency-Key is safe to send again -- it is applied once and a repeat returns the first result --
+    // so it is retried ONCE after a short, random pause. A request without a key is never retried on its own.
+    if (
+        response.status === 409 &&
+        body?.error?.code === 'CONCURRENCY_CONFLICT' &&
+        options.headers?.['Idempotency-Key'] !== undefined &&
+        !options.conflictRetried
+    ) {
+        await new Promise((resolve) => setTimeout(resolve, 250 + Math.random() * 350));
+
+        return apiFetch(path, { ...options, conflictRetried: true });
+    }
+
     return { ok: response.ok, status: response.status, body };
 }

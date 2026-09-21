@@ -3,11 +3,15 @@
 use App\Domain\Exceptions\DomainException;
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\SecurityHeaders;
+use App\Services\Database\ConcurrencyFailure;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\DeadlockException;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
@@ -42,6 +46,33 @@ return Application::configure(basePath: dirname(__DIR__))
             $envelope['error']['request_id'] = $request->attributes->get('request_id');
 
             return response()->json($envelope, $e->httpStatus());
+        });
+
+        // A deadlock or serialization failure means PostgreSQL rolled the transaction back because it lost a race with
+        // another request, not because this request was wrong. Left alone it is a 500; it is the existing retryable
+        // CONCURRENCY_CONFLICT instead, and every write that matters carries an Idempotency-Key, so the client can
+        // simply send it again. Nothing from the driver (SQL, bindings, the message) reaches the response; the
+        // log keeps it. Any other database error still falls through to the framework's 500.
+        // docs/06-backend/stage-27-deadlock-handling.md.
+        $exceptions->render(function (QueryException|DeadlockException $e, Request $request) {
+            if (! ConcurrencyFailure::caused($e)) {
+                return null;
+            }
+
+            Log::warning('A database operation lost a race (deadlock or serialization failure) and was returned as a retryable 409', [
+                'sql_state' => ConcurrencyFailure::sqlState($e),
+                'request_id' => $request->attributes->get('request_id'),
+                'path' => $request->path(),
+            ]);
+
+            return response()->json([
+                'error' => [
+                    'code' => 'CONCURRENCY_CONFLICT',
+                    'message' => 'Another request was updating the same records at the same moment. Nothing was saved, so it is safe to try again.',
+                    'details' => ['retryable' => true],
+                    'request_id' => $request->attributes->get('request_id'),
+                ],
+            ], 409, ['Retry-After' => '1']);
         });
 
         // No/invalid session, bad login credentials, inactive-at-login,
