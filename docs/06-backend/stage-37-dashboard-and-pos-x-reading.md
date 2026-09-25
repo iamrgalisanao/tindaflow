@@ -2,10 +2,16 @@
 
 ## Status
 
-**Done and tested**, frontend only. No API, contract, migration, PHP, or frozen file changed —
-`shiftXReadingCreate` has been a real, working backend operation since Stage 9; this stage only wires
-existing endpoints (`daily-sales-summary`, `voids`/`refunds` pending counts, `low-stock`, `x-readings`)
-into screens that had no UI for them yet.
+**Done and tested**, almost entirely frontend. No API or contract change — `shiftXReadingCreate` has been
+a real, working backend operation since Stage 9; this stage only wires existing endpoints
+(`daily-sales-summary`, `voids`/`refunds` pending counts, `low-stock`, `x-readings`) into screens that had
+no UI for them yet. One backend file is touched: `database/seeders/DemoDataSeeder.php`, a Stage-5-owned
+file, forward-fixed under the same **owner-approved exception to the Stage 5 freeze** that
+`AdminUserSeeder`'s password-output fix already established (2026-09-21) — a live seeder-bug correction,
+not a schema or migration change, so no reconstruction and no baseline tag moved;
+`scripts/validate-baselines.sh` holds. `docs/04-database/migration-plan.md`'s own `DemoDataSeeder`
+description (also Stage-5-owned) was updated to match, the same way that file's `AdminUserSeeder` entry
+already reads.
 
 ## 1. What changed
 
@@ -41,24 +47,29 @@ the existing `ConfirmDialog` component (reused from the catalog screens, not a n
 `useNavigate()`'s `navigate(to)` once the cashier confirms. An empty cart still navigates immediately, no
 dialog — the guard exists for something to lose, not for every click.
 
-**Demo-seeder store consolidation** (`DemoDataSeeder.php`). The demo cashier/terminal/products used to
-land in a second, separate "Demo Sari-Sari Store" instead of the one `AdminUserSeeder` creates. Since
-`ComposeAuthoritativeContext` requires `user.store_id == terminal.store_id`, that cashier could never
-actually use that terminal, and none of the demo products ever appeared on any screen the admin could
-reach — a genuinely unusable seed, not a deliberate second-store scenario (V1 is single-store; the app
-does not support a second one regardless). Fixed to resolve the same store `AdminUserSeeder` resolves
-(`env('TINDAFLOW_INITIAL_STORE_NAME', ...)`), and the cashier's `firstOrCreate` now keys on
-`[store_id, email]` together, matching the `users` table's own unique index, instead of `email` alone
-(which would have silently matched some other store's cashier and skipped creating this one).
+**Demo-seeder store consolidation** (`DemoDataSeeder.php`) — see §2 below for the full record; this is the
+one backend/frozen-corpus change in this otherwise-frontend stage.
 
-## 2. Verification
+## 2. The seeder fix, specifically
+
+`DemoDataSeeder`'s cashier/terminal/products landed in a second, separate "Demo Sari-Sari Store" instead
+of the one `AdminUserSeeder` creates. Since `ComposeAuthoritativeContext` requires
+`user.store_id == terminal.store_id`, that cashier could never actually use that terminal, and none of the
+demo products ever appeared on any screen the admin could reach — a genuinely unusable seed, not a
+deliberate second-store scenario (V1 is single-store; the app does not support a second one regardless).
+Fixed to resolve the same store `AdminUserSeeder` resolves (`env('TINDAFLOW_INITIAL_STORE_NAME', ...)`),
+and the cashier's `firstOrCreate` now keys on `[store_id, email]` together, matching the `users` table's
+own unique index, instead of `email` alone (which would have silently matched some other store's cashier
+and skipped creating this one).
+
+## 3. Verification
 
 Full regression: Unit+Feature 161, Database 668, Pint clean, frontend builds. No new backend behavior was
 introduced, so no new PHPUnit coverage was needed — `shiftXReadingCreate`'s authorization, cash-withholding,
 and response shape were already covered by Stage 9's own tests, and this stage sends the same request
 that coverage already exercises.
 
-## 3. Not built
+## 4. Not built
 
 A dedicated screen listing every X-reading a shift has taken with its full figures (the panel shows the
 latest one in full and earlier ones as a timestamp-only list, matching `shiftXReadingList`'s own existing
