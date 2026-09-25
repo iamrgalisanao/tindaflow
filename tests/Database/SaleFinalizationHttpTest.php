@@ -241,4 +241,43 @@ class SaleFinalizationHttpTest extends PostgresSchemaTestCase
         $response->assertStatus(403);
         $response->assertJson(['error' => ['code' => 'TERMINAL_NOT_ENROLLED']]);
     }
+
+    /** A CASHIER (the shift factory's default role) has no DISCOUNT_OVERRIDE; the HTTP layer renders the same 403 AUTHORIZATION_DENIED envelope CashMovementService's CASH_OUT check already uses. */
+    public function test_a_cashier_checkout_with_a_discount_is_rejected(): void
+    {
+        ['shift' => $shift, 'product' => $product, 'terminalCredential' => $terminalCredential] = $this->readyToCheckoutViaHttp();
+        $this->assertSame('CASHIER', $shift->cashier->role);
+        $cashierLogin = $this->login($shift->cashier);
+
+        $response = $this->forwardSessionCookie($cashierLogin)->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/sales', [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'order_level_discount_amount' => '10.00',
+                'payments' => [['method' => 'CASH', 'amount' => '90.00']],
+            ]);
+
+        $response->assertStatus(403);
+        $response->assertJson(['error' => ['code' => 'AUTHORIZATION_DENIED']]);
+        $this->assertSame(0, DB::table('sales')->count());
+    }
+
+    public function test_a_manager_checkout_with_a_discount_succeeds(): void
+    {
+        ['shift' => $shift, 'product' => $product, 'terminalCredential' => $terminalCredential] = $this->readyToCheckoutViaHttp();
+        $shift->cashier->update(['role' => 'MANAGER']);
+        $managerLogin = $this->login($shift->cashier);
+
+        $response = $this->forwardSessionCookie($managerLogin)->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/sales', [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'order_level_discount_amount' => '10.00',
+                'payments' => [['method' => 'CASH', 'amount' => '90.00']],
+            ]);
+
+        $response->assertStatus(201);
+        $response->assertJson(['grand_total' => '90.00']);
+        $this->assertSame(1, DB::table('audit_events')->where('event_type', 'DISCOUNT_APPLIED')->count());
+    }
 }

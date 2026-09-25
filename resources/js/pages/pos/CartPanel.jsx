@@ -1,12 +1,14 @@
-import { fromThousandths, lineCents, pesos, toThousandths } from './posMoney';
+import { fromThousandths, lineCents, pesos, toCents, toThousandths } from './posMoney';
 
 const STEP = 1000n; // one whole unit
 
 /**
  * The sale so far, with the price, the quantity and the line total of every line, and the total the cashier is about to
- * charge. Every figure is a preview computed in whole cents; the server recomputes the sale when it is finalised.
+ * charge. Every figure is a preview computed in whole cents; the server recomputes the sale (and the discount
+ * authorization check) when it is finalised. The discount row is shown only to a user holding DISCOUNT_OVERRIDE
+ * (CheckoutService rejects a non-zero discount from anyone else) -- a cashier who cannot use it is not shown it.
  */
-export default function CartPanel({ cart, totalCents, hasInvalidLine, onQuantity, onRemove, onCharge }) {
+export default function CartPanel({ cart, subtotalCents, discount, onDiscountChange, canDiscount, totalCents, hasInvalidLine, onQuantity, onRemove, onCharge }) {
     function step(line, direction) {
         const current = toThousandths(line.quantity) ?? STEP;
         const next = current + direction * STEP;
@@ -103,7 +105,40 @@ export default function CartPanel({ cart, totalCents, hasInvalidLine, onQuantity
                         A quantity is not valid. Use a number above zero, with up to 3 decimals.
                     </p>
                 )}
+                {canDiscount && (
+                    <div className="mb-2 flex items-center justify-between gap-3 rounded border border-slate-800 bg-slate-950 px-3 py-2">
+                        <label htmlFor="order_discount" className="font-mono text-[11px] font-bold uppercase tracking-widest text-amber-400">
+                            Discount
+                        </label>
+                        <div className="flex items-center gap-1">
+                            <span className="font-mono text-sm text-slate-400">-₱</span>
+                            <input
+                                id="order_discount"
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0.00"
+                                value={discount}
+                                onFocus={(event) => event.target.select()}
+                                onChange={(event) => onDiscountChange(event.target.value)}
+                                aria-label="Order discount amount"
+                                className="min-h-10 w-24 rounded border border-slate-700 bg-slate-900 px-2 text-right font-mono text-sm tabular-nums text-amber-300 focus:border-amber-500 focus:outline-none"
+                            />
+                        </div>
+                    </div>
+                )}
                 <div className="rounded-lg bg-slate-950 p-3 ring-1 ring-slate-800">
+                    {(toCents(discount) ?? 0n) > 0n && (
+                        <div className="mb-1 flex items-center justify-between gap-3 text-xs text-slate-400">
+                            <span>Subtotal</span>
+                            <span className="font-mono tabular-nums">₱{pesos(subtotalCents)}</span>
+                        </div>
+                    )}
+                    {(toCents(discount) ?? 0n) > 0n && (
+                        <div className="mb-2 flex items-center justify-between gap-3 text-xs text-amber-400">
+                            <span>Discount</span>
+                            <span className="font-mono tabular-nums">-₱{pesos(subtotalCents - totalCents)}</span>
+                        </div>
+                    )}
                     <div className="flex items-center justify-between gap-3">
                         <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-slate-400">Total amount due</span>
                         <span aria-label="Total to charge" className="rounded-md bg-slate-900 px-3 py-1 font-mono text-3xl font-bold tabular-nums text-emerald-400">

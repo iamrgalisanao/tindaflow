@@ -101,6 +101,10 @@ class SaleRefundHttpTest extends PostgresSchemaTestCase
     public function test_partial_refunds_of_a_discounted_line_add_up_to_exactly_the_line_and_complete_the_sale(): void
     {
         $w = $this->world();
+        // A line discount needs DISCOUNT_OVERRIDE, which a plain CASHIER does not hold; T2 (the manager's
+        // own terminal) has no fiscal installation in this scenario, so the cashier's own T1 is kept and
+        // just promoted for this one call -- nothing below depends on the cashier's role.
+        $w['cashier']->update(['role' => 'MANAGER']);
         $response = $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
             'items' => [['product_id' => $w['product2']->id, 'quantity' => '3', 'line_discount_amount' => '0.01']],
             'payments' => [['method' => 'CASH', 'amount' => '149.99']],

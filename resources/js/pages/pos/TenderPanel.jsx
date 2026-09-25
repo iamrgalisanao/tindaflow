@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { lineCents, moneyText, pesos, toCents } from './posMoney';
 
 const METHOD_LABELS = { CASH: 'Cash', GCASH: 'GCash', MAYA: 'Maya', CARD: 'Card', OTHER: 'Other' };
@@ -5,19 +6,43 @@ const QUICK_CASH = [20, 50, 100, 200, 500, 1000];
 const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '00', '.'];
 
 /**
- * The payment step: what is being charged, how it is being paid, and, for cash, the amount handed over with the change
- * or the balance still owed. All figures are a preview in whole cents; the server checks the payment and works out the
- * change when the sale is finalised. Only cash is entered as an amount; any other method is charged the exact total.
+ * The payment step: what is being charged, how it is being paid, and the change or the balance still owed. All figures
+ * are a preview in whole cents; the server checks each payment and works out the change when the sale is finalised.
+ *
+ * `payments` is a list of `{method, amount}` rows -- normally one, covering the whole total (the common case: switching
+ * method away from CASH fills the exact total automatically, matching the old single-payment flow exactly). "Split
+ * payment" adds a second row for a genuinely mixed tender (part cash, part GCash); each row keeps its own amount, and
+ * the keypad/method chips/quick-cash chips always act on whichever row is currently selected.
  */
-export default function TenderPanel({ cart, totalCents, methods, method, onMethod, amount, onAmount, busy, onBack, onComplete }) {
-    const isCash = method === 'CASH';
-    const tendered = isCash ? toCents(amount) : totalCents;
-    const enough = tendered !== null && tendered >= totalCents;
-    const difference = tendered === null ? null : tendered - totalCents;
+export default function TenderPanel({ cart, totalCents, methods, payments, onPayments, busy, onBack, onComplete }) {
+    const [activeIndex, setActiveIndex] = useState(0);
+    const active = payments[Math.min(activeIndex, payments.length - 1)] ?? payments[0];
+    const activeMethod = active?.method ?? 'CASH';
+
+    const rowCents = (row) => toCents(row.amount);
+    const tenderedCents = payments.reduce((sum, row) => sum + (rowCents(row) ?? 0n), 0n);
+    const everyRowValid = payments.every((row) => (rowCents(row) ?? 0n) > 0n);
+    const enough = everyRowValid && tenderedCents >= totalCents;
+    const difference = payments.some((row) => rowCents(row) === null) ? null : tenderedCents - totalCents;
+
+    function updateRow(index, patch) {
+        onPayments((prior) => prior.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    }
+
+    function setActiveAmount(updater) {
+        updateRow(activeIndex, { amount: typeof updater === 'function' ? updater(active.amount) : updater });
+    }
+
+    function setActiveMethod(method) {
+        // A single-row sale keeps the old behaviour exactly: any non-cash method is charged the whole total, no
+        // typing needed. Once there is more than one row, an amount must be entered -- the total is already split.
+        const amount = payments.length === 1 && method !== 'CASH' ? moneyText(totalCents) : active.amount;
+        updateRow(activeIndex, { method, amount });
+    }
 
     // Functional updates, so two quick taps each build on the one before rather than on a stale value.
     function press(key) {
-        onAmount((current) => {
+        setActiveAmount((current) => {
             if (key === '.') {
                 return current.includes('.') ? current : current === '' ? '0.' : `${current}.`;
             }
@@ -27,7 +52,19 @@ export default function TenderPanel({ cart, totalCents, methods, method, onMetho
     }
 
     function backspace() {
-        onAmount((current) => current.slice(0, -1));
+        setActiveAmount((current) => current.slice(0, -1));
+    }
+
+    function addPayment() {
+        const remaining = totalCents - tenderedCents;
+        const nextIndex = payments.length;
+        onPayments((prior) => [...prior, { method: 'CASH', amount: remaining > 0n ? moneyText(remaining) : '' }]);
+        setActiveIndex(nextIndex);
+    }
+
+    function removePayment(index) {
+        onPayments((prior) => prior.filter((_, i) => i !== index));
+        setActiveIndex((current) => (current >= index && current > 0 ? current - 1 : current));
     }
 
     return (
@@ -67,7 +104,46 @@ export default function TenderPanel({ cart, totalCents, methods, method, onMetho
             </section>
 
             <section aria-label="Payment" className="flex flex-col gap-3 rounded-lg border border-slate-700 bg-slate-900 p-4">
-                <h2 className="text-sm font-semibold text-slate-100">Payment</h2>
+                <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-slate-100">Payment</h2>
+                    {payments.length < methods.length && (
+                        <button type="button" onClick={addPayment} className="text-xs font-semibold text-emerald-400 underline hover:text-emerald-300">
+                            Split payment
+                        </button>
+                    )}
+                </div>
+
+                {payments.length > 1 && (
+                    <ul aria-label="Payment rows" className="space-y-1">
+                        {payments.map((row, index) => {
+                            const cents = rowCents(row);
+                            const isActive = index === activeIndex;
+                            return (
+                                <li key={index} className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveIndex(index)}
+                                        aria-pressed={isActive}
+                                        className={`flex min-h-11 flex-1 items-center justify-between rounded border px-3 text-sm ${
+                                            isActive ? 'border-emerald-500 bg-emerald-500/10' : 'border-slate-700 bg-slate-950 hover:bg-slate-800'
+                                        }`}
+                                    >
+                                        <span className="font-mono text-xs font-bold uppercase tracking-wide text-slate-300">{METHOD_LABELS[row.method] ?? row.method}</span>
+                                        <span className="font-mono tabular-nums text-slate-100">{cents === null ? '—' : `₱${pesos(cents)}`}</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => removePayment(index)}
+                                        aria-label={`Remove this ${METHOD_LABELS[row.method] ?? row.method} payment`}
+                                        className="min-h-11 min-w-11 rounded text-lg text-slate-400 hover:bg-red-500/10 hover:text-red-400"
+                                    >
+                                        &times;
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
 
                 <div role="radiogroup" aria-label="Payment method" className="grid grid-cols-5 gap-2">
                     {methods.map((option) => (
@@ -75,10 +151,10 @@ export default function TenderPanel({ cart, totalCents, methods, method, onMetho
                             key={option}
                             type="button"
                             role="radio"
-                            aria-checked={method === option}
-                            onClick={() => onMethod(option)}
+                            aria-checked={activeMethod === option}
+                            onClick={() => setActiveMethod(option)}
                             className={`min-h-12 rounded border text-xs font-bold uppercase tracking-wide ${
-                                method === option ? 'border-emerald-500 bg-emerald-500 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
+                                activeMethod === option ? 'border-emerald-500 bg-emerald-500 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
                             }`}
                         >
                             {METHOD_LABELS[option] ?? option}
@@ -86,85 +162,79 @@ export default function TenderPanel({ cart, totalCents, methods, method, onMetho
                     ))}
                 </div>
 
-                {isCash ? (
-                    <>
-                        <div>
-                            <label htmlFor="payment_amount" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-400">
-                                Amount tendered
-                            </label>
-                            <div className="flex items-center rounded border-2 border-slate-700 bg-slate-950 px-3 focus-within:border-emerald-500">
-                                <span className="font-mono text-2xl text-slate-400">₱</span>
-                                <input
-                                    id="payment_amount"
-                                    type="text"
-                                    inputMode="decimal"
-                                    autoFocus
-                                    autoComplete="off"
-                                    value={amount}
-                                    onFocus={(event) => event.target.select()}
-                                    onChange={(event) => onAmount(event.target.value)}
-                                    aria-invalid={tendered === null}
-                                    className="min-h-16 min-w-0 flex-1 bg-transparent px-2 text-right font-mono text-3xl font-bold tabular-nums focus:outline-none"
-                                />
-                            </div>
-                        </div>
+                <div>
+                    <label htmlFor="payment_amount" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        Amount {payments.length > 1 ? `tendered (${METHOD_LABELS[activeMethod] ?? activeMethod})` : 'tendered'}
+                    </label>
+                    <div className="flex items-center rounded border-2 border-slate-700 bg-slate-950 px-3 focus-within:border-emerald-500">
+                        <span className="font-mono text-2xl text-slate-400">₱</span>
+                        <input
+                            id="payment_amount"
+                            type="text"
+                            inputMode="decimal"
+                            autoFocus
+                            autoComplete="off"
+                            value={active?.amount ?? ''}
+                            onFocus={(event) => event.target.select()}
+                            onChange={(event) => setActiveAmount(event.target.value)}
+                            aria-invalid={rowCents(active ?? { amount: '' }) === null}
+                            className="min-h-16 min-w-0 flex-1 bg-transparent px-2 text-right font-mono text-3xl font-bold tabular-nums focus:outline-none"
+                        />
+                    </div>
+                </div>
 
-                        <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                {activeMethod === 'CASH' && (
+                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                        <button
+                            type="button"
+                            onClick={() => setActiveAmount(moneyText(totalCents - (tenderedCents - (rowCents(active) ?? 0n))))}
+                            className="col-span-4 min-h-12 rounded border border-emerald-500 bg-emerald-500/10 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 sm:col-span-1"
+                        >
+                            Exact
+                        </button>
+                        {QUICK_CASH.map((value) => (
                             <button
+                                key={value}
                                 type="button"
-                                onClick={() => onAmount(moneyText(totalCents))}
-                                className="col-span-4 min-h-12 rounded border border-emerald-500 bg-emerald-500/10 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 sm:col-span-1"
+                                onClick={() => setActiveAmount(`${value}.00`)}
+                                className="min-h-12 rounded border border-slate-700 bg-slate-800 font-mono text-sm font-bold tabular-nums hover:bg-slate-700"
                             >
-                                Exact
+                                ₱{value.toLocaleString('en-US')}
                             </button>
-                            {QUICK_CASH.map((value) => (
-                                <button
-                                    key={value}
-                                    type="button"
-                                    onClick={() => onAmount(`${value}.00`)}
-                                    className="min-h-12 rounded border border-slate-700 bg-slate-800 font-mono text-sm font-bold tabular-nums hover:bg-slate-700"
-                                >
-                                    ₱{value.toLocaleString('en-US')}
-                                </button>
-                            ))}
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-2">
-                            {KEYS.map((key) => (
-                                <button
-                                    key={key}
-                                    type="button"
-                                    onClick={() => press(key)}
-                                    className="min-h-14 rounded border border-slate-700 border-b-2 border-b-slate-950 bg-slate-800 font-mono text-xl font-bold hover:bg-slate-700 active:bg-slate-600"
-                                >
-                                    {key}
-                                </button>
-                            ))}
-                            <button
-                                type="button"
-                                onClick={backspace}
-                                aria-label="Delete the last digit"
-                                className="min-h-14 rounded border border-slate-700 border-b-2 border-b-slate-950 bg-slate-800 font-mono text-xl font-bold hover:bg-slate-700 active:bg-slate-600"
-                            >
-                                &#9003;
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => onAmount('')}
-                                className="col-span-2 min-h-14 rounded border border-slate-700 border-b-2 border-b-slate-950 bg-slate-800 text-sm font-bold uppercase tracking-wide text-slate-300 hover:bg-slate-700 active:bg-slate-600"
-                            >
-                                Clear
-                            </button>
-                        </div>
-                    </>
-                ) : (
-                    <p className="rounded bg-slate-950 px-3 py-4 text-sm text-slate-400">
-                        {METHOD_LABELS[method] ?? method} is charged the exact total, <span className="font-mono font-semibold">₱{pesos(totalCents)}</span>.
-                    </p>
+                        ))}
+                    </div>
                 )}
 
+                <div className="grid grid-cols-3 gap-2">
+                    {KEYS.map((key) => (
+                        <button
+                            key={key}
+                            type="button"
+                            onClick={() => press(key)}
+                            className="min-h-14 rounded border border-slate-700 border-b-2 border-b-slate-950 bg-slate-800 font-mono text-xl font-bold hover:bg-slate-700 active:bg-slate-600"
+                        >
+                            {key}
+                        </button>
+                    ))}
+                    <button
+                        type="button"
+                        onClick={backspace}
+                        aria-label="Delete the last digit"
+                        className="min-h-14 rounded border border-slate-700 border-b-2 border-b-slate-950 bg-slate-800 font-mono text-xl font-bold hover:bg-slate-700 active:bg-slate-600"
+                    >
+                        &#9003;
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveAmount('')}
+                        className="col-span-2 min-h-14 rounded border border-slate-700 border-b-2 border-b-slate-950 bg-slate-800 text-sm font-bold uppercase tracking-wide text-slate-300 hover:bg-slate-700 active:bg-slate-600"
+                    >
+                        Clear
+                    </button>
+                </div>
+
                 <div aria-live="polite" className="rounded border border-slate-700 px-3 py-2">
-                    {isCash && tendered === null && <p className="text-sm text-slate-400">Enter the amount handed over.</p>}
+                    {!everyRowValid && <p className="text-sm text-slate-400">Enter the amount for every payment.</p>}
                     {difference !== null && difference >= 0n && (
                         <div className="flex items-baseline justify-between text-emerald-400">
                             <span className="text-xs font-bold uppercase tracking-wider">{difference === 0n ? 'Exact amount' : 'Change due'}</span>

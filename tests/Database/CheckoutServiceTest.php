@@ -8,6 +8,7 @@ use App\Domain\Exceptions\InvalidPaymentTotalException;
 use App\Domain\Exceptions\InvoiceSeriesExhaustedException;
 use App\Domain\Exceptions\ShiftRequiredException;
 use App\Domain\Financial\FinancialCalculator;
+use App\Models\AuditEvent;
 use App\Models\FiscalInstallation;
 use App\Models\InventoryLocation;
 use App\Models\Invoice;
@@ -25,6 +26,7 @@ use App\Services\Idempotency\CanonicalRequestHasher;
 use App\Services\Idempotency\IdempotencyService;
 use App\Services\Inventory\StockLedger;
 use App\Services\InvoiceNumbering\InvoiceSeriesAllocator;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -434,6 +436,10 @@ class CheckoutServiceTest extends PostgresSchemaTestCase
     public function test_mixed_tax_and_discount_checkout_reconciles_exactly(): void
     {
         $shift = Shift::factory()->create();
+        // A non-zero order-level discount needs DISCOUNT_OVERRIDE, which a plain CASHIER (the factory
+        // default) does not hold -- see test_checkout_with_a_discount_requires_discount_override below
+        // for the negative case.
+        $shift->cashier->update(['role' => 'MANAGER']);
         $storeId = $shift->fiscalDay->store_id;
         $terminalId = $shift->terminal_id;
 
@@ -552,5 +558,91 @@ class CheckoutServiceTest extends PostgresSchemaTestCase
         $record = DB::table('idempotency_records')->where('terminal_id', $shift->terminal_id)->where('idempotency_key', $key)->sole();
         $this->assertSame('COMPLETED', $record->status);
         $this->assertSame($sale->id, $record->result_resource_id);
+    }
+
+    public function test_a_cashier_cannot_apply_an_order_level_discount(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+        $this->assertSame('CASHIER', $shift->cashier->role);
+
+        $this->expectException(AuthorizationException::class);
+
+        try {
+            $this->checkoutService->finalize(
+                $shift->terminal_id,
+                $shift->cashier_id,
+                (string) Str::uuid(),
+                [
+                    'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                    'order_level_discount_amount' => '10.00',
+                    'payments' => [['method' => 'CASH', 'amount' => '90.00']],
+                ]
+            );
+        } finally {
+            // Nothing committed -- the check runs, and the exception is thrown, before any row is written.
+            $this->assertSame(0, Sale::count());
+            $this->assertSame(0, DB::table('audit_events')->count());
+        }
+    }
+
+    public function test_a_cashier_cannot_apply_a_line_discount(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+
+        $this->expectException(AuthorizationException::class);
+
+        $this->checkoutService->finalize(
+            $shift->terminal_id,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1', 'line_discount_amount' => '5.00']],
+                'payments' => [['method' => 'CASH', 'amount' => '95.00']],
+            ]
+        );
+    }
+
+    public function test_a_manager_discount_checkout_writes_a_discount_applied_audit_event(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+        $shift->cashier->update(['role' => 'MANAGER']);
+
+        $sale = $this->checkoutService->finalize(
+            $shift->terminal_id,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'order_level_discount_amount' => '10.00',
+                'payments' => [['method' => 'CASH', 'amount' => '90.00']],
+            ]
+        );
+
+        $event = AuditEvent::where('event_type', 'DISCOUNT_APPLIED')->sole();
+        $this->assertSame($shift->cashier_id, $event->actor_user_id);
+        $this->assertSame('sale', $event->entity_type);
+        $this->assertSame($sale->id, $event->entity_id);
+        $this->assertSame($sale->id, $event->after_metadata['sale_id']);
+        $this->assertSame('10.00', $event->after_metadata['order_level_discount_amount']);
+        $this->assertSame('0.00', $event->after_metadata['line_discount_total']);
+        $this->assertSame('10.00', $event->after_metadata['discount_total']);
+    }
+
+    public function test_a_discount_free_checkout_writes_no_discount_applied_event(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+        $this->assertSame('CASHIER', $shift->cashier->role);
+
+        $this->checkoutService->finalize(
+            $shift->terminal_id,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'payments' => [['method' => 'CASH', 'amount' => '100.00']],
+            ]
+        );
+
+        $this->assertSame(0, AuditEvent::where('event_type', 'DISCOUNT_APPLIED')->count());
     }
 }

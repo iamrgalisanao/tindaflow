@@ -49,9 +49,9 @@ export default function Pos() {
     const searchRef = useRef(null);
     const [results, setResults] = useState(null); // null = no search yet (the product grid shows), otherwise the search results
     const [cart, setCart] = useState([]); // [{product, quantity}]
+    const [discount, setDiscount] = useState(''); // order-level discount, DISCOUNT_OVERRIDE only (CheckoutService rejects it otherwise)
 
-    const [paymentMethod, setPaymentMethod] = useState('CASH');
-    const [paymentAmount, setPaymentAmount] = useState('');
+    const [payments, setPayments] = useState([{ method: 'CASH', amount: '' }]); // [{method, amount}], split tender is 2+ rows
     const [checkoutBusy, setCheckoutBusy] = useState(false);
 
     const [sale, setSale] = useState(null);
@@ -194,11 +194,16 @@ export default function Pos() {
     }
 
     // Whole centavos, never floating point. A line whose quantity is half-typed counts as nothing and blocks Charge.
-    const totalCents = cart.reduce((sum, line) => sum + (lineCents(line.product.selling_price, line.quantity) ?? 0n), 0n);
+    const subtotalCents = cart.reduce((sum, line) => sum + (lineCents(line.product.selling_price, line.quantity) ?? 0n), 0n);
     const hasInvalidLine = cart.some((line) => lineCents(line.product.selling_price, line.quantity) === null);
+    const canDiscount = user.capabilities.includes('DISCOUNT_OVERRIDE');
+    // Clamped so the preview can never go negative; CheckoutService is the real authority either way.
+    const rawDiscountCents = canDiscount ? (toCents(discount) ?? 0n) : 0n;
+    const discountCents = rawDiscountCents > subtotalCents ? subtotalCents : rawDiscountCents;
+    const totalCents = subtotalCents - discountCents;
 
     function goToCheckout() {
-        setPaymentAmount(moneyText(totalCents));
+        setPayments([{ method: 'CASH', amount: moneyText(totalCents) }]);
         setError(null);
         setStep('checkout');
     }
@@ -213,8 +218,11 @@ export default function Pos() {
             headers: { 'Idempotency-Key': newIdempotencyKey() },
             body: {
                 items: cart.map((line) => ({ product_id: line.product.id, quantity: String(line.quantity) })),
-                // Cash is what was handed over; any other method is charged the exact total.
-                payments: [{ method: paymentMethod, amount: paymentMethod === 'CASH' ? moneyText(toCents(paymentAmount) ?? 0n) : moneyText(totalCents) }],
+                // A blank/zero row (shown while a split payment is still being entered) is never sent.
+                payments: payments
+                    .filter((payment) => (toCents(payment.amount) ?? 0n) > 0n)
+                    .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
+                ...(discountCents > 0n ? { order_level_discount_amount: moneyText(discountCents) } : {}),
             },
         });
 
@@ -260,6 +268,8 @@ export default function Pos() {
         setPrintError(null);
         setCopyKey(newIdempotencyKey());
         setCart([]);
+        setDiscount('');
+        setPayments([{ method: 'CASH', amount: '' }]);
         setResults(null);
         setSearch('');
         setSale(null);
@@ -458,6 +468,10 @@ export default function Pos() {
                     <div className="flex min-h-0 flex-col lg:order-1">
                         <CartPanel
                             cart={cart}
+                            subtotalCents={subtotalCents}
+                            discount={discount}
+                            onDiscountChange={setDiscount}
+                            canDiscount={canDiscount}
                             totalCents={totalCents}
                             hasInvalidLine={hasInvalidLine}
                             onQuantity={setQuantity}
@@ -473,10 +487,8 @@ export default function Pos() {
                     cart={cart}
                     totalCents={totalCents}
                     methods={PAYMENT_METHODS}
-                    method={paymentMethod}
-                    onMethod={setPaymentMethod}
-                    amount={paymentAmount}
-                    onAmount={setPaymentAmount}
+                    payments={payments}
+                    onPayments={setPayments}
                     busy={checkoutBusy}
                     onBack={() => setStep('cart')}
                     onComplete={completeSale}

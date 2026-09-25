@@ -23,6 +23,7 @@ use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\Terminal;
+use App\Models\User;
 use App\Services\Idempotency\CanonicalRequestHasher;
 use App\Services\Idempotency\IdempotencyOperationType;
 use App\Services\Idempotency\IdempotencyService;
@@ -33,6 +34,7 @@ use App\Support\GlobalLockOrder;
 use App\Support\LockableResource;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 /**
@@ -179,6 +181,17 @@ final class CheckoutService
 
         $orderLevelDiscountAmount = Money::fromApiString((string) ($payload['order_level_discount_amount'] ?? '0.00'));
         $calculation = $this->financialCalculator->calculateSale($lines, $orderLevelDiscountAmount, $taxRegistrationType);
+
+        // A discount -- line or order-level -- may only be applied by a user holding DISCOUNT_OVERRIDE
+        // (RoleCapabilityCatalog grants it to MANAGER/ADMIN only, never CASHIER; openapi.yaml's own
+        // `override_reason` field description already says the capability check applies here). Mirrors
+        // CashMovementService's Gate::forUser() pattern for CASH_OUT: the acting cashier must personally
+        // hold the capability, there is no separate "manager PIN" mechanism in this contract to authorize
+        // on someone else's behalf. Checked against the server-computed total, never the client's raw
+        // request fields, so a client cannot dodge the check by lying about which line produced it.
+        if (! $calculation->discountTotal->isZero()) {
+            Gate::forUser(User::findOrFail($cashierId))->authorize('DISCOUNT_OVERRIDE');
+        }
 
         // Server-authoritative payment sufficiency (invariant #8).
         $totalPayments = Money::zero();
@@ -388,6 +401,28 @@ final class CheckoutService
             'audit_event_id' => $auditEvent->id,
             'payload_json' => $invoiceSnapshot,
         ]);
+
+        // domain-model.md SS2.10's reserved DISCOUNT_APPLIED type, written once per sale (not per line) --
+        // the DISCOUNT_OVERRIDE check above already gated the write; this is its audit trail. A sale with
+        // no discount writes nothing here, matching ProductAuditor's "a save that changes nothing writes
+        // nothing" discipline.
+        if (! $calculation->discountTotal->isZero()) {
+            AuditEvent::create([
+                'store_id' => $storeId,
+                'event_type' => 'DISCOUNT_APPLIED',
+                'actor_user_id' => $cashierId,
+                'terminal_id' => $terminalId,
+                'entity_type' => 'sale',
+                'entity_id' => $sale->id,
+                'after_metadata' => [
+                    'sale_id' => $sale->id,
+                    'invoice_number' => $allocated->formattedNumber,
+                    'line_discount_total' => $calculation->discountTotal->subtract($calculation->orderLevelDiscountAmount)->toApiString(),
+                    'order_level_discount_amount' => $calculation->orderLevelDiscountAmount->toApiString(),
+                    'discount_total' => $calculation->discountTotal->toApiString(),
+                ],
+            ]);
+        }
 
         // ADR-003 step 9 (commit) happens implicitly when
         // IdempotencyService::execute()'s enclosing transaction commits.

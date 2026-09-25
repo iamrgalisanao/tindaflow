@@ -4,6 +4,7 @@ import { MOVEMENT_TYPES } from '../inventory/inventoryParts';
 /** Audit events the application writes, in the order a person would look for them. */
 export const AUDIT_TYPES = [
     { id: 'SALE_FINALIZED', label: 'Sale finalized' },
+    { id: 'DISCOUNT_APPLIED', label: 'Discount applied' },
     { id: 'INVOICE_REPRINTED', label: 'Invoice reprinted' },
     { id: 'SETTINGS_CHANGED', label: 'Business details changed' },
     { id: 'PRODUCT_CREATED', label: 'Product created' },
@@ -115,6 +116,8 @@ export function describeAudit(event) {
     switch (event.event_type) {
         case 'SALE_FINALIZED':
             return `Sale finalized${after.invoice_number ? `, invoice ${after.invoice_number}` : ''}`;
+        case 'DISCOUNT_APPLIED':
+            return `Discount of ${money(after.discount_total)} applied${after.invoice_number ? ` to invoice ${after.invoice_number}` : ''}`;
         case 'INVOICE_REPRINTED':
             return `Invoice ${after.invoice_number ?? '—'} reprinted; no new number was issued`;
         case 'SETTINGS_CHANGED':
