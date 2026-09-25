@@ -58,3 +58,14 @@ export function pesos(cents) {
 export function moneyText(cents) {
     return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
 }
+
+/** A discount amount, parsed and clamped to [0, maxCents] -- a blank/invalid box or a negative amount previews as no
+ * discount at all; a discount typed larger than what it is discounting from previews as the whole amount instead of
+ * a negative total. A display convenience only: the server recomputes and validates the real figure. */
+export function clampedDiscountCents(discountText, maxCents) {
+    const raw = toCents(discountText) ?? 0n;
+    if (raw <= 0n) {
+        return 0n;
+    }
+    return raw > maxCents ? maxCents : raw;
+}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { lineCents, moneyText, pesos, toCents } from './posMoney';
+import { clampedDiscountCents, lineCents, moneyText, pesos, toCents } from './posMoney';
 
 const METHOD_LABELS = { CASH: 'Cash', GCASH: 'GCash', MAYA: 'Maya', CARD: 'Card', OTHER: 'Other' };
 const QUICK_CASH = [20, 50, 100, 200, 500, 1000];
@@ -78,13 +78,16 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
                 </div>
                 <ul className="max-h-[50vh] divide-y divide-slate-800 overflow-y-auto">
                     {cart.map((line) => {
-                        const cents = lineCents(line.product.selling_price, line.quantity);
+                        const grossCents = lineCents(line.product.selling_price, line.quantity);
+                        const lineDiscountCents = grossCents === null ? 0n : clampedDiscountCents(line.discount, grossCents);
+                        const cents = grossCents === null ? null : grossCents - lineDiscountCents;
                         return (
                             <li key={line.product.id} className="flex items-start justify-between gap-3 px-4 py-3">
                                 <span className="min-w-0">
                                     <span className="block truncate text-sm font-medium text-slate-100">{line.product.name}</span>
                                     <span className="block font-mono text-xs text-slate-400">
                                         {line.quantity} &times; ₱{line.product.selling_price}
+                                        {lineDiscountCents > 0n && <span className="text-amber-400"> − ₱{pesos(lineDiscountCents)} discount</span>}
                                     </span>
                                 </span>
                                 <span className="font-mono text-sm font-semibold tabular-nums text-slate-100">{cents === null ? '—' : `₱${pesos(cents)}`}</span>

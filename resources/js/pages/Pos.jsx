@@ -8,7 +8,7 @@ import CatalogPanel from './pos/CatalogPanel';
 import PosHeader from './pos/PosHeader';
 import ShiftPanel from './pos/ShiftPanel';
 import TenderPanel from './pos/TenderPanel';
-import { fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
+import { clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 
 const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'];
 
@@ -181,7 +181,7 @@ export default function Pos() {
                     line.product.id === product.id ? { ...line, quantity: fromThousandths((toThousandths(line.quantity) ?? 0n) + 1000n) } : line,
                 );
             }
-            return [...prior, { product, quantity: '1' }];
+            return [...prior, { product, quantity: '1', discount: '' }];
         });
     }
 
@@ -189,18 +189,29 @@ export default function Pos() {
         setCart((prior) => prior.map((line) => (line.product.id === productId ? { ...line, quantity } : line)));
     }
 
+    function setLineDiscount(productId, discountText) {
+        setCart((prior) => prior.map((line) => (line.product.id === productId ? { ...line, discount: discountText } : line)));
+    }
+
     function removeFromCart(productId) {
         setCart((prior) => prior.filter((line) => line.product.id !== productId));
     }
 
-    // Whole centavos, never floating point. A line whose quantity is half-typed counts as nothing and blocks Charge.
-    const subtotalCents = cart.reduce((sum, line) => sum + (lineCents(line.product.selling_price, line.quantity) ?? 0n), 0n);
-    const hasInvalidLine = cart.some((line) => lineCents(line.product.selling_price, line.quantity) === null);
     const canDiscount = user.capabilities.includes('DISCOUNT_OVERRIDE');
-    // Clamped so the preview can never go negative; CheckoutService is the real authority either way.
-    const rawDiscountCents = canDiscount ? (toCents(discount) ?? 0n) : 0n;
-    const discountCents = rawDiscountCents > subtotalCents ? subtotalCents : rawDiscountCents;
-    const totalCents = subtotalCents - discountCents;
+    const hasInvalidLine = cart.some((line) => lineCents(line.product.selling_price, line.quantity) === null);
+
+    // Whole centavos, never floating point. A line whose quantity is half-typed counts as nothing and blocks Charge.
+    // "subtotalCents" is the raw pre-discount total (what CartPanel shows as "Subtotal"); each line's own discount
+    // is clamped against its own gross so it can never make a line negative, then the order-level discount is
+    // clamped against what is left. The sum a client sees here can only ever agree with, never exceed, what
+    // CheckoutService independently recomputes -- clamping less generously than the server would only be
+    // confusing, never unsafe.
+    const grossLineCents = cart.map((line) => lineCents(line.product.selling_price, line.quantity) ?? 0n);
+    const lineDiscountCentsByLine = cart.map((line, index) => (canDiscount ? clampedDiscountCents(line.discount, grossLineCents[index]) : 0n));
+    const subtotalCents = grossLineCents.reduce((sum, cents) => sum + cents, 0n);
+    const afterLineDiscountsCents = grossLineCents.reduce((sum, cents, index) => sum + cents - lineDiscountCentsByLine[index], 0n);
+    const orderDiscountCents = canDiscount ? clampedDiscountCents(discount, afterLineDiscountsCents) : 0n;
+    const totalCents = afterLineDiscountsCents - orderDiscountCents;
 
     function goToCheckout() {
         setPayments([{ method: 'CASH', amount: moneyText(totalCents) }]);
@@ -217,12 +228,16 @@ export default function Pos() {
             method: 'POST',
             headers: { 'Idempotency-Key': newIdempotencyKey() },
             body: {
-                items: cart.map((line) => ({ product_id: line.product.id, quantity: String(line.quantity) })),
+                items: cart.map((line, index) => ({
+                    product_id: line.product.id,
+                    quantity: String(line.quantity),
+                    ...(lineDiscountCentsByLine[index] > 0n ? { line_discount_amount: moneyText(lineDiscountCentsByLine[index]) } : {}),
+                })),
                 // A blank/zero row (shown while a split payment is still being entered) is never sent.
                 payments: payments
                     .filter((payment) => (toCents(payment.amount) ?? 0n) > 0n)
                     .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
-                ...(discountCents > 0n ? { order_level_discount_amount: moneyText(discountCents) } : {}),
+                ...(orderDiscountCents > 0n ? { order_level_discount_amount: moneyText(orderDiscountCents) } : {}),
             },
         });
 
@@ -471,6 +486,7 @@ export default function Pos() {
                             subtotalCents={subtotalCents}
                             discount={discount}
                             onDiscountChange={setDiscount}
+                            onLineDiscountChange={setLineDiscount}
                             canDiscount={canDiscount}
                             totalCents={totalCents}
                             hasInvalidLine={hasInvalidLine}

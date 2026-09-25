@@ -1,14 +1,27 @@
-import { fromThousandths, lineCents, pesos, toCents, toThousandths } from './posMoney';
+import { clampedDiscountCents, fromThousandths, lineCents, pesos, toThousandths } from './posMoney';
 
 const STEP = 1000n; // one whole unit
 
 /**
- * The sale so far, with the price, the quantity and the line total of every line, and the total the cashier is about to
- * charge. Every figure is a preview computed in whole cents; the server recomputes the sale (and the discount
- * authorization check) when it is finalised. The discount row is shown only to a user holding DISCOUNT_OVERRIDE
- * (CheckoutService rejects a non-zero discount from anyone else) -- a cashier who cannot use it is not shown it.
+ * The sale so far, with the price, the quantity, any per-line discount, and the line total of every line, plus the
+ * order-level discount and the total the cashier is about to charge. Every figure is a preview computed in whole
+ * cents; the server recomputes the sale (and the discount authorization check) when it is finalised. Both discount
+ * controls are shown only to a user holding DISCOUNT_OVERRIDE (CheckoutService rejects a non-zero discount, line or
+ * order-level, from anyone else) -- a cashier who cannot use them is not shown either.
  */
-export default function CartPanel({ cart, subtotalCents, discount, onDiscountChange, canDiscount, totalCents, hasInvalidLine, onQuantity, onRemove, onCharge }) {
+export default function CartPanel({
+    cart,
+    subtotalCents,
+    discount,
+    onDiscountChange,
+    onLineDiscountChange,
+    canDiscount,
+    totalCents,
+    hasInvalidLine,
+    onQuantity,
+    onRemove,
+    onCharge,
+}) {
     function step(line, direction) {
         const current = toThousandths(line.quantity) ?? STEP;
         const next = current + direction * STEP;
@@ -39,8 +52,10 @@ export default function CartPanel({ cart, subtotalCents, discount, onDiscountCha
                     </li>
                 )}
                 {cart.map((line) => {
-                    const cents = lineCents(line.product.selling_price, line.quantity);
-                    const invalid = cents === null;
+                    const grossCents = lineCents(line.product.selling_price, line.quantity);
+                    const invalid = grossCents === null;
+                    const lineDiscountCents = invalid || !canDiscount ? 0n : clampedDiscountCents(line.discount, grossCents);
+                    const cents = invalid ? null : grossCents - lineDiscountCents;
                     const unit = line.product.unit_of_measure ?? 'unit';
                     return (
                         <li key={line.product.id} className="flex items-center gap-3 px-4 py-3">
@@ -49,6 +64,24 @@ export default function CartPanel({ cart, subtotalCents, discount, onDiscountCha
                                 <p className="font-mono text-xs text-slate-400">
                                     @ ₱{line.product.selling_price} / {unit}
                                 </p>
+                                {canDiscount && (
+                                    <div className="mt-1 flex items-center gap-1">
+                                        <label htmlFor={`line_discount_${line.product.id}`} className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                                            -₱
+                                        </label>
+                                        <input
+                                            id={`line_discount_${line.product.id}`}
+                                            type="text"
+                                            inputMode="decimal"
+                                            placeholder="0.00"
+                                            value={line.discount ?? ''}
+                                            onFocus={(event) => event.target.select()}
+                                            onChange={(event) => onLineDiscountChange(line.product.id, event.target.value)}
+                                            aria-label={`Discount on ${line.product.name}`}
+                                            className="min-h-7 w-16 rounded border border-slate-700 bg-slate-950 px-1 text-right font-mono text-xs tabular-nums text-amber-300 focus:border-amber-500 focus:outline-none"
+                                        />
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex shrink-0 items-center">
@@ -127,13 +160,13 @@ export default function CartPanel({ cart, subtotalCents, discount, onDiscountCha
                     </div>
                 )}
                 <div className="rounded-lg bg-slate-950 p-3 ring-1 ring-slate-800">
-                    {(toCents(discount) ?? 0n) > 0n && (
+                    {subtotalCents > totalCents && (
                         <div className="mb-1 flex items-center justify-between gap-3 text-xs text-slate-400">
                             <span>Subtotal</span>
                             <span className="font-mono tabular-nums">₱{pesos(subtotalCents)}</span>
                         </div>
                     )}
-                    {(toCents(discount) ?? 0n) > 0n && (
+                    {subtotalCents > totalCents && (
                         <div className="mb-2 flex items-center justify-between gap-3 text-xs text-amber-400">
                             <span>Discount</span>
                             <span className="font-mono tabular-nums">-₱{pesos(subtotalCents - totalCents)}</span>
