@@ -19,9 +19,20 @@ function shiftSince(openedAt) {
  * three places the till has (Register, Payment, Shift) and the two ways out. Payment is not a place to jump to; it is
  * where the Charge button leads, and it is highlighted while a sale is being paid for.
  */
-export default function PosHeader({ terminalCode, operatorName, shift, showTabs, view, paying, onView }) {
+export default function PosHeader({ terminalCode, operatorName, shift, showTabs, view, paying, onView, onLeave }) {
     const since = shiftSince(shift?.opened_at);
     const active = paying ? 'payment' : view;
+
+    /**
+     * When the till has something to lose, the parent decides instead of the router: the click is
+     * cancelled and the destination handed over, so the cart survives until the cashier confirms.
+     */
+    function leave(event, to) {
+        if (onLeave) {
+            event.preventDefault();
+            onLeave(to);
+        }
+    }
 
     return (
         <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-800 bg-slate-900 px-4 py-2">
@@ -62,10 +73,10 @@ export default function PosHeader({ terminalCode, operatorName, shift, showTabs,
             )}
 
             <div className="flex items-center gap-1 text-sm">
-                <Link to="/admin/sales" className="flex min-h-11 items-center px-3 text-slate-400 underline">
+                <Link to="/admin/sales" onClick={(event) => leave(event, '/admin/sales')} className="flex min-h-11 items-center px-3 text-slate-400 underline">
                     Sales history
                 </Link>
-                <Link to="/" className="flex min-h-11 items-center px-3 text-slate-400 underline">
+                <Link to="/" onClick={(event) => leave(event, '/')} className="flex min-h-11 items-center px-3 text-slate-400 underline">
                     Dashboard
                 </Link>
             </div>

@@ -207,9 +207,11 @@ runbook that references it.
   if explicitly supplied) — never a fixed, source-committed credential.
   The password is printed once to console output and never persisted in
   plaintext anywhere.
-- [`DemoDataSeeder`](../../database/seeders/DemoDataSeeder.php) — a
-  demo store, one terminal, one cashier, and five representative
-  products, gated by `app()->environment('production')` (refuses to run
+- [`DemoDataSeeder`](../../database/seeders/DemoDataSeeder.php) — one
+  terminal, one cashier, and five representative products, seeded into
+  the same store `AdminUserSeeder` resolves (V1 is single-store, and a
+  separate demo store left its cashier unable to use any terminal the
+  admin enrolled), gated by `app()->environment('production')` (refuses to run
   in production even if invoked directly) and only invoked from
   `DatabaseSeeder` outside production in the first place — two
   independent layers of guard, not one.

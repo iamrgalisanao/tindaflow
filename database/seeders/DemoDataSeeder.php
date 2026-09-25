@@ -15,6 +15,14 @@ use Illuminate\Database\Seeder;
  * `fiscal_installations`/`tax_registrations` row at all -- a demo
  * store is deliberately left in the "no active tax registration" state
  * that invariant #54 already requires a real setup step for).
+ *
+ * The demo rows belong to the SAME store AdminUserSeeder creates, not a
+ * separate "Demo" one. A second store made the demo data unusable: its
+ * cashier could not work a terminal enrolled by the admin (
+ * ComposeAuthoritativeContext requires user.store_id == terminal.store_id),
+ * and none of the demo products appeared on any screen the admin could
+ * reach. V1 is single-store, so a second store is not a scenario the app
+ * supports anyway -- it was only ever an artifact of seeding.
  */
 class DemoDataSeeder extends Seeder
 {
@@ -26,11 +34,14 @@ class DemoDataSeeder extends Seeder
             return;
         }
 
-        $store = Store::firstOrCreate(['name' => 'Demo Sari-Sari Store']);
+        // Resolved exactly as AdminUserSeeder resolves it, so both seeders always land on one store.
+        $store = Store::firstOrCreate(['name' => env('TINDAFLOW_INITIAL_STORE_NAME', 'My Sari-Sari Store')]);
 
+        // Keyed on the users table's own unique index (store_id + email) -- email alone is not unique,
+        // so keying on it would silently match a user of some other store and skip creating this one.
         $cashier = User::firstOrCreate(
-            ['email' => 'cashier@demo.local'],
-            ['store_id' => $store->id, 'name' => 'Demo Cashier', 'password_hash' => bcrypt('password'), 'role' => 'CASHIER', 'active' => true]
+            ['store_id' => $store->id, 'email' => 'cashier@demo.local'],
+            ['name' => 'Demo Cashier', 'password_hash' => bcrypt('password'), 'role' => 'CASHIER', 'active' => true]
         );
 
         Terminal::firstOrCreate(
@@ -53,6 +64,6 @@ class DemoDataSeeder extends Seeder
                 ]
             ));
 
-        $this->command?->info("Seeded demo store '{$store->name}' with 1 terminal, 1 cashier, and 5 products.");
+        $this->command?->info("Seeded demo data into '{$store->name}': 1 terminal, 1 cashier, and 5 products.");
     }
 }

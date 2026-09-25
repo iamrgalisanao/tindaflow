@@ -5,7 +5,7 @@ import { pesos, toCents } from './posMoney';
  * closing the shift. It used to sit beside the cart on the selling screen, taking a quarter of it for something done a few
  * times a day.
  */
-export default function ShiftPanel({ shift, type, amount, reason, notice, busy, onType, onAmount, onReason, onRecord, onCloseShift }) {
+export default function ShiftPanel({ shift, type, amount, reason, notice, busy, onType, onAmount, onReason, onRecord, onCloseShift, children }) {
     const opening = toCents(shift?.opening_cash);
 
     return (
@@ -86,6 +86,8 @@ export default function ShiftPanel({ shift, type, amount, reason, notice, busy, 
                     Close shift
                 </button>
             </section>
+
+            {children}
         </div>
     );
 }
