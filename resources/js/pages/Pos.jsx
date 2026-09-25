@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { usePrintFrame } from '../lib/usePrintFrame';
+import { ConfirmDialog } from './admin/catalog/CatalogParts';
 import CartPanel from './pos/CartPanel';
 import CatalogPanel from './pos/CatalogPanel';
 import PosHeader from './pos/PosHeader';
 import ShiftPanel from './pos/ShiftPanel';
 import TenderPanel from './pos/TenderPanel';
+import XReadingPanel from './pos/XReadingPanel';
 import { clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 
 const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'];
@@ -34,6 +36,7 @@ function newIdempotencyKey() {
  */
 export default function Pos() {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [step, setStep] = useState('loading'); // loading | not-enrolled | open-shift | setup-incomplete | cart | checkout | receipt | close-shift | shift-closed | fiscal-day-closed
     const [error, setError] = useState(null);
     const [shift, setShift] = useState(null);
@@ -50,6 +53,17 @@ export default function Pos() {
     const [results, setResults] = useState(null); // null = no search yet (the product grid shows), otherwise the search results
     const [cart, setCart] = useState([]); // [{product, quantity}]
     const [discount, setDiscount] = useState(''); // order-level discount, DISCOUNT_OVERRIDE only (CheckoutService rejects it otherwise)
+
+    // sitemap.md's POS navigation rule: leaving /pos must never discard an in-progress cart silently.
+    // The cart lives in this component's state, so unmounting is what destroys it -- the confirmation
+    // has to happen before the route changes, not after. Holds the destination until the cashier decides.
+    const [pendingExit, setPendingExit] = useState(null);
+    // Senior Citizen (RA 9994) / PWD (RA 10754): 20% off the VAT-exclusive price, VAT exempt where the store
+    // charges VAT at all. Unlike the discount box above, any cashier can use this -- it is the customer's own
+    // legal entitlement, not a discretionary override -- but the exact amount is computed only by the server
+    // (the VAT decomposition it runs is not duplicated here), so the total shown before Complete sale stays the
+    // pre-discount figure: always enough to cover the real, lower charge, never a risk of under-tendering.
+    const [statutoryDiscount, setStatutoryDiscount] = useState({ enabled: false, type: 'SENIOR_CITIZEN', idNumber: '', name: '' });
 
     const [payments, setPayments] = useState([{ method: 'CASH', amount: '' }]); // [{method, amount}], split tender is 2+ rows
     const [checkoutBusy, setCheckoutBusy] = useState(false);
@@ -69,6 +83,13 @@ export default function Pos() {
     const [cashMovementReason, setCashMovementReason] = useState('');
     const [cashMovementBusy, setCashMovementBusy] = useState(false);
     const [cashMovementNotice, setCashMovementNotice] = useState(null);
+
+    // Interim readings for the open shift. The list is what the till has seen this session plus whatever
+    // was already on the shift; `latestXReading` is the one whose figures are on screen.
+    const [xReadings, setXReadings] = useState([]);
+    const [latestXReading, setLatestXReading] = useState(null);
+    const [xReadingBusy, setXReadingBusy] = useState(false);
+    const [xReadingError, setXReadingError] = useState(null);
 
     const [declaredCash, setDeclaredCash] = useState('');
     const [closeBusy, setCloseBusy] = useState(false);
@@ -112,6 +133,24 @@ export default function Pos() {
     useEffect(() => {
         checkShiftState();
     }, [checkShiftState]);
+
+    // Readings already taken on this shift (possibly on another browser). Session-only read, so it works
+    // even where the terminal credential does not; a failure just leaves the list empty rather than
+    // blocking the panel, since taking a new reading does not depend on it.
+    useEffect(() => {
+        if (view !== 'shift' || shift === null) {
+            return undefined;
+        }
+        let cancelled = false;
+        apiFetch(`/api/v1/shifts/${shift.id}/x-readings`).then(({ ok, body }) => {
+            if (!cancelled && ok) {
+                setXReadings(body);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [view, shift]);
 
     async function openShift(event) {
         event.preventDefault();
@@ -199,6 +238,7 @@ export default function Pos() {
 
     const canDiscount = user.capabilities.includes('DISCOUNT_OVERRIDE');
     const hasInvalidLine = cart.some((line) => lineCents(line.product.selling_price, line.quantity) === null);
+    const statutoryDiscountIncomplete = statutoryDiscount.enabled && (statutoryDiscount.idNumber.trim() === '' || statutoryDiscount.name.trim() === '');
 
     // Whole centavos, never floating point. A line whose quantity is half-typed counts as nothing and blocks Charge.
     // "subtotalCents" is the raw pre-discount total (what CartPanel shows as "Subtotal"); each line's own discount
@@ -238,6 +278,9 @@ export default function Pos() {
                     .filter((payment) => (toCents(payment.amount) ?? 0n) > 0n)
                     .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
                 ...(orderDiscountCents > 0n ? { order_level_discount_amount: moneyText(orderDiscountCents) } : {}),
+                ...(statutoryDiscount.enabled
+                    ? { statutory_discount: { type: statutoryDiscount.type, id_number: statutoryDiscount.idNumber.trim(), name: statutoryDiscount.name.trim() } }
+                    : {}),
             },
         });
 
@@ -284,6 +327,7 @@ export default function Pos() {
         setCopyKey(newIdempotencyKey());
         setCart([]);
         setDiscount('');
+        setStatutoryDiscount({ enabled: false, type: 'SENIOR_CITIZEN', idNumber: '', name: '' });
         setPayments([{ method: 'CASH', amount: '' }]);
         setResults(null);
         setSearch('');
@@ -312,6 +356,30 @@ export default function Pos() {
             setError(body?.error?.message ?? 'Could not record the cash movement.');
         }
         setCashMovementBusy(false);
+    }
+
+    /**
+     * Taking a reading writes a new audit record every time (no Idempotency-Key exists for this operation
+     * in the contract -- two readings a second apart are two legitimate readings, not a double submission),
+     * so the button is disabled while one is in flight rather than retried.
+     */
+    async function takeXReading() {
+        setXReadingBusy(true);
+        setXReadingError(null);
+
+        const { ok, body } = await apiFetch(`/api/v1/shifts/${shift.id}/x-readings`, { method: 'POST' });
+
+        if (ok) {
+            setLatestXReading(body);
+            setXReadings((prior) => [...prior, body]);
+        } else {
+            setXReadingError(
+                body?.error?.code === 'TERMINAL_NOT_ENROLLED'
+                    ? 'This browser is not enrolled as a terminal, so it cannot take a reading.'
+                    : (body?.error?.message ?? 'The reading could not be taken.'),
+            );
+        }
+        setXReadingBusy(false);
     }
 
     function goToCloseShift() {
@@ -417,7 +485,22 @@ export default function Pos() {
                 view={view}
                 paying={step === 'checkout'}
                 onView={setView}
+                onLeave={cart.length > 0 ? setPendingExit : undefined}
             />
+
+            {pendingExit !== null && (
+                <ConfirmDialog
+                    title="Leave the till with a sale in progress?"
+                    body={`${cart.length === 1 ? 'One item is' : `${cart.length} items are`} in the cart and nothing has been charged yet. Leaving clears the cart — the sale is not saved anywhere until you take payment.`}
+                    confirmLabel="Leave and clear the cart"
+                    onConfirm={() => {
+                        const destination = pendingExit;
+                        setPendingExit(null);
+                        navigate(destination);
+                    }}
+                    onCancel={() => setPendingExit(null)}
+                />
+            )}
 
             {error && <p className="mx-4 mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
 
@@ -459,7 +542,16 @@ export default function Pos() {
                     onReason={setCashMovementReason}
                     onRecord={recordCashMovement}
                     onCloseShift={goToCloseShift}
-                />
+                >
+                    <XReadingPanel
+                        readings={xReadings}
+                        latest={latestXReading}
+                        cashVisible={user.capabilities.includes('REPORT_VIEW')}
+                        busy={xReadingBusy}
+                        error={xReadingError}
+                        onTake={takeXReading}
+                    />
+                </ShiftPanel>
             )}
 
             {step === 'cart' && view === 'register' && (
@@ -488,6 +580,9 @@ export default function Pos() {
                             onDiscountChange={setDiscount}
                             onLineDiscountChange={setLineDiscount}
                             canDiscount={canDiscount}
+                            statutoryDiscount={statutoryDiscount}
+                            onStatutoryDiscountChange={setStatutoryDiscount}
+                            statutoryDiscountIncomplete={statutoryDiscountIncomplete}
                             totalCents={totalCents}
                             hasInvalidLine={hasInvalidLine}
                             onQuantity={setQuantity}

@@ -38,6 +38,14 @@ class SaleFinalizeRequest extends FormRequest
             'buyer_tin' => ['nullable', 'string'],
             'buyer_business_style' => ['nullable', 'string'],
             'client_expected_grand_total' => ['nullable', 'regex:/^-?\d+\.\d{2}$/'],
+            // Stage 36 (additive to this frozen request; see
+            // docs/06-backend/stage-36-statutory-discount.md): the RA 9994 (Senior Citizen) / RA 10754 (PWD)
+            // 20%-plus-VAT-exemption discount. Whichever law is invoked, the beneficiary must be named --
+            // CheckoutService computes the amount itself; a client never sends one.
+            'statutory_discount' => ['nullable', 'array'],
+            'statutory_discount.type' => ['required_with:statutory_discount', 'string', 'in:SENIOR_CITIZEN,PWD'],
+            'statutory_discount.id_number' => ['required_with:statutory_discount', 'string', 'max:50'],
+            'statutory_discount.name' => ['required_with:statutory_discount', 'string', 'max:150'],
         ];
     }
 }

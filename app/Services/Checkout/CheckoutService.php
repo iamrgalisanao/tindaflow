@@ -10,6 +10,7 @@ use App\Domain\Exceptions\ProductNotFoundException;
 use App\Domain\Exceptions\ShiftRequiredException;
 use App\Domain\Financial\FinancialCalculator;
 use App\Domain\Financial\SaleLineInput;
+use App\Domain\Financial\StatutoryDiscountCalculator;
 use App\Domain\Money;
 use App\Domain\Quantity;
 use App\Models\AuditEvent;
@@ -64,6 +65,7 @@ final class CheckoutService
         private readonly TaxRegistrationResolver $taxRegistrationResolver,
         private readonly InvoiceSeriesAllocator $invoiceSeriesAllocator,
         private readonly StockLedger $stockLedger,
+        private readonly StatutoryDiscountCalculator $statutoryDiscountCalculator = new StatutoryDiscountCalculator,
     ) {}
 
     /**
@@ -189,8 +191,58 @@ final class CheckoutService
         // hold the capability, there is no separate "manager PIN" mechanism in this contract to authorize
         // on someone else's behalf. Checked against the server-computed total, never the client's raw
         // request fields, so a client cannot dodge the check by lying about which line produced it.
+        //
+        // Deliberately checked against THIS pass -- manual discounts only, before any statutory discount
+        // below is added. A Senior Citizen/PWD discount is the customer's own legal entitlement (RA 9994/
+        // RA 10754), not a discretionary override a cashier is granted, so it is computed after this gate
+        // and never subject to it; see stage-36-statutory-discount.md's authorization design decision.
         if (! $calculation->discountTotal->isZero()) {
             Gate::forUser(User::findOrFail($cashierId))->authorize('DISCOUNT_OVERRIDE');
+        }
+
+        // Stage 36: RA 9994 (Senior Citizen) / RA 10754 (PWD) -- 20% off the VAT-exclusive price, VAT
+        // exempt where the store charges VAT at all. Computed from the pass above's own already-governed
+        // figures (taxableSales/vatAmount/vatExemptSales/zeroRatedSales/nonVatSales), never re-derived by
+        // hand -- see StatutoryDiscountCalculator. FinancialCalculator (ADR-012's sole authority for this
+        // arithmetic) is then called a second time, with the affected lines reclassified VAT_EXEMPT and
+        // the computed amount folded into the order-level discount, so the existing allocation/rounding/
+        // reconciliation machinery produces the final per-line figures -- never a second, parallel
+        // calculation path, and DISC-006 (sum of net_line_amount = grand_total) holds by the same
+        // construction it always does.
+        $discountBeneficiary = null;
+        if (isset($payload['statutory_discount'])) {
+            $statutoryDiscountAmount = $this->statutoryDiscountCalculator->computeDiscount(
+                $calculation->taxableSales,
+                $calculation->vatAmount,
+                $calculation->vatExemptSales->add($calculation->zeroRatedSales)->add($calculation->nonVatSales),
+            );
+
+            if ($taxRegistrationType === 'VAT') {
+                $lines = array_map(
+                    fn (SaleLineInput $line) => $line->taxClassification === 'VATABLE'
+                        ? new SaleLineInput(
+                            $line->lineNumber, $line->quantity, $line->unitPrice,
+                            $line->lineDiscountAmount, $line->orderDiscountEligible, 'VAT_EXEMPT',
+                        )
+                        : $line,
+                    $lines,
+                );
+            }
+
+            $orderLevelDiscountAmount = $orderLevelDiscountAmount->add($statutoryDiscountAmount);
+            $calculation = $this->financialCalculator->calculateSale($lines, $orderLevelDiscountAmount, $taxRegistrationType);
+
+            // 'type' is printed verbatim by InvoiceSnapshotV2Renderer::beneficiaryBlock() ("Discount: <type>"),
+            // so it is translated to plain English here rather than leaving the wire enum on the receipt.
+            $discountBeneficiary = [
+                'type' => match ($payload['statutory_discount']['type']) {
+                    'SENIOR_CITIZEN' => 'Senior Citizen',
+                    'PWD' => 'PWD',
+                },
+                'name' => $payload['statutory_discount']['name'],
+                'id_number' => $payload['statutory_discount']['id_number'],
+                'tin' => null,
+            ];
         }
 
         // Server-authoritative payment sufficiency (invariant #8).
@@ -340,7 +392,7 @@ final class CheckoutService
             'payments' => array_map(fn (array $payment) => ['method' => $payment['method'], 'amount' => (string) $payment['amount']], $payload['payments']),
             'amount_tendered' => $tendered = $this->sumAmounts($payload['payments']),
             'change' => bccomp($tendered, $sale->grand_total, 2) === 1 ? bcsub($tendered, $sale->grand_total, 2) : '0.00',
-            'discount_beneficiary' => null,
+            'discount_beneficiary' => $discountBeneficiary,
         ];
 
         $invoice = Invoice::create([
@@ -414,13 +466,17 @@ final class CheckoutService
                 'terminal_id' => $terminalId,
                 'entity_type' => 'sale',
                 'entity_id' => $sale->id,
-                'after_metadata' => [
+                'after_metadata' => array_filter([
                     'sale_id' => $sale->id,
                     'invoice_number' => $allocated->formattedNumber,
                     'line_discount_total' => $calculation->discountTotal->subtract($calculation->orderLevelDiscountAmount)->toApiString(),
                     'order_level_discount_amount' => $calculation->orderLevelDiscountAmount->toApiString(),
                     'discount_total' => $calculation->discountTotal->toApiString(),
-                ],
+                    // Stage 36: present only when this sale carried a Senior Citizen/PWD discount, so an
+                    // ordinary discount's audit row is unchanged from before this stage.
+                    'statutory_discount_type' => $discountBeneficiary['type'] ?? null,
+                    'statutory_discount_beneficiary_name' => $discountBeneficiary['name'] ?? null,
+                ], fn ($value) => $value !== null),
             ]);
         }
 
