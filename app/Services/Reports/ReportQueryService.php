@@ -58,6 +58,96 @@ final class ReportQueryService
         return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['gross_sales', 'discount_total', 'grand_total'])];
     }
 
+    /**
+     * Sales bucketed by the hour of day they were rung, aggregated across the whole [from, to]
+     * window (a merchant asking "what are my busiest hours" wants one row per hour-of-day, not one
+     * per hour-of-day-per-date -- unlike dailySalesSummary, which buckets by calendar day).
+     * `EXTRACT(HOUR FROM ...)` reads back in the database session's own timezone -- Asia/Manila by
+     * default and pinned to the store's configured zone since Stage 23 (D1) -- so this is already
+     * the store's local hour, never UTC; no PHP-side conversion is needed.
+     *
+     * @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>}
+     */
+    public function salesByHour(string $storeId, ?Carbon $from, ?Carbon $to): array
+    {
+        $rows = DB::table('sales')
+            ->where('sales.store_id', $storeId)
+            ->where('sales.status', '!=', 'VOIDED')
+            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
+            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->selectRaw('EXTRACT(HOUR FROM sales.sold_at)::int as hour')
+            ->selectRaw('COUNT(*) as transaction_count')
+            ->selectRaw('SUM(sales.subtotal) as gross_sales')
+            ->selectRaw('SUM(sales.discount_total) as discount_total')
+            ->selectRaw('SUM(sales.grand_total) as grand_total')
+            ->groupBy('hour')
+            ->orderBy('hour')
+            ->get();
+
+        $mapped = $rows->map(fn ($row) => [
+            'hour' => (int) $row->hour,
+            'transaction_count' => (int) $row->transaction_count,
+            'gross_sales' => $this->money($row->gross_sales),
+            'discount_total' => $this->money($row->discount_total),
+            'grand_total' => $this->money($row->grand_total),
+        ])->all();
+
+        return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['gross_sales', 'grand_total'])];
+    }
+
+    /**
+     * Net sales, cost of goods sold (from each line's own cost snapshot) and the resulting gross
+     * profit, per business day. A deliberate, disclosed simplification (matching the "product
+     * policy vs legal minimum" precedent already set for discounts, stage-24-owner-decisions.md
+     * D4): net_sales is the VAT-inclusive amount the customer actually paid per line, and COGS is
+     * compared straight against it -- this is a management "did we make money" figure, not a
+     * VAT-exclusive accounting margin, and must never be presented as one. COGS is computed here in
+     * raw SQL over already-2dp NUMERIC columns (unit_cost_snapshot, quantity), never through
+     * Money's own arithmetic -- Money.php deliberately exposes no generic multiply, reserving that
+     * for FinancialCalculator's own materialization points, which this derived, read-only report
+     * figure is not one of. A product created before its cost was ever set snapshots a null
+     * unit_cost_snapshot; those lines cost 0 in this sum and are counted separately
+     * (lines_with_unknown_cost) rather than silently treated as free with no disclosure.
+     *
+     * @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>}
+     */
+    public function grossProfit(string $storeId, ?Carbon $from, ?Carbon $to): array
+    {
+        $rows = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('fiscal_days', 'fiscal_days.id', '=', 'sales.fiscal_day_id')
+            ->where('sales.store_id', $storeId)
+            ->where('sales.status', '!=', 'VOIDED')
+            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
+            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->selectRaw('fiscal_days.business_date as business_date')
+            ->selectRaw('COUNT(DISTINCT sales.id) as transaction_count')
+            ->selectRaw('SUM(sale_items.net_line_amount) as net_sales')
+            ->selectRaw('SUM(ROUND(COALESCE(sale_items.unit_cost_snapshot, 0) * sale_items.quantity, 2)) as cost_of_goods_sold')
+            ->selectRaw('COUNT(*) FILTER (WHERE sale_items.unit_cost_snapshot IS NULL) as lines_with_unknown_cost')
+            ->groupBy('fiscal_days.business_date')
+            ->orderBy('fiscal_days.business_date')
+            ->get();
+
+        $mapped = $rows->map(function ($row) {
+            $netSales = Money::fromApiString($this->money($row->net_sales));
+            $cogs = Money::fromApiString($this->money($row->cost_of_goods_sold));
+            $grossProfit = $netSales->subtract($cogs);
+
+            return [
+                'business_date' => $row->business_date,
+                'transaction_count' => (int) $row->transaction_count,
+                'net_sales' => $netSales->toApiString(),
+                'cost_of_goods_sold' => $cogs->toApiString(),
+                'gross_profit' => $grossProfit->toApiString(),
+                'gross_margin_percent' => $this->marginPercent($grossProfit, $netSales),
+                'lines_with_unknown_cost' => (int) $row->lines_with_unknown_cost,
+            ];
+        })->all();
+
+        return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['net_sales', 'cost_of_goods_sold', 'gross_profit'])];
+    }
+
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
     public function salesByDateRange(string $storeId, ?Carbon $from, ?Carbon $to): array
     {
@@ -491,6 +581,24 @@ final class ReportQueryService
     private function money(mixed $rawSum): string
     {
         return Money::fromApiString((string) ($rawSum ?? '0.00'))->toApiString();
+    }
+
+    /**
+     * grossProfit / netSales * 100, rounded half up to 2 decimal places, null when net sales is
+     * zero (no meaningful ratio, not a divide-by-zero placeholder like "0.00"). bcmath throughout,
+     * matching this app's no-floating-point-for-money discipline even though a display percentage
+     * is not itself a Money value.
+     */
+    private function marginPercent(Money $grossProfit, Money $netSales): ?string
+    {
+        if ($netSales->isZero()) {
+            return null;
+        }
+
+        $percent = bcmul(bcdiv($grossProfit->toApiString(), $netSales->toApiString(), 10), '100', 10);
+        $nudge = bccomp($percent, '0', 10) >= 0 ? '0.005' : '-0.005';
+
+        return bcadd($percent, $nudge, 2);
     }
 
     /**

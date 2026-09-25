@@ -47,6 +47,8 @@ or removing an existing column is breaking.
 | Void Report | `reportVoids` | `void_id, sale_id, invoice_number, requested_by, approved_by, reason, terminal_id, fiscal_day_id, resolved_at, sale_grand_total` |
 | Refund Report | `reportRefunds` | `refund_id, sale_id, invoice_number, requested_by, approved_by, reason, terminal_id, fiscal_day_id, refunded_at, refund_total` |
 | Discount Report | `reportDiscounts` | `sold_at, invoice_number, line_discount_total, order_discount_total, discount_total` |
+| Sales by Hour (stage 32, forward-committed) | `reportSalesByHour` | `hour, transaction_count, gross_sales, discount_total, grand_total` |
+| Gross Profit (stage 32, forward-committed) | `reportGrossProfit` | `business_date, transaction_count, net_sales, cost_of_goods_sold, gross_profit, gross_margin_percent, lines_with_unknown_cost` |
 | Inventory On Hand | `reportInventoryOnHand` | `product_id, sku, product_name, location_id, quantity_on_hand, reorder_level` |
 | Low Stock | `reportLowStock` | `product_id, sku, product_name, quantity_on_hand, reorder_level, shortfall` |
 | Inventory Movement | `reportInventoryMovement` | `occurred_at, product_id, sku, movement_type, quantity, reference_type, reference_id, reason, created_by` |

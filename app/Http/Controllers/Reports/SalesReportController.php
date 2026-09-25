@@ -101,4 +101,25 @@ class SalesReportController extends Controller
             'sold_at', 'invoice_number', 'line_discount_total', 'order_discount_total', 'discount_total',
         ]);
     }
+
+    public function salesByHour(Request $request, ReportQueryService $service): Response
+    {
+        $actor = Auth::guard('web')->user();
+        ['rows' => $rows, 'summary' => $summary] = $service->salesByHour($actor->store_id, $this->fromDate($request), $this->toDate($request));
+
+        return $this->reportResponse($request, ['from' => $request->query('from'), 'to' => $request->query('to')], $rows, $summary, [
+            'hour', 'transaction_count', 'gross_sales', 'discount_total', 'grand_total',
+        ]);
+    }
+
+    public function grossProfit(Request $request, ReportQueryService $service): Response
+    {
+        $actor = Auth::guard('web')->user();
+        ['rows' => $rows, 'summary' => $summary] = $service->grossProfit($actor->store_id, $this->fromDate($request), $this->toDate($request));
+
+        return $this->reportResponse($request, ['from' => $request->query('from'), 'to' => $request->query('to')], $rows, $summary, [
+            'business_date', 'transaction_count', 'net_sales', 'cost_of_goods_sold', 'gross_profit',
+            'gross_margin_percent', 'lines_with_unknown_cost',
+        ]);
+    }
 }

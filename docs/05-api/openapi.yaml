@@ -1861,6 +1861,37 @@ paths:
         '200': {$ref: '#/components/responses/ReportOk'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+  # Stage 32 (2026-09-25), forward-committed wholly new Reports surface -- see
+  # docs/06-backend/stage-32-hourly-and-gross-profit-reports.md. Same shape/error surface as every
+  # other Reports operation above (no domain-specific failure mode, only 401/403).
+  /reports/sales-by-hour:
+    get:
+      operationId: reportSalesByHour
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: 'Sales by Hour (transactions and revenue bucketed by hour-of-day, 0-23, across the whole date range -- not one row per hour per day. Voided sales excluded.)'
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/gross-profit:
+    get:
+      operationId: reportGrossProfit
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: 'Gross Profit (net sales, cost of goods sold from each sale line''s own cost snapshot, and the resulting gross profit/margin, per business day. A management figure, not a VAT-exclusive accounting margin -- net_sales is VAT-inclusive. Voided sales excluded. lines_with_unknown_cost discloses lines whose product had no cost on file at the time of sale, rather than silently costing them at zero.)'
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /reports/inventory-on-hand:
     get:
       operationId: reportInventoryOnHand

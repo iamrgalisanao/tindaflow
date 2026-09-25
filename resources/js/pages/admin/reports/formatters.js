@@ -199,6 +199,13 @@ export function formatReportCell(value, format) {
                 className: 'rounded border border-amber-800/40 bg-amber-950/40 px-1.5 py-0.5 font-mono font-bold tabular-nums text-amber-400',
             };
         }
+        case 'percent':
+            return { text: `${value}%`, className: 'font-mono tabular-nums text-slate-200' };
+        case 'hour_of_day': {
+            const hour = Number(value);
+            const pad = (n) => String(n % 24).padStart(2, '0');
+            return { text: `${pad(hour)}:00–${pad(hour + 1)}:00`, className: 'font-mono text-slate-300' };
+        }
         case 'shortfall':
             return {
                 text: `${formatQuantity(value)} short`,

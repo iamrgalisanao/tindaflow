@@ -455,4 +455,80 @@ class ReportsHttpTest extends PostgresSchemaTestCase
 
         $response->assertOk();
     }
+
+    public function test_sales_by_hour_buckets_across_the_date_range_and_excludes_voided(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store);
+
+        // Two sales in the 10:00 hour on different days both fall into the same "hour" bucket.
+        $this->makeSale($shift, ['subtotal' => '100.00', 'grand_total' => '100.00', 'sold_at' => '2026-06-01 10:15:00']);
+        $this->makeSale($shift, ['subtotal' => '50.00', 'grand_total' => '50.00', 'sold_at' => '2026-06-02 10:45:00']);
+        $this->makeSale($shift, ['subtotal' => '20.00', 'grand_total' => '20.00', 'sold_at' => '2026-06-01 14:00:00']);
+        $this->makeSale($shift, ['subtotal' => '999.00', 'grand_total' => '999.00', 'sold_at' => '2026-06-01 10:30:00', 'status' => 'VOIDED']);
+
+        $response = $this->forwardSessionCookie($this->login($admin))->getJson('/api/v1/reports/sales-by-hour');
+
+        $response->assertOk();
+        $byHour = collect($response->json('rows'))->keyBy('hour');
+        $this->assertSame(2, $byHour[10]['transaction_count']);
+        $this->assertSame('150.00', $byHour[10]['gross_sales']);
+        $this->assertSame(1, $byHour[14]['transaction_count']);
+        $this->assertSame('20.00', $byHour[14]['gross_sales']);
+        $this->assertSame('170.00', $response->json('summary.gross_sales'));
+    }
+
+    public function test_gross_profit_computes_from_cost_snapshot_and_discloses_unknown_cost(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store, '2026-06-01');
+        $product = Product::factory()->create(['store_id' => $store->id]);
+
+        $sale = $this->makeSale($shift, ['sold_at' => '2026-06-01 10:00:00']);
+        // 3 units sold at net 150.00, cost 10.00 each -> COGS 30.00, gross profit 120.00, margin 80.00%.
+        SaleItem::factory()->create([
+            'sale_id' => $sale->id, 'line_number' => 1, 'product_id' => $product->id,
+            'quantity' => '3.000', 'net_line_amount' => '150.00', 'unit_cost_snapshot' => '10.00',
+        ]);
+        // A line whose product predates cost tracking: no snapshot, costs nothing in the sum but is
+        // flagged, never silently treated as a real zero-cost line.
+        SaleItem::factory()->create([
+            'sale_id' => $sale->id, 'line_number' => 2, 'product_id' => $product->id,
+            'quantity' => '1.000', 'net_line_amount' => '25.00', 'unit_cost_snapshot' => null,
+        ]);
+
+        $voidedSale = $this->makeSale($shift, ['sold_at' => '2026-06-01 11:00:00', 'status' => 'VOIDED']);
+        SaleItem::factory()->create(['sale_id' => $voidedSale->id, 'product_id' => $product->id, 'net_line_amount' => '999.00', 'unit_cost_snapshot' => '1.00']);
+
+        $response = $this->forwardSessionCookie($this->login($admin))->getJson('/api/v1/reports/gross-profit?from=2026-06-01&to=2026-06-01');
+
+        $response->assertOk();
+        $rows = $response->json('rows');
+        $this->assertCount(1, $rows);
+        $this->assertSame('2026-06-01', $rows[0]['business_date']);
+        $this->assertSame(1, $rows[0]['transaction_count']);
+        $this->assertSame('175.00', $rows[0]['net_sales']);
+        $this->assertSame('30.00', $rows[0]['cost_of_goods_sold']);
+        $this->assertSame('145.00', $rows[0]['gross_profit']);
+        $this->assertSame('82.86', $rows[0]['gross_margin_percent']); // 145 / 175 * 100
+        $this->assertSame(1, $rows[0]['lines_with_unknown_cost']);
+    }
+
+    public function test_gross_profit_margin_is_null_when_net_sales_is_zero(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store, '2026-06-01');
+        $product = Product::factory()->create(['store_id' => $store->id]);
+
+        $sale = $this->makeSale($shift, ['sold_at' => '2026-06-01 10:00:00']);
+        SaleItem::factory()->create(['sale_id' => $sale->id, 'product_id' => $product->id, 'net_line_amount' => '0.00', 'unit_cost_snapshot' => '0.00']);
+
+        $response = $this->forwardSessionCookie($this->login($admin))->getJson('/api/v1/reports/gross-profit?from=2026-06-01&to=2026-06-01');
+
+        $response->assertOk();
+        $this->assertNull($response->json('rows.0.gross_margin_percent'));
+    }
 }

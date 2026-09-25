@@ -298,7 +298,12 @@ touches a Z-Reading counter.
 | Sales-adjustment summaries (voids/refunds) | `ZReadingTotalsSnapshot.void_total`, `.refund_total` | Voided sales excluded from `gross_sales`, reported separately for audit transparency |
 | Exactly one per FiscalDay | `FiscalDay 1--0..1 ZReading` (Stage 2 invariant #42, erd.md `FISCAL_DAY ||--o| Z_READING`) | Created atomically with the `OPEN→CLOSED` transition |
 
-## Reports (15) — all `REPORT_VIEW`
+## Reports (17) — all `REPORT_VIEW`
+
+`reportSalesByHour` and `reportGrossProfit` are **wholly new operations forward-committed in stage 32
+(2026-09-25)**, no prior draft at any stage — same shape and error surface as the other 15 (no
+domain-specific failure mode, only 401/403), so no reconstruction was needed. See
+`docs/06-backend/stage-32-hourly-and-gross-profit-reports.md`.
 
 | Method | Path | operationId |
 |---|---|---|
@@ -312,13 +317,15 @@ touches a Z-Reading counter.
 | GET | /reports/voids | reportVoids |
 | GET | /reports/refunds | reportRefunds |
 | GET | /reports/discounts | reportDiscounts |
+| GET | /reports/sales-by-hour | reportSalesByHour |
+| GET | /reports/gross-profit | reportGrossProfit |
 | GET | /reports/inventory-on-hand | reportInventoryOnHand |
 | GET | /reports/low-stock | reportLowStock |
 | GET | /reports/inventory-movement | reportInventoryMovement |
 | GET | /reports/shifts | reportShifts |
 | GET | /reports/cash-variance | reportCashVariance |
 
-All 15: session auth, no terminal enrollment required, `REPORT_VIEW`
+All 17: session auth, no terminal enrollment required, `REPORT_VIEW`
 capability, no idempotency (read-only), `Accept: application/json|text/csv`
 content negotiation, success = 200 `ReportResult` or CSV, errors = 401/403
 only (no domain-specific failure modes — reports never fail on business
