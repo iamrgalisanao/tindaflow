@@ -172,6 +172,41 @@ final class ReportQueryService
     }
 
     /**
+     * Stage 35: grossProfitByProduct(), grouped by category instead -- salesByCategory's own join
+     * shape (LEFT JOIN categories, since a product may have none), the profit-family's shared
+     * profitFigures(). The one product-family report left unbuilt when Stage 34 shipped velocity and
+     * per-product profit.
+     *
+     * @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>}
+     */
+    public function grossProfitByCategory(string $storeId, ?Carbon $from, ?Carbon $to): array
+    {
+        $rows = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->leftJoin('categories', 'categories.id', '=', 'products.category_id')
+            ->where('sales.store_id', $storeId)
+            ->where('sales.status', '!=', 'VOIDED')
+            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
+            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->selectRaw('products.category_id as category_id, categories.name as category_name')
+            ->selectRaw('SUM(sale_items.quantity) as quantity_sold')
+            ->selectRaw('SUM(sale_items.net_line_amount) as net_sales')
+            ->selectRaw('SUM(ROUND(COALESCE(sale_items.unit_cost_snapshot, 0) * sale_items.quantity, 2)) as cost_of_goods_sold')
+            ->selectRaw('COUNT(*) FILTER (WHERE sale_items.unit_cost_snapshot IS NULL) as lines_with_unknown_cost')
+            ->groupBy('products.category_id', 'categories.name')
+            ->orderByDesc('net_sales')
+            ->get();
+
+        $mapped = $rows->map(fn ($row) => array_merge(
+            ['category_id' => $row->category_id, 'category_name' => $row->category_name, 'quantity_sold' => $this->quantity($row->quantity_sold)],
+            $this->profitFigures($row->net_sales, $row->cost_of_goods_sold, $row->lines_with_unknown_cost),
+        ))->all();
+
+        return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['net_sales', 'cost_of_goods_sold', 'gross_profit'])];
+    }
+
+    /**
      * Stage 34: every product ranked by units sold in the window, **including products with zero
      * sales** -- the true "identify fast/slow-moving items" answer (per the Qtech comparison) needs
      * the zero-sale, still-in-stock products at the bottom, not just a re-sort of salesByProduct

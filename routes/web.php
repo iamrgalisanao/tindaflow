@@ -304,9 +304,10 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // openapi.yaml Reports tag (15 operations, +2 forward-committed in Stage 32: reportSalesByHour,
     // reportGrossProfit -- see docs/06-backend/stage-32-hourly-and-gross-profit-reports.md; +2 more
     // in Stage 34: reportGrossProfitByProduct, reportProductVelocity -- see
-    // docs/06-backend/stage-34-product-velocity-and-profit-by-product.md) -- session-only, no
-    // terminal credential, all REPORT_VIEW. No domain-specific failure mode exists for any of these
-    // (operation-inventory.md: "reports never fail on business state, only on auth").
+    // docs/06-backend/stage-34-product-velocity-and-profit-by-product.md; +1 more in Stage 35:
+    // reportGrossProfitByCategory -- see docs/06-backend/stage-35-gross-profit-by-category.md) --
+    // session-only, no terminal credential, all REPORT_VIEW. No domain-specific failure mode exists
+    // for any of these (operation-inventory.md: "reports never fail on business state, only on auth").
     Route::middleware(['auth', EnsureUserIsActive::class, 'can:REPORT_VIEW'])->group(function () {
         Route::get('/reports/daily-sales-summary', [SalesReportController::class, 'dailySalesSummary']);
         Route::get('/reports/sales-by-date-range', [SalesReportController::class, 'salesByDateRange']);
@@ -320,6 +321,7 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         Route::get('/reports/gross-profit', [SalesReportController::class, 'grossProfit']);
         Route::get('/reports/gross-profit-by-product', [SalesReportController::class, 'grossProfitByProduct']);
         Route::get('/reports/product-velocity', [SalesReportController::class, 'productVelocity']);
+        Route::get('/reports/gross-profit-by-category', [SalesReportController::class, 'grossProfitByCategory']);
         Route::get('/reports/voids', [VoidRefundReportController::class, 'voids']);
         Route::get('/reports/refunds', [VoidRefundReportController::class, 'refunds']);
         Route::get('/reports/inventory-on-hand', [InventoryReportController::class, 'inventoryOnHand']);

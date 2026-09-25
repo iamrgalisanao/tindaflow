@@ -143,4 +143,15 @@ class SalesReportController extends Controller
             'product_id', 'sku', 'product_name', 'quantity_sold', 'transaction_count', 'net_sales', 'quantity_on_hand',
         ]);
     }
+
+    public function grossProfitByCategory(Request $request, ReportQueryService $service): Response
+    {
+        $actor = Auth::guard('web')->user();
+        ['rows' => $rows, 'summary' => $summary] = $service->grossProfitByCategory($actor->store_id, $this->fromDate($request), $this->toDate($request));
+
+        return $this->reportResponse($request, ['from' => $request->query('from'), 'to' => $request->query('to')], $rows, $summary, [
+            'category_id', 'category_name', 'quantity_sold', 'net_sales', 'cost_of_goods_sold',
+            'gross_profit', 'gross_margin_percent', 'lines_with_unknown_cost',
+        ]);
+    }
 }

@@ -51,6 +51,7 @@ or removing an existing column is breaking.
 | Gross Profit (stage 32, forward-committed) | `reportGrossProfit` | `business_date, transaction_count, net_sales, cost_of_goods_sold, gross_profit, gross_margin_percent, lines_with_unknown_cost` |
 | Gross Profit by Product (stage 34, forward-committed) | `reportGrossProfitByProduct` | `product_id, sku, product_name, quantity_sold, net_sales, cost_of_goods_sold, gross_profit, gross_margin_percent, lines_with_unknown_cost` |
 | Product Velocity (stage 34, forward-committed) | `reportProductVelocity` | `product_id, sku, product_name, quantity_sold, transaction_count, net_sales, quantity_on_hand` |
+| Gross Profit by Category (stage 35, forward-committed) | `reportGrossProfitByCategory` | `category_id, category_name, quantity_sold, net_sales, cost_of_goods_sold, gross_profit, gross_margin_percent, lines_with_unknown_cost` |
 | Inventory On Hand | `reportInventoryOnHand` | `product_id, sku, product_name, location_id, quantity_on_hand, reorder_level` |
 | Low Stock | `reportLowStock` | `product_id, sku, product_name, quantity_on_hand, reorder_level, shortfall` |
 | Inventory Movement | `reportInventoryMovement` | `occurred_at, product_id, sku, movement_type, quantity, reference_type, reference_id, reason, created_by` |

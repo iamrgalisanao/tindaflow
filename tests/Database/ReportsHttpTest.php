@@ -619,4 +619,38 @@ class ReportsHttpTest extends PostgresSchemaTestCase
         $this->assertSame('0.000', $row['quantity_sold']);
         $this->assertSame(0, $row['transaction_count']);
     }
+
+    public function test_gross_profit_by_category_groups_across_products_and_excludes_voided(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store);
+        $category = Category::factory()->create(['store_id' => $store->id]);
+        $productA = Product::factory()->create(['store_id' => $store->id, 'category_id' => $category->id]);
+        $productB = Product::factory()->create(['store_id' => $store->id, 'category_id' => $category->id]);
+        $uncategorized = Product::factory()->create(['store_id' => $store->id, 'category_id' => null]);
+
+        $sale = $this->makeSale($shift);
+        SaleItem::factory()->create(['sale_id' => $sale->id, 'line_number' => 1, 'product_id' => $productA->id, 'quantity' => '1.000', 'net_line_amount' => '100.00', 'unit_cost_snapshot' => '30.00']);
+        SaleItem::factory()->create(['sale_id' => $sale->id, 'line_number' => 2, 'product_id' => $productB->id, 'quantity' => '1.000', 'net_line_amount' => '50.00', 'unit_cost_snapshot' => '10.00']);
+        SaleItem::factory()->create(['sale_id' => $sale->id, 'line_number' => 3, 'product_id' => $uncategorized->id, 'quantity' => '1.000', 'net_line_amount' => '20.00', 'unit_cost_snapshot' => '5.00']);
+
+        $voidedSale = $this->makeSale($shift, ['status' => 'VOIDED']);
+        SaleItem::factory()->create(['sale_id' => $voidedSale->id, 'product_id' => $productA->id, 'net_line_amount' => '999.00', 'unit_cost_snapshot' => '1.00']);
+
+        $response = $this->forwardSessionCookie($this->login($admin))->getJson('/api/v1/reports/gross-profit-by-category');
+
+        $response->assertOk();
+        $byCategory = collect($response->json('rows'))->keyBy('category_id');
+        $this->assertCount(2, $byCategory);
+
+        $this->assertSame('150.00', $byCategory[$category->id]['net_sales']);
+        $this->assertSame('40.00', $byCategory[$category->id]['cost_of_goods_sold']);
+        $this->assertSame('110.00', $byCategory[$category->id]['gross_profit']);
+
+        $this->assertSame('20.00', $byCategory[null]['net_sales']);
+        $this->assertSame('5.00', $byCategory[null]['cost_of_goods_sold']);
+        $this->assertSame('15.00', $byCategory[null]['gross_profit']);
+        $this->assertNull($byCategory[null]['category_name']);
+    }
 }
