@@ -3,6 +3,12 @@ import { Link } from 'react-router-dom';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { usePrintFrame } from '../lib/usePrintFrame';
+import CartPanel from './pos/CartPanel';
+import CatalogPanel from './pos/CatalogPanel';
+import PosHeader from './pos/PosHeader';
+import ShiftPanel from './pos/ShiftPanel';
+import TenderPanel from './pos/TenderPanel';
+import { fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 
 const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'];
 
@@ -32,6 +38,8 @@ export default function Pos() {
     const [error, setError] = useState(null);
     const [shift, setShift] = useState(null);
     const [readinessChecks, setReadinessChecks] = useState(null);
+    const [view, setView] = useState('register'); // register | shift (only while a cart is open)
+    const [terminalCode, setTerminalCode] = useState(null);
 
     const [openingCash, setOpeningCash] = useState('');
     const [openingBusy, setOpeningBusy] = useState(false);
@@ -39,7 +47,7 @@ export default function Pos() {
     const [search, setSearch] = useState('');
     const [scanNotice, setScanNotice] = useState(null); // { kind: 'added' | 'error', text }
     const searchRef = useRef(null);
-    const [results, setResults] = useState([]);
+    const [results, setResults] = useState(null); // null = no search yet (the product grid shows), otherwise the search results
     const [cart, setCart] = useState([]); // [{product, quantity}]
 
     const [paymentMethod, setPaymentMethod] = useState('CASH');
@@ -88,6 +96,8 @@ export default function Pos() {
         const { ok, status, body } = await apiFetch('/api/v1/shifts/current');
         if (ok) {
             setShift(body);
+            // Only labels the header; the till works without it.
+            apiFetch('/api/v1/terminal/current').then((current) => current.ok && setTerminalCode(current.body.terminal_code));
             await checkReadiness();
         } else if (status === 403 && body?.error?.code === 'TERMINAL_NOT_ENROLLED') {
             setStep('not-enrolled');
@@ -125,6 +135,10 @@ export default function Pos() {
         event.preventDefault();
         const query = search.trim();
         setScanNotice(null);
+        if (query === '') {
+            setResults(null);
+            return;
+        }
 
         // A barcode scanner types the code and presses Enter, which submits this form. Try the text as a
         // barcode first; anything that is not one falls through to the ordinary name/SKU search below.
@@ -142,7 +156,7 @@ export default function Pos() {
                         addToCart(scan.body);
                     }
                     setSearch('');
-                    setResults([]);
+                    setResults(null);
                     searchRef.current?.focus();
                     return;
                 }
@@ -164,10 +178,10 @@ export default function Pos() {
             const existing = prior.find((line) => line.product.id === product.id);
             if (existing) {
                 return prior.map((line) =>
-                    line.product.id === product.id ? { ...line, quantity: line.quantity + 1 } : line,
+                    line.product.id === product.id ? { ...line, quantity: fromThousandths((toThousandths(line.quantity) ?? 0n) + 1000n) } : line,
                 );
             }
-            return [...prior, { product, quantity: 1 }];
+            return [...prior, { product, quantity: '1' }];
         });
     }
 
@@ -179,10 +193,12 @@ export default function Pos() {
         setCart((prior) => prior.filter((line) => line.product.id !== productId));
     }
 
-    const previewTotal = cart.reduce((sum, line) => sum + Number(line.product.selling_price) * Number(line.quantity || 0), 0);
+    // Whole centavos, never floating point. A line whose quantity is half-typed counts as nothing and blocks Charge.
+    const totalCents = cart.reduce((sum, line) => sum + (lineCents(line.product.selling_price, line.quantity) ?? 0n), 0n);
+    const hasInvalidLine = cart.some((line) => lineCents(line.product.selling_price, line.quantity) === null);
 
     function goToCheckout() {
-        setPaymentAmount(previewTotal.toFixed(2));
+        setPaymentAmount(moneyText(totalCents));
         setError(null);
         setStep('checkout');
     }
@@ -197,7 +213,8 @@ export default function Pos() {
             headers: { 'Idempotency-Key': newIdempotencyKey() },
             body: {
                 items: cart.map((line) => ({ product_id: line.product.id, quantity: String(line.quantity) })),
-                payments: [{ method: paymentMethod, amount: Number(paymentAmount).toFixed(2) }],
+                // Cash is what was handed over; any other method is charged the exact total.
+                payments: [{ method: paymentMethod, amount: paymentMethod === 'CASH' ? moneyText(toCents(paymentAmount) ?? 0n) : moneyText(totalCents) }],
             },
         });
 
@@ -243,9 +260,10 @@ export default function Pos() {
         setPrintError(null);
         setCopyKey(newIdempotencyKey());
         setCart([]);
-        setResults([]);
+        setResults(null);
         setSearch('');
         setSale(null);
+        setView('register');
         setStep('cart');
     }
 
@@ -316,18 +334,20 @@ export default function Pos() {
     }
 
     if (step === 'loading') {
-        return <div className="p-8 text-sm text-gray-500">Loading…</div>;
+        return <div className="min-h-screen bg-slate-950 p-8 text-sm text-slate-400">Loading…</div>;
     }
 
     if (step === 'not-enrolled') {
         return (
-            <div className="mx-auto max-w-md p-8 text-center">
-                <p className="rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                    This browser is not enrolled as any terminal. Ask an admin to enroll it under Terminal Enrollment.
-                </p>
-                <Link to="/" className="mt-4 inline-block text-sm text-gray-600 underline">
-                    Back to dashboard
-                </Link>
+            <div className="min-h-screen bg-slate-950 text-slate-100 [color-scheme:dark]">
+                <div className="mx-auto max-w-md p-8 text-center">
+                    <p className="rounded-md bg-amber-500/10 px-3 py-3 text-sm text-amber-300">
+                        This browser is not enrolled as any terminal. Ask an admin to enroll it under Terminal Enrollment.
+                    </p>
+                    <Link to="/" className="mt-4 inline-block text-sm text-slate-400 underline">
+                        Back to dashboard
+                    </Link>
+                </div>
             </div>
         );
     }
@@ -335,53 +355,51 @@ export default function Pos() {
     if (step === 'setup-incomplete') {
         const failed = Object.entries(readinessChecks ?? {}).filter(([, ready]) => !ready);
         return (
-            <div className="mx-auto max-w-md p-8 text-center">
-                <p className="mb-3 rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                    This terminal can&apos;t check out yet. Ask an admin to finish Store Setup:
-                </p>
-                <ul className="mb-4 space-y-1 text-left text-sm text-gray-700">
-                    {failed.map(([key]) => (
-                        <li key={key} className="rounded-md border border-amber-200 bg-white px-3 py-2">
-                            {READINESS_LABELS[key] ?? key}
-                        </li>
-                    ))}
-                </ul>
-                <button
-                    type="button"
-                    onClick={checkReadiness}
-                    className="rounded-md border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-                >
-                    Check again
-                </button>
-                <Link to="/" className="mt-4 block text-sm text-gray-600 underline">
-                    Back to dashboard
-                </Link>
+            <div className="min-h-screen bg-slate-950 text-slate-100 [color-scheme:dark]">
+                <div className="mx-auto max-w-md p-8 text-center">
+                    <p className="mb-3 rounded-md bg-amber-500/10 px-3 py-3 text-sm text-amber-300">
+                        This terminal can&apos;t check out yet. Ask an admin to finish Store Setup:
+                    </p>
+                    <ul className="mb-4 space-y-1 text-left text-sm text-slate-300">
+                        {failed.map(([key]) => (
+                            <li key={key} className="rounded-md border border-amber-500/30 bg-slate-900 px-3 py-2">
+                                {READINESS_LABELS[key] ?? key}
+                            </li>
+                        ))}
+                    </ul>
+                    <button
+                        type="button"
+                        onClick={checkReadiness}
+                        className="rounded-md border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800"
+                    >
+                        Check again
+                    </button>
+                    <Link to="/" className="mt-4 block text-sm text-slate-400 underline">
+                        Back to dashboard
+                    </Link>
+                </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
-                <h1 className="text-base font-semibold text-gray-900">POS</h1>
-                <div className="flex items-center gap-4">
-                    {step === 'cart' && (
-                        <button type="button" onClick={goToCloseShift} className="text-sm text-gray-600 underline">
-                            Close shift
-                        </button>
-                    )}
-                    <Link to="/" className="text-sm text-gray-600 underline">
-                        Dashboard
-                    </Link>
-                </div>
-            </header>
+        <div className="min-h-screen bg-slate-950 text-slate-100 [color-scheme:dark]">
+            <PosHeader
+                terminalCode={terminalCode}
+                operatorName={user.name}
+                shift={shift}
+                showTabs={step === 'cart' || step === 'checkout'}
+                view={view}
+                paying={step === 'checkout'}
+                onView={setView}
+            />
 
-            {error && <p className="mx-4 mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+            {error && <p className="mx-4 mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
 
             {step === 'open-shift' && (
-                <form onSubmit={openShift} className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-gray-200 bg-white p-6">
-                    <h2 className="text-sm font-medium text-gray-700">Open a shift to start selling</h2>
-                    <label htmlFor="opening_cash" className="block text-sm text-gray-600">
+                <form onSubmit={openShift} className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-6">
+                    <h2 className="text-sm font-medium text-slate-300">Open a shift to start selling</h2>
+                    <label htmlFor="opening_cash" className="block text-sm text-slate-400">
                         Opening cash
                     </label>
                     <input
@@ -391,230 +409,106 @@ export default function Pos() {
                         placeholder="0.00"
                         value={openingCash}
                         onChange={(event) => setOpeningCash(event.target.value)}
-                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                     />
                     <button
                         type="submit"
                         disabled={openingBusy || !openingCash}
-                        className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                        className="w-full rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
                     >
                         {openingBusy ? 'Opening…' : 'Open shift'}
                     </button>
                 </form>
             )}
 
-            {step === 'cart' && (
-                <div className="mx-auto grid max-w-4xl grid-cols-1 gap-4 p-4 sm:grid-cols-2">
-                    <div className="space-y-3">
-                        <form onSubmit={runSearch} className="flex gap-2">
-                            <input
-                                ref={searchRef}
-                                type="text"
-                                autoFocus
-                                autoComplete="off"
-                                value={search}
-                                onChange={(event) => setSearch(event.target.value)}
-                                placeholder="Scan a barcode, or search by name or SKU"
-                                aria-label="Scan a barcode or search products"
-                                className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
-                            />
-                            <button type="submit" className="rounded-md border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50">
-                                Search
-                            </button>
-                        </form>
-                        {scanNotice && (
-                            <p
-                                role="status"
-                                className={`rounded-md px-3 py-2 text-sm ${scanNotice.kind === 'added' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}
-                            >
-                                {scanNotice.text}
-                            </p>
-                        )}
-                        <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
-                            {results.length === 0 && <li className="p-3 text-sm text-gray-400">No results.</li>}
-                            {results.map((product) => (
-                                <li key={product.id} className="flex items-center justify-between p-3">
-                                    <div>
-                                        <p className="text-sm font-medium text-gray-900">{product.name}</p>
-                                        <p className="text-xs text-gray-500">
-                                            {product.sku} · ₱{product.selling_price}
-                                        </p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => addToCart(product)}
-                                        className="rounded-md bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-800"
-                                    >
-                                        Add
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
+            {step === 'cart' && view === 'shift' && (
+                <ShiftPanel
+                    shift={shift}
+                    type={cashMovementType}
+                    amount={cashMovementAmount}
+                    reason={cashMovementReason}
+                    notice={cashMovementNotice}
+                    busy={cashMovementBusy}
+                    onType={setCashMovementType}
+                    onAmount={setCashMovementAmount}
+                    onReason={setCashMovementReason}
+                    onRecord={recordCashMovement}
+                    onCloseShift={goToCloseShift}
+                />
+            )}
+
+            {step === 'cart' && view === 'register' && (
+                <div className="mx-auto grid w-full max-w-[1600px] grid-cols-1 gap-4 p-4 lg:h-[calc(100dvh-4.5rem)] lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:grid-rows-[minmax(0,1fr)]">
+                    <div className="flex min-h-0 flex-col lg:order-2">
+                        <CatalogPanel
+                            search={search}
+                            onSearchChange={setSearch}
+                            onSearch={runSearch}
+                            onClearSearch={() => {
+                                setSearch('');
+                                setResults(null);
+                                searchRef.current?.focus();
+                            }}
+                            searchRef={searchRef}
+                            scanNotice={scanNotice}
+                            results={results}
+                            onAdd={addToCart}
+                        />
                     </div>
-
-                    <div className="space-y-3">
-                        <div className="rounded-lg border border-gray-200 bg-white">
-                            <h2 className="border-b border-gray-100 px-3 py-2 text-sm font-medium text-gray-700">Cart</h2>
-                            <ul className="divide-y divide-gray-100">
-                                {cart.length === 0 && <li className="p-3 text-sm text-gray-400">Cart is empty.</li>}
-                                {cart.map((line) => (
-                                    <li key={line.product.id} className="flex items-center justify-between gap-2 p-3">
-                                        <span className="flex-1 text-sm text-gray-900">{line.product.name}</span>
-                                        <input
-                                            type="text"
-                                            inputMode="decimal"
-                                            value={line.quantity}
-                                            onChange={(event) => setQuantity(line.product.id, event.target.value)}
-                                            className="w-16 rounded-md border border-gray-300 px-2 py-1 text-right text-sm"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => removeFromCart(line.product.id)}
-                                            className="text-xs text-red-600 underline"
-                                        >
-                                            Remove
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-
-                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                            <div className="flex items-center justify-between text-sm">
-                                <span className="text-gray-500">Preview total (server recomputes)</span>
-                                <span className="font-mono font-semibold">₱{previewTotal.toFixed(2)}</span>
-                            </div>
-                        </div>
-
-                        <button
-                            type="button"
-                            disabled={cart.length === 0}
-                            onClick={goToCheckout}
-                            className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-                        >
-                            Proceed to payment
-                        </button>
-
-                        <form onSubmit={recordCashMovement} className="space-y-2 rounded-lg border border-gray-200 bg-white p-3">
-                            <h2 className="text-sm font-medium text-gray-700">Cash drawer</h2>
-                            {cashMovementNotice && <p className="text-xs text-green-700">{cashMovementNotice}</p>}
-                            <div className="flex gap-2">
-                                <select
-                                    value={cashMovementType}
-                                    onChange={(event) => setCashMovementType(event.target.value)}
-                                    className="rounded-md border border-gray-300 px-2 py-1.5 text-xs"
-                                >
-                                    <option value="CASH_IN">Cash in</option>
-                                    <option value="CASH_OUT">Cash out</option>
-                                </select>
-                                <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    placeholder="Amount"
-                                    value={cashMovementAmount}
-                                    onChange={(event) => setCashMovementAmount(event.target.value)}
-                                    className="w-24 rounded-md border border-gray-300 px-2 py-1.5 text-xs"
-                                />
-                                <input
-                                    type="text"
-                                    placeholder="Reason"
-                                    value={cashMovementReason}
-                                    onChange={(event) => setCashMovementReason(event.target.value)}
-                                    className="flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-xs"
-                                />
-                            </div>
-                            <button
-                                type="submit"
-                                disabled={cashMovementBusy || !cashMovementAmount || !cashMovementReason}
-                                className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
-                            >
-                                Record
-                            </button>
-                        </form>
+                    <div className="flex min-h-0 flex-col lg:order-1">
+                        <CartPanel
+                            cart={cart}
+                            totalCents={totalCents}
+                            hasInvalidLine={hasInvalidLine}
+                            onQuantity={setQuantity}
+                            onRemove={removeFromCart}
+                            onCharge={goToCheckout}
+                        />
                     </div>
                 </div>
             )}
 
             {step === 'checkout' && (
-                <form onSubmit={completeSale} className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-gray-200 bg-white p-6">
-                    <h2 className="text-sm font-medium text-gray-700">Payment</h2>
-                    <p className="text-sm text-gray-500">
-                        Preview total: <span className="font-mono">₱{previewTotal.toFixed(2)}</span>
-                    </p>
-
-                    <label htmlFor="payment_method" className="block text-sm text-gray-600">
-                        Method
-                    </label>
-                    <select
-                        id="payment_method"
-                        value={paymentMethod}
-                        onChange={(event) => setPaymentMethod(event.target.value)}
-                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                    >
-                        {PAYMENT_METHODS.map((method) => (
-                            <option key={method} value={method}>
-                                {method}
-                            </option>
-                        ))}
-                    </select>
-
-                    <label htmlFor="payment_amount" className="block text-sm text-gray-600">
-                        Amount tendered
-                    </label>
-                    <input
-                        id="payment_amount"
-                        type="text"
-                        inputMode="decimal"
-                        value={paymentAmount}
-                        onChange={(event) => setPaymentAmount(event.target.value)}
-                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                    />
-
-                    <div className="flex gap-2">
-                        <button
-                            type="button"
-                            onClick={() => setStep('cart')}
-                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-                        >
-                            Back
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={checkoutBusy}
-                            className="flex-1 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-                        >
-                            {checkoutBusy ? 'Completing…' : 'Complete sale'}
-                        </button>
-                    </div>
-                </form>
+                <TenderPanel
+                    cart={cart}
+                    totalCents={totalCents}
+                    methods={PAYMENT_METHODS}
+                    method={paymentMethod}
+                    onMethod={setPaymentMethod}
+                    amount={paymentAmount}
+                    onAmount={setPaymentAmount}
+                    busy={checkoutBusy}
+                    onBack={() => setStep('cart')}
+                    onComplete={completeSale}
+                />
             )}
 
             {step === 'receipt' && sale && (
-                <div className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-gray-200 bg-white p-6">
-                    <h2 className="text-sm font-medium text-gray-700">Sale complete</h2>
+                <div className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-6">
+                    <h2 className="text-sm font-medium text-slate-300">Sale complete</h2>
                     <dl className="space-y-1 text-sm">
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Transaction</dt>
+                            <dt className="text-slate-400">Transaction</dt>
                             <dd className="font-mono">{sale.transaction_number}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Invoice #</dt>
+                            <dt className="text-slate-400">Invoice #</dt>
                             <dd className="font-mono">{sale.invoice_number}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Grand total</dt>
+                            <dt className="text-slate-400">Grand total</dt>
                             <dd className="font-mono font-semibold">₱{sale.grand_total}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Tendered</dt>
+                            <dt className="text-slate-400">Tendered</dt>
                             <dd className="font-mono">₱{sale.amount_tendered}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Change</dt>
+                            <dt className="text-slate-400">Change</dt>
                             <dd className="font-mono">₱{sale.change}</dd>
                         </div>
                     </dl>
-                    <ul className="divide-y divide-gray-100 border-t border-gray-100 pt-2 text-sm">
+                    <ul className="divide-y divide-slate-800 border-t border-slate-800 pt-2 text-sm">
                         {sale.items.map((item) => (
                             <li key={item.id} className="flex justify-between py-1">
                                 <span>
@@ -630,13 +524,13 @@ export default function Pos() {
                                 type="button"
                                 disabled={printBusy}
                                 onClick={printInvoice}
-                                className="w-full rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 disabled:opacity-50"
+                                className="w-full rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-800 disabled:opacity-50"
                             >
                                 {printBusy ? 'Preparing…' : originalPrinted ? 'Print another copy' : 'Print invoice'}
                             </button>
-                            {originalPrinted && <p className="text-xs text-gray-500">Another copy is marked REPRINT — COPY and recorded.</p>}
+                            {originalPrinted && <p className="text-xs text-slate-400">Another copy is marked REPRINT — COPY and recorded.</p>}
                             {printError && (
-                                <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+                                <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-300">
                                     {printError}
                                 </p>
                             )}
@@ -645,7 +539,7 @@ export default function Pos() {
                     <button
                         type="button"
                         onClick={startNewSale}
-                        className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                        className="w-full rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
                     >
                         New sale
                     </button>
@@ -654,13 +548,13 @@ export default function Pos() {
             )}
 
             {step === 'close-shift' && (
-                <form onSubmit={closeShift} className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-gray-200 bg-white p-6">
-                    <h2 className="text-sm font-medium text-gray-700">Close shift</h2>
-                    <p className="text-xs text-gray-500">
+                <form onSubmit={closeShift} className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-6">
+                    <h2 className="text-sm font-medium text-slate-300">Close shift</h2>
+                    <p className="text-xs text-slate-400">
                         Count the cash in the drawer and enter it below. The system computes the expected amount and
                         any variance after you submit -- it is never shown to you beforehand.
                     </p>
-                    <label htmlFor="declared_cash" className="block text-sm text-gray-600">
+                    <label htmlFor="declared_cash" className="block text-sm text-slate-400">
                         Counted cash
                     </label>
                     <input
@@ -670,20 +564,20 @@ export default function Pos() {
                         placeholder="0.00"
                         value={declaredCash}
                         onChange={(event) => setDeclaredCash(event.target.value)}
-                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                     />
                     <div className="flex gap-2">
                         <button
                             type="button"
                             onClick={() => setStep('cart')}
-                            className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+                            className="flex-1 rounded-md border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800"
                         >
                             Back
                         </button>
                         <button
                             type="submit"
                             disabled={closeBusy || !declaredCash}
-                            className="flex-1 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                            className="flex-1 rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
                         >
                             {closeBusy ? 'Closing…' : 'Close shift'}
                         </button>
@@ -692,20 +586,20 @@ export default function Pos() {
             )}
 
             {step === 'shift-closed' && closeResult && (
-                <div className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-gray-200 bg-white p-6">
-                    <h2 className="text-sm font-medium text-gray-700">Shift closed</h2>
+                <div className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-6">
+                    <h2 className="text-sm font-medium text-slate-300">Shift closed</h2>
                     <dl className="space-y-1 text-sm">
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Expected cash</dt>
+                            <dt className="text-slate-400">Expected cash</dt>
                             <dd className="font-mono">₱{closeResult.shift.expected_cash}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Counted cash</dt>
+                            <dt className="text-slate-400">Counted cash</dt>
                             <dd className="font-mono">₱{closeResult.shift.declared_cash}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Variance</dt>
-                            <dd className={`font-mono font-semibold ${Number(closeResult.shift.variance) < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                            <dt className="text-slate-400">Variance</dt>
+                            <dd className={`font-mono font-semibold ${Number(closeResult.shift.variance) < 0 ? 'text-red-400' : 'text-slate-100'}`}>
                                 ₱{closeResult.shift.variance}
                             </dd>
                         </div>
@@ -716,43 +610,43 @@ export default function Pos() {
                             type="button"
                             disabled={closeBusy}
                             onClick={closeFiscalDay}
-                            className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                            className="w-full rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
                         >
                             {closeBusy ? 'Closing…' : 'Close business day'}
                         </button>
                     )}
-                    <Link to="/" className="block text-center text-sm text-gray-600 underline">
+                    <Link to="/" className="block text-center text-sm text-slate-400 underline">
                         Back to dashboard
                     </Link>
                 </div>
             )}
 
             {step === 'fiscal-day-closed' && fiscalDayCloseResult && (
-                <div className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-gray-200 bg-white p-6">
-                    <h2 className="text-sm font-medium text-gray-700">Business day closed</h2>
+                <div className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-6">
+                    <h2 className="text-sm font-medium text-slate-300">Business day closed</h2>
                     <dl className="space-y-1 text-sm">
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Z-Reading #</dt>
+                            <dt className="text-slate-400">Z-Reading #</dt>
                             <dd className="font-mono">{fiscalDayCloseResult.z_reading.totals_snapshot.z_counter}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Gross sales</dt>
+                            <dt className="text-slate-400">Gross sales</dt>
                             <dd className="font-mono font-semibold">₱{fiscalDayCloseResult.z_reading.totals_snapshot.gross_sales}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">VAT</dt>
+                            <dt className="text-slate-400">VAT</dt>
                             <dd className="font-mono">₱{fiscalDayCloseResult.z_reading.totals_snapshot.vat_amount}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Void total</dt>
+                            <dt className="text-slate-400">Void total</dt>
                             <dd className="font-mono">₱{fiscalDayCloseResult.z_reading.totals_snapshot.void_total}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-gray-500">Refund total</dt>
+                            <dt className="text-slate-400">Refund total</dt>
                             <dd className="font-mono">₱{fiscalDayCloseResult.z_reading.totals_snapshot.refund_total}</dd>
                         </div>
                     </dl>
-                    <Link to="/" className="block text-center text-sm text-gray-600 underline">
+                    <Link to="/" className="block text-center text-sm text-slate-400 underline">
                         Back to dashboard
                     </Link>
                 </div>
