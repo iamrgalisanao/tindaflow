@@ -152,8 +152,11 @@ Inventory sidebar gains **Counts** and **Transfers**.
 - Frontend built. Driven in the Browser pane against the real app with a **temporary mocked API** (removed afterwards;
   the pane was never signed in): start a count, add three products, edit one in place, post through the confirm dialog,
   the not-enrolled state, a second count on the same location, a transfer with the below-zero warning, the transfer
-  detail, and 375px width with no horizontal overflow on all three pages. **Not exercised against the real backend in a
-  browser.**
+  detail, and 375px width with no horizontal overflow on all three pages.
+- **2026-09-25 — exercised against the real backend, signed in as the admin.** Started and posted a stock count of two
+  products with a variance each (a third product left alone, uncounted); added a second location and moved stock to
+  it, then confirmed the transfer detail, the Stock page's per-location rows, and the movements ledger all agreed on
+  the same numbers. No defect found; no code changed.
 - Full regression and Pint: see the manifest's Stage 25 section for the counts.
 
 ## 10. Not built

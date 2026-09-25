@@ -95,8 +95,13 @@ shows "(5 x Case of 240)".
   `PackagingMath` in exact integer arithmetic; it agreed with the PHP on 16 of 16 sample values.
 
 Checked in a real browser against a temporary mocked API (removed afterwards; my browser pane is not signed in): the pack
-list, duplicate-name error, Enter-to-add, the receive preview and request body, and no horizontal overflow at 375 px. **A
-walk-through against the real backend with a signed-in session is still to do.**
+list, duplicate-name error, Enter-to-add, the receive preview and request body, and no horizontal overflow at 375 px.
+
+**2026-09-25 — walked through against the real backend, signed in as the admin.** Added a "Case" pack (24 units) to a
+product, then received 2 cases at ₱200.00 each through the pack-aware Receive-stock panel: the preview read "= 48 pc
+at ₱8.33 each" (200/24 rounded half up to the centavo, as specified), the after-balance and the posted movement's
+quantity (+48) both landed correctly, and the movement ledger's reason recorded "2.000 x Case (24.000 units each)"
+with the ₱200.00 case cost kept on the record. No defect found; no code changed.
 
 ## 6. Tests
 
