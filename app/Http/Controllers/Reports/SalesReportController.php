@@ -122,4 +122,25 @@ class SalesReportController extends Controller
             'gross_margin_percent', 'lines_with_unknown_cost',
         ]);
     }
+
+    public function grossProfitByProduct(Request $request, ReportQueryService $service): Response
+    {
+        $actor = Auth::guard('web')->user();
+        ['rows' => $rows, 'summary' => $summary] = $service->grossProfitByProduct($actor->store_id, $this->fromDate($request), $this->toDate($request));
+
+        return $this->reportResponse($request, ['from' => $request->query('from'), 'to' => $request->query('to')], $rows, $summary, [
+            'product_id', 'sku', 'product_name', 'quantity_sold', 'net_sales', 'cost_of_goods_sold',
+            'gross_profit', 'gross_margin_percent', 'lines_with_unknown_cost',
+        ]);
+    }
+
+    public function productVelocity(Request $request, ReportQueryService $service): Response
+    {
+        $actor = Auth::guard('web')->user();
+        ['rows' => $rows, 'summary' => $summary] = $service->productVelocity($actor->store_id, $this->fromDate($request), $this->toDate($request));
+
+        return $this->reportResponse($request, ['from' => $request->query('from'), 'to' => $request->query('to')], $rows, $summary, [
+            'product_id', 'sku', 'product_name', 'quantity_sold', 'transaction_count', 'net_sales', 'quantity_on_hand',
+        ]);
+    }
 }

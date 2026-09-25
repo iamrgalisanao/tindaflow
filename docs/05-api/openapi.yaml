@@ -1892,6 +1892,37 @@ paths:
         '200': {$ref: '#/components/responses/ReportOk'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+  # Stage 34 (2026-09-26), forward-committed wholly new Reports surface -- see
+  # docs/06-backend/stage-34-product-velocity-and-profit-by-product.md. Same shape/error surface as
+  # every other Reports operation above (no domain-specific failure mode, only 401/403).
+  /reports/gross-profit-by-product:
+    get:
+      operationId: reportGrossProfitByProduct
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: 'Gross Profit by Product (the same net sales/COGS/gross profit/margin computation as Gross Profit, grouped by product instead of business day. Voided sales excluded. Only products with at least one qualifying sale in the window appear -- see Product Velocity for a ranking that also includes never-sold products.)'
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/product-velocity:
+    get:
+      operationId: reportProductVelocity
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: 'Product Velocity (every product ranked by units sold across the date range, including products with zero sales -- the "identify fast/slow-moving items" report. No fast/slow threshold or label is computed server-side; this is a ranked list. quantity_on_hand is null for a product not tracked in the inventory ledger, never a misleading zero. Voided sales excluded from quantity_sold.)'
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /reports/inventory-on-hand:
     get:
       operationId: reportInventoryOnHand

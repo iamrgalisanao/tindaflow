@@ -531,4 +531,92 @@ class ReportsHttpTest extends PostgresSchemaTestCase
         $response->assertOk();
         $this->assertNull($response->json('rows.0.gross_margin_percent'));
     }
+
+    public function test_gross_profit_by_product_groups_by_product_instead_of_date(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store);
+        $product = Product::factory()->create(['store_id' => $store->id]);
+
+        $sale = $this->makeSale($shift);
+        SaleItem::factory()->create(['sale_id' => $sale->id, 'line_number' => 1, 'product_id' => $product->id, 'quantity' => '2.000', 'net_line_amount' => '100.00', 'unit_cost_snapshot' => '20.00']);
+
+        $voidedSale = $this->makeSale($shift, ['status' => 'VOIDED']);
+        SaleItem::factory()->create(['sale_id' => $voidedSale->id, 'product_id' => $product->id, 'net_line_amount' => '999.00', 'unit_cost_snapshot' => '1.00']);
+
+        $response = $this->forwardSessionCookie($this->login($admin))->getJson('/api/v1/reports/gross-profit-by-product');
+
+        $response->assertOk();
+        $rows = $response->json('rows');
+        $this->assertCount(1, $rows);
+        $this->assertSame($product->id, $rows[0]['product_id']);
+        $this->assertSame('2.000', $rows[0]['quantity_sold']);
+        $this->assertSame('100.00', $rows[0]['net_sales']);
+        $this->assertSame('40.00', $rows[0]['cost_of_goods_sold']);
+        $this->assertSame('60.00', $rows[0]['gross_profit']);
+        $this->assertSame('60.00', $rows[0]['gross_margin_percent']);
+    }
+
+    public function test_product_velocity_lists_a_never_sold_product_alongside_its_stock(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store);
+        $location = InventoryLocation::factory()->create(['store_id' => $store->id]);
+
+        // Named A/B/C (rather than the factory's random name) so the never-sold products' tie-break
+        // order below is deterministic, not a coincidence of faker's output this run.
+        $soldProduct = Product::factory()->create(['store_id' => $store->id, 'name' => 'A Sold Product']);
+        StockBalance::factory()->create(['product_id' => $soldProduct->id, 'location_id' => $location->id, 'quantity_on_hand' => '5.000']);
+        $sale = $this->makeSale($shift, ['sold_at' => '2026-06-01 10:00:00']);
+        SaleItem::factory()->create(['sale_id' => $sale->id, 'product_id' => $soldProduct->id, 'quantity' => '3.000', 'net_line_amount' => '150.00']);
+
+        $neverSoldProduct = Product::factory()->create(['store_id' => $store->id, 'name' => 'B Never Sold Product']);
+        StockBalance::factory()->create(['product_id' => $neverSoldProduct->id, 'location_id' => $location->id, 'quantity_on_hand' => '40.000']);
+
+        $untrackedProduct = Product::factory()->create(['store_id' => $store->id, 'name' => 'C Untracked Product', 'track_inventory' => false]);
+
+        $response = $this->forwardSessionCookie($this->login($admin))->getJson('/api/v1/reports/product-velocity?from=2026-06-01&to=2026-06-01');
+
+        $response->assertOk();
+        $byProduct = collect($response->json('rows'))->keyBy('product_id');
+        $this->assertCount(3, $byProduct);
+
+        $this->assertSame('3.000', $byProduct[$soldProduct->id]['quantity_sold']);
+        $this->assertSame(1, $byProduct[$soldProduct->id]['transaction_count']);
+        $this->assertSame('150.00', $byProduct[$soldProduct->id]['net_sales']);
+        $this->assertSame('5.000', $byProduct[$soldProduct->id]['quantity_on_hand']);
+
+        // The never-sold product still appears -- with real stock but zero sales, which is the
+        // whole point of this report (salesByProduct, an INNER JOIN, could never show it at all).
+        $this->assertSame('0.000', $byProduct[$neverSoldProduct->id]['quantity_sold']);
+        $this->assertSame(0, $byProduct[$neverSoldProduct->id]['transaction_count']);
+        $this->assertSame('0.00', $byProduct[$neverSoldProduct->id]['net_sales']);
+        $this->assertSame('40.000', $byProduct[$neverSoldProduct->id]['quantity_on_hand']);
+
+        // Untracked: no ledger, so null ("not tracked"), never "0.000" ("confirmed empty").
+        $this->assertNull($byProduct[$untrackedProduct->id]['quantity_on_hand']);
+
+        // Sorted fastest-first.
+        $this->assertSame([$soldProduct->id, $neverSoldProduct->id, $untrackedProduct->id], collect($response->json('rows'))->pluck('product_id')->all());
+    }
+
+    public function test_product_velocity_excludes_a_voided_sales_quantity(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store);
+        $product = Product::factory()->create(['store_id' => $store->id]);
+
+        $voidedSale = $this->makeSale($shift, ['status' => 'VOIDED']);
+        SaleItem::factory()->create(['sale_id' => $voidedSale->id, 'product_id' => $product->id, 'quantity' => '99.000', 'net_line_amount' => '999.00']);
+
+        $response = $this->forwardSessionCookie($this->login($admin))->getJson('/api/v1/reports/product-velocity');
+
+        $response->assertOk();
+        $row = collect($response->json('rows'))->firstWhere('product_id', $product->id);
+        $this->assertSame('0.000', $row['quantity_sold']);
+        $this->assertSame(0, $row['transaction_count']);
+    }
 }

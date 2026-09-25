@@ -129,23 +129,107 @@ final class ReportQueryService
             ->orderBy('fiscal_days.business_date')
             ->get();
 
-        $mapped = $rows->map(function ($row) {
-            $netSales = Money::fromApiString($this->money($row->net_sales));
-            $cogs = Money::fromApiString($this->money($row->cost_of_goods_sold));
-            $grossProfit = $netSales->subtract($cogs);
-
-            return [
-                'business_date' => $row->business_date,
-                'transaction_count' => (int) $row->transaction_count,
-                'net_sales' => $netSales->toApiString(),
-                'cost_of_goods_sold' => $cogs->toApiString(),
-                'gross_profit' => $grossProfit->toApiString(),
-                'gross_margin_percent' => $this->marginPercent($grossProfit, $netSales),
-                'lines_with_unknown_cost' => (int) $row->lines_with_unknown_cost,
-            ];
-        })->all();
+        $mapped = $rows->map(fn ($row) => array_merge(
+            ['business_date' => $row->business_date, 'transaction_count' => (int) $row->transaction_count],
+            $this->profitFigures($row->net_sales, $row->cost_of_goods_sold, $row->lines_with_unknown_cost),
+        ))->all();
 
         return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['net_sales', 'cost_of_goods_sold', 'gross_profit'])];
+    }
+
+    /**
+     * Stage 34: the same net sales / COGS / gross profit computation as grossProfit() above, grouped
+     * by product instead of business date -- the natural per-product breakdown flagged as a follow-on
+     * when that report shipped. Only products with at least one qualifying sale line appear (unlike
+     * productVelocity() below, a product with zero sales has no profit figure to show).
+     *
+     * @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>}
+     */
+    public function grossProfitByProduct(string $storeId, ?Carbon $from, ?Carbon $to): array
+    {
+        $rows = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->where('sales.store_id', $storeId)
+            ->where('sales.status', '!=', 'VOIDED')
+            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
+            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->selectRaw('sale_items.product_id as product_id, products.sku as sku, products.name as product_name')
+            ->selectRaw('SUM(sale_items.quantity) as quantity_sold')
+            ->selectRaw('SUM(sale_items.net_line_amount) as net_sales')
+            ->selectRaw('SUM(ROUND(COALESCE(sale_items.unit_cost_snapshot, 0) * sale_items.quantity, 2)) as cost_of_goods_sold')
+            ->selectRaw('COUNT(*) FILTER (WHERE sale_items.unit_cost_snapshot IS NULL) as lines_with_unknown_cost')
+            ->groupBy('sale_items.product_id', 'products.sku', 'products.name')
+            ->orderByDesc('net_sales')
+            ->get();
+
+        $mapped = $rows->map(fn ($row) => array_merge(
+            ['product_id' => $row->product_id, 'sku' => $row->sku, 'product_name' => $row->product_name, 'quantity_sold' => $this->quantity($row->quantity_sold)],
+            $this->profitFigures($row->net_sales, $row->cost_of_goods_sold, $row->lines_with_unknown_cost),
+        ))->all();
+
+        return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['net_sales', 'cost_of_goods_sold', 'gross_profit'])];
+    }
+
+    /**
+     * Stage 34: every product ranked by units sold in the window, **including products with zero
+     * sales** -- the true "identify fast/slow-moving items" answer (per the Qtech comparison) needs
+     * the zero-sale, still-in-stock products at the bottom, not just a re-sort of salesByProduct
+     * (which, being an INNER JOIN through sale_items, can only ever list products that sold at least
+     * once). `products` is the driving table; `sale_items`/`sales` are LEFT JOINed with the date/
+     * status filters in the JOIN condition, not a WHERE clause -- a WHERE would silently drop every
+     * zero-sale product's now-NULL sales columns from a null-vs-value comparison, which is exactly
+     * the bug this design avoids. No fast/slow threshold or label is invented here (the standing
+     * "do not invent unsupported business rules" directive): the report is a ranked list, in the same
+     * spirit as lowStock's own "a display convention, not a business rule" tiering -- the caller
+     * decides what counts as fast or slow.
+     *
+     * @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>}
+     */
+    public function productVelocity(string $storeId, ?Carbon $from, ?Carbon $to): array
+    {
+        $rows = DB::table('products')
+            ->where('products.store_id', $storeId)
+            ->leftJoin('sale_items', 'sale_items.product_id', '=', 'products.id')
+            ->leftJoin('sales', function ($join) use ($from, $to) {
+                $join->on('sales.id', '=', 'sale_items.sale_id')->where('sales.status', '!=', 'VOIDED');
+                if ($from) {
+                    $join->where('sales.sold_at', '>=', $from);
+                }
+                if ($to) {
+                    $join->where('sales.sold_at', '<=', $to);
+                }
+            })
+            ->leftJoinSub(
+                DB::table('stock_balances')->selectRaw('product_id, SUM(quantity_on_hand) as quantity_on_hand')->groupBy('product_id'),
+                'stock',
+                'stock.product_id',
+                '=',
+                'products.id',
+            )
+            ->selectRaw('products.id as product_id, products.sku as sku, products.name as product_name, products.track_inventory as track_inventory')
+            ->selectRaw('COALESCE(SUM(CASE WHEN sales.id IS NOT NULL THEN sale_items.quantity ELSE 0 END), 0) as quantity_sold')
+            ->selectRaw('COUNT(DISTINCT sales.id) as transaction_count')
+            ->selectRaw('COALESCE(SUM(CASE WHEN sales.id IS NOT NULL THEN sale_items.net_line_amount ELSE 0 END), 0) as net_sales')
+            ->selectRaw('stock.quantity_on_hand as quantity_on_hand')
+            ->groupBy('products.id', 'products.sku', 'products.name', 'products.track_inventory', 'stock.quantity_on_hand')
+            ->orderByDesc('quantity_sold')
+            ->orderBy('products.name') // deterministic tie-break, e.g. between two never-sold products
+            ->get();
+
+        $mapped = $rows->map(fn ($row) => [
+            'product_id' => $row->product_id,
+            'sku' => $row->sku,
+            'product_name' => $row->product_name,
+            'quantity_sold' => $this->quantity($row->quantity_sold),
+            'transaction_count' => (int) $row->transaction_count,
+            'net_sales' => $this->money($row->net_sales),
+            // Untracked (track_inventory = false): no ledger exists, so this is null ("not tracked"),
+            // never 0 ("confirmed empty") -- the same distinction lowStock/inventoryOnHand already draw.
+            'quantity_on_hand' => $row->track_inventory ? $this->quantity($row->quantity_on_hand) : null,
+        ])->all();
+
+        return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['net_sales'])];
     }
 
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
@@ -578,9 +662,46 @@ final class ReportQueryService
         return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['variance'])];
     }
 
+    /**
+     * Normalizes any numeric SQL result to Money's required exactly-2-decimal shape before
+     * constructing it. Most aggregates here SUM an already-2dp NUMERIC column, so the raw value is
+     * already "123.45" -- but a bare integer literal in a COALESCE (e.g. productVelocity()'s
+     * `COALESCE(SUM(CASE ... ELSE 0 END), 0)` when a product has zero matching rows) comes back as
+     * plain "0", which Money::fromApiString() rejects outright. bcadd(..., '0', 2) is a safe
+     * normalization, never a real rounding, because every underlying column here is already exact
+     * to 2 decimal places.
+     */
+    /** The quantity equivalent of money(): normalizes a raw SQL numeric to the app's 3-decimal quantity shape ("2.000"), so a bare "0" from a COALESCE fallback reads the same as a real SUM over a NUMERIC(10,3) column. */
+    private function quantity(mixed $rawSum): string
+    {
+        return bcadd((string) ($rawSum ?? '0'), '0', 3);
+    }
+
     private function money(mixed $rawSum): string
     {
-        return Money::fromApiString((string) ($rawSum ?? '0.00'))->toApiString();
+        return Money::fromApiString(bcadd((string) ($rawSum ?? '0'), '0', 2))->toApiString();
+    }
+
+    /**
+     * The four net_sales/cost_of_goods_sold/gross_profit/gross_margin_percent/lines_with_unknown_cost
+     * fields both grossProfit() and grossProfitByProduct() compute identically, once each row's own
+     * grouping key (business_date or product_id) is merged in by the caller.
+     *
+     * @return array{net_sales: string, cost_of_goods_sold: string, gross_profit: string, gross_margin_percent: ?string, lines_with_unknown_cost: int}
+     */
+    private function profitFigures(mixed $rawNetSales, mixed $rawCogs, mixed $rawUnknownCostLines): array
+    {
+        $netSales = Money::fromApiString($this->money($rawNetSales));
+        $cogs = Money::fromApiString($this->money($rawCogs));
+        $grossProfit = $netSales->subtract($cogs);
+
+        return [
+            'net_sales' => $netSales->toApiString(),
+            'cost_of_goods_sold' => $cogs->toApiString(),
+            'gross_profit' => $grossProfit->toApiString(),
+            'gross_margin_percent' => $this->marginPercent($grossProfit, $netSales),
+            'lines_with_unknown_cost' => (int) $rawUnknownCostLines,
+        ];
     }
 
     /**
