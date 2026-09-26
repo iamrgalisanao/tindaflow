@@ -362,3 +362,37 @@ readings; with PostgreSQL stopped the failure was logged every minute, exactly o
 `ALERT_COMMAND`, and `backup` went unhealthy after about 4 minutes with the reason in its health output; restarting
 PostgreSQL brought it back to healthy with a recovery alert. The stack was then removed.
 
+## Addendum 2026-09-27 (3) — an expired session is a clean 401 and a sign-in dialog, not a dead end
+
+Chosen by the architect review as a new risk: a till left idle past `SESSION_LIFETIME` (120 minutes, database driver) meets it
+on the first morning of a pilot.
+
+**What a till saw.** CSRF is checked before authentication in the `web` group, and an expired session has lost both its
+session cookie and its XSRF token (or names a session the server has swept), so the next write was rejected as Laravel's
+bare `419 {"message":"CSRF token mismatch."}`, outside the error envelope. The till showed "Checkout failed." (the fallback
+text) with no way forward, and reloading lost the basket. Confirmed by a test against the real app with CSRF enforcement on
+(`APP_ENV=testing` bypasses it).
+
+**Backend.** `bootstrap/app.php` renders a 419 as the existing `401 AUTHENTICATION_REQUIRED` envelope (with `request_id`) when
+the request has no signed-in user and is not the login request. Module A Decision Register §13 already says every expired or
+absent session converges on that code, so no error code is added and the frozen corpus is untouched. Two 419s are deliberately
+kept: a signed-in user with a wrong token (a genuine CSRF failure) and the login request without a token.
+
+**Frontend.** `apiFetch` fires a `tindaflow:session-expired` event on any 401 outside `/auth/*`. `AuthContext` raises a flag
+only if a user was signed in, and `SessionExpiredDialog` (mounted above the routes) asks for the password over the current
+screen with the email prefilled. Nothing behind it unmounts, so a basket, a cash count or an unsaved form is exactly as it was.
+After signing in the cashier presses the button again; a sale's idempotency key was dropped on the 401 because nothing was
+saved. Signing in as a **different** user goes to the dashboard, because the open shift belongs to the previous user. Wrong
+password, throttling (429) and an unreachable server each show their own message; "Sign out instead" is offered.
+
+**Verified** in a real browser against a scratch database with database sessions: a two-item basket at the payment step, the
+session row deleted on the server, Complete sale answered 401 and the dialog appeared with the order summary still behind it;
+a wrong password was refused; the right one closed the dialog with the basket intact; pressing Complete sale again produced
+exactly one sale, one invoice number (000001) and the right total; signing in as the admin from the dialog went to the
+dashboard. Tests: `SessionExpiryHttpTest` (5; three fail on the old code). There is no automated frontend test (Vitest needs
+your approval to add), so the dialog was verified by driving the browser.
+
+**Watch items, not changed:** session lifetime stays 120 minutes (ask only if the pilot shows the dialog firing too often);
+sessions, cache and `idempotency_records` live in the database and nothing prunes them on a schedule (Laravel's session
+lottery sweeps sessions; the other two grow slowly), so revisit after the pilot.
+

@@ -7,6 +7,13 @@
  * this file only ever reads it back and echoes it as the required header.
  */
 
+/**
+ * Fired on window when a request outside /auth/* is answered 401: the session has expired (a till left idle past
+ * SESSION_LIFETIME). AuthContext turns it into a sign-in dialog laid OVER the current screen, so a basket or an
+ * unsaved form is not lost to a redirect.
+ */
+export const SESSION_EXPIRED_EVENT = 'tindaflow:session-expired';
+
 function xsrfToken() {
     const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
     return match ? decodeURIComponent(match[1]) : null;
@@ -47,6 +54,11 @@ export async function apiFetch(path, options = {}) {
 
     const text = await response.text();
     const body = text ? JSON.parse(text) : null;
+
+    // /auth/* answers 401 for ordinary reasons (the boot-time /auth/me of a signed-out visitor, a wrong password).
+    if (response.status === 401 && !path.startsWith('/api/v1/auth/')) {
+        window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+    }
 
     // The server answers 409 CONCURRENCY_CONFLICT when the database rolled a request back because it lost a race with
     // another one (a deadlock), or when the same Idempotency-Key is still being processed. Nothing was saved, and a write

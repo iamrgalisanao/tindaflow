@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { apiFetch } from '../api';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { apiFetch, SESSION_EXPIRED_EVENT } from '../api';
 
 const AuthContext = createContext(null);
 
@@ -12,10 +12,32 @@ const AuthContext = createContext(null);
  */
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(undefined); // undefined = still checking, null = signed out
+    // True while a signed-in user's session has expired: SessionExpiredDialog asks for the password over the current screen.
+    const [sessionExpired, setSessionExpired] = useState(false);
+    const signedIn = useRef(false);
+
+    useEffect(() => {
+        signedIn.current = Boolean(user);
+    }, [user]);
+
+    // Only a user who WAS signed in can have a session expire; a visitor who never signed in just gets the login page.
+    useEffect(() => {
+        const onExpired = () => {
+            if (signedIn.current) {
+                setSessionExpired(true);
+            }
+        };
+        window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+
+        return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    }, []);
 
     const refresh = useCallback(async () => {
         const { ok, body } = await apiFetch('/api/v1/auth/me');
         setUser(ok ? body : null);
+        if (!ok) {
+            setSessionExpired(false);
+        }
     }, []);
 
     useEffect(() => {
@@ -25,10 +47,11 @@ export function AuthProvider({ children }) {
     const logout = useCallback(async () => {
         await apiFetch('/api/v1/auth/logout', { method: 'POST' });
         setUser(null);
+        setSessionExpired(false);
     }, []);
 
     return (
-        <AuthContext.Provider value={{ user, setUser, refresh, logout }}>
+        <AuthContext.Provider value={{ user, setUser, refresh, logout, sessionExpired, setSessionExpired }}>
             {children}
         </AuthContext.Provider>
     );

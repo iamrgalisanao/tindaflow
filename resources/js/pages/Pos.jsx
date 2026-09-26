@@ -61,7 +61,13 @@ function settleAttempt(attempts, scope, result) {
 
 const CONNECTION_DROPPED = 'The connection dropped, so this may already have been recorded. Press the button again: it will not be applied twice.';
 
+const SESSION_EXPIRED = 'Your session expired. Sign in again, then press the button again: nothing on this screen is lost.';
+
 function failureText(result, fallback) {
+    if (result.status === 401) {
+        return SESSION_EXPIRED;
+    }
+
     return result.status === 0 || result.status === 502 ? CONNECTION_DROPPED : (result.body?.error?.message ?? fallback);
 }
 

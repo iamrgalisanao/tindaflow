@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import NotFound from './pages/NotFound';
+import SessionExpiredDialog from './pages/SessionExpiredDialog';
 import Pos from './pages/Pos';
 import TerminalsPage from './pages/admin/TerminalsPage';
 import StoreSetupOverview from './pages/admin/StoreSetupOverview';
@@ -343,6 +344,7 @@ export default function AppRouter() {
                     }
                 />
             </Routes>
+            <SessionExpiredDialog />
         </AuthProvider>
     );
 }

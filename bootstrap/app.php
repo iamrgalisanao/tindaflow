@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -85,6 +86,32 @@ return Application::configure(basePath: dirname(__DIR__))
                 'error' => [
                     'code' => 'AUTHENTICATION_REQUIRED',
                     'message' => $e->getMessage(),
+                    'details' => [],
+                    'request_id' => $request->attributes->get('request_id'),
+                ],
+            ], 401);
+        });
+
+        // An expired session fails CSRF BEFORE it can fail authentication: the session cookie and its XSRF token are
+        // both gone (or name a session the server has swept), so the browser's next write is rejected as a bare 419
+        // outside the error envelope, and the till can only say "failed". CSRF runs ahead of `auth` in the web group, so
+        // that is what every till sees when it is left idle past SESSION_LIFETIME. Module A Decision Register section 13
+        // already says every expired or absent session converges on AUTHENTICATION_REQUIRED, so a 419 from a request that
+        // has no signed-in user is exactly that (no SESSION_EXPIRED code is invented). The two 419s that are NOT a stale
+        // session stay 419: a signed-in user with a wrong token (a real CSRF failure), and the login request itself
+        // without a token (the browser has not bootstrapped one).
+        $exceptions->render(function (HttpException $e, Request $request) {
+            if ($e->getStatusCode() !== 419 || ! $request->is('api/*') || $request->is('api/v1/auth/login')) {
+                return null;
+            }
+            if ($request->user() !== null) {
+                return null;
+            }
+
+            return response()->json([
+                'error' => [
+                    'code' => 'AUTHENTICATION_REQUIRED',
+                    'message' => 'Your session has expired. Sign in again.',
                     'details' => [],
                     'request_id' => $request->attributes->get('request_id'),
                 ],
