@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { formatBusinessDate, isStaleBusinessDay } from '../../../lib/businessDay';
 import AdminLayout from '../AdminLayout';
 import { ErrorAlert, Pager } from '../catalog/CatalogParts';
 import { failureMessage } from '../catalog/catalogApi';
@@ -93,6 +94,9 @@ export default function FiscalDaysPage() {
                                 <span className="w-16 shrink-0">
                                     <DayStatusBadge status={day.status} />
                                 </span>
+                                {day.status === 'OPEN' && isStaleBusinessDay(day.business_date) && (
+                                    <span className="text-[12px] font-medium text-amber-300">still open, not closed since {formatBusinessDate(day.business_date)}</span>
+                                )}
                                 <span className="font-mono text-[12px] text-slate-400" title={day.terminal_id}>
                                     terminal {shortId(day.terminal_id)}
                                 </span>

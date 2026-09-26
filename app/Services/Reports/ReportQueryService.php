@@ -4,6 +4,7 @@ namespace App\Services\Reports;
 
 use App\Domain\Money;
 use App\Services\Payments\NetCollectionService;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -29,8 +30,7 @@ final class ReportQueryService
             ->join('fiscal_days', 'fiscal_days.id', '=', 'sales.fiscal_day_id')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->selectRaw('fiscal_days.business_date as business_date')
             ->selectRaw('SUM(sales.subtotal) as gross_sales')
             ->selectRaw('SUM(sales.discount_total) as discount_total')
@@ -76,8 +76,7 @@ final class ReportQueryService
         $rows = DB::table('sales')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->selectRaw('EXTRACT(HOUR FROM sales.sold_at)::int as hour')
             ->selectRaw('COUNT(*) as transaction_count')
             ->selectRaw('SUM(sales.subtotal) as gross_sales')
@@ -121,8 +120,7 @@ final class ReportQueryService
             ->join('fiscal_days', 'fiscal_days.id', '=', 'sales.fiscal_day_id')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->selectRaw('fiscal_days.business_date as business_date')
             ->selectRaw('COUNT(DISTINCT sales.id) as transaction_count')
             ->selectRaw('SUM(sale_items.net_line_amount) as net_sales')
@@ -155,8 +153,7 @@ final class ReportQueryService
             ->join('products', 'products.id', '=', 'sale_items.product_id')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->selectRaw('sale_items.product_id as product_id, products.sku as sku, products.name as product_name')
             ->selectRaw('SUM(sale_items.quantity) as quantity_sold')
             ->selectRaw('SUM(sale_items.net_line_amount) as net_sales')
@@ -190,8 +187,7 @@ final class ReportQueryService
             ->leftJoin('categories', 'categories.id', '=', 'products.category_id')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->selectRaw('products.category_id as category_id, categories.name as category_name')
             ->selectRaw('SUM(sale_items.quantity) as quantity_sold')
             ->selectRaw('SUM(sale_items.net_line_amount) as net_sales')
@@ -229,15 +225,19 @@ final class ReportQueryService
         $rows = DB::table('products')
             ->where('products.store_id', $storeId)
             ->leftJoin('sale_items', 'sale_items.product_id', '=', 'products.id')
-            ->leftJoin('sales', function ($join) use ($from, $to) {
-                $join->on('sales.id', '=', 'sale_items.sale_id')->where('sales.status', '!=', 'VOIDED');
-                if ($from) {
-                    $join->where('sales.sold_at', '>=', $from);
-                }
-                if ($to) {
-                    $join->where('sales.sold_at', '<=', $to);
-                }
-            })
+            // The window is applied INSIDE the join, not in a WHERE: a never-sold product must still be listed (that is the
+            // report's point), and a WHERE on sales/fiscal_days would drop it. The business-day filter needs fiscal_days,
+            // so the sales side is a small subquery that carries it.
+            ->leftJoinSub(
+                DB::table('sales')
+                    ->where('sales.status', '!=', 'VOIDED')
+                    ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
+                    ->select('sales.id'),
+                'sales',
+                'sales.id',
+                '=',
+                'sale_items.sale_id',
+            )
             ->leftJoinSub(
                 DB::table('stock_balances')->selectRaw('product_id, SUM(quantity_on_hand) as quantity_on_hand')->groupBy('product_id'),
                 'stock',
@@ -276,8 +276,7 @@ final class ReportQueryService
         $rows = DB::table('sales')
             ->leftJoin('invoices', 'invoices.sale_id', '=', 'sales.id')
             ->where('sales.store_id', $storeId)
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->select([
                 'sales.sold_at', 'invoices.invoice_number', 'sales.transaction_number',
                 'sales.terminal_id', 'sales.cashier_id', 'sales.subtotal',
@@ -309,8 +308,7 @@ final class ReportQueryService
             ->join('products', 'products.id', '=', 'sale_items.product_id')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->when($productId, fn ($q) => $q->where('sale_items.product_id', $productId))
             ->selectRaw('sale_items.product_id as product_id, products.sku as sku, products.name as product_name')
             ->selectRaw('SUM(sale_items.quantity) as quantity_sold')
@@ -343,8 +341,7 @@ final class ReportQueryService
             ->leftJoin('categories', 'categories.id', '=', 'products.category_id')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->when($categoryId, fn ($q) => $q->where('products.category_id', $categoryId))
             ->selectRaw('products.category_id as category_id, categories.name as category_name')
             ->selectRaw('SUM(sale_items.quantity) as quantity_sold')
@@ -371,8 +368,7 @@ final class ReportQueryService
         $sales = DB::table('sales')
             ->join('users', 'users.id', '=', 'sales.cashier_id')
             ->where('sales.store_id', $storeId)
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->when($cashierId, fn ($q) => $q->where('sales.cashier_id', $cashierId))
             ->selectRaw('sales.cashier_id as cashier_id, users.name as cashier_name')
             ->selectRaw('COUNT(*) as transaction_count')
@@ -404,8 +400,7 @@ final class ReportQueryService
             ->join('sales', 'sales.id', '=', 'payments.sale_id')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to)));
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to)));
 
         $mapped = collect($collected['totals'])
             ->map(fn (Money $total, string $method) => [
@@ -427,8 +422,7 @@ final class ReportQueryService
             ->join('fiscal_days', 'fiscal_days.id', '=', 'sales.fiscal_day_id')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->selectRaw('fiscal_days.business_date as business_date')
             ->selectRaw('SUM(sales.taxable_sales) as taxable_sales')
             ->selectRaw('SUM(sales.vat_exempt_sales) as vat_exempt_sales')
@@ -534,8 +528,7 @@ final class ReportQueryService
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
             ->where('sales.discount_total', '>', 0)
-            ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->selectRaw('sales.id as sale_id, sales.sold_at, invoices.invoice_number')
             ->selectRaw('COALESCE(SUM(sale_items.line_discount_amount), 0.00) as line_discount_total')
             ->selectRaw('MAX(sales.order_level_discount_amount) as order_discount_total')
@@ -710,6 +703,32 @@ final class ReportQueryService
      * to 2 decimal places.
      */
     /** The quantity equivalent of money(): normalizes a raw SQL numeric to the app's 3-decimal quantity shape ("2.000"), so a bare "0" from a COALESCE fallback reads the same as a real SUM over a NUMERIC(10,3) column. */
+    /**
+     * Restricts a query over `sales` to the business days in [$from, $to] (inclusive dates). A sale belongs to the
+     * business day of the fiscal day it was rung in (`sales.fiscal_day_id`), never to the calendar date of `sold_at`:
+     * a shop that trades past midnight, or one that has not yet closed yesterday's day, would otherwise have those
+     * sales reported under the wrong date (invariants.md #9). `business_date` is already the store's local date, and
+     * `$from`/`$to` are parsed in the same zone, so the comparison is on plain dates. Joins `fiscal_days` unless the
+     * query already has, and does nothing for an unbounded report.
+     */
+    private function withinBusinessDays(Builder $query, ?Carbon $from, ?Carbon $to): void
+    {
+        if ($from === null && $to === null) {
+            return;
+        }
+
+        if (! collect($query->joins ?? [])->contains(fn ($join) => $join->table === 'fiscal_days')) {
+            $query->join('fiscal_days', 'fiscal_days.id', '=', 'sales.fiscal_day_id');
+        }
+
+        if ($from !== null) {
+            $query->where('fiscal_days.business_date', '>=', $from->toDateString());
+        }
+        if ($to !== null) {
+            $query->where('fiscal_days.business_date', '<=', $to->toDateString());
+        }
+    }
+
     private function quantity(mixed $rawSum): string
     {
         return bcadd((string) ($rawSum ?? '0'), '0', 3);

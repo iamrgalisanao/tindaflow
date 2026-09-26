@@ -131,3 +131,39 @@ method collected, net of the change handed back, using the same rule as the shif
 CASH tender first, then off any over-tendered non-cash payment, last listed first. `transaction_count` is unchanged (a
 sale paid with two methods counts once under each), and so is the row ordering (largest total first). The decision and its
 scope are in `stage-9-shift-close-fiscal-day-close.md`, section 8.
+
+## Addendum 2026-09-27 — sales reports are windowed by business day, not by `sold_at`
+
+The invariant audit ([invariant-test-coverage.md](../02-domain/invariant-test-coverage.md), finding 4) found that 13 of the
+sales reports filtered on `sales.sold_at`, while three of them then grouped by `fiscal_days.business_date`. A shop that
+trades past midnight, or has not yet closed yesterday's fiscal day, therefore saw a sale under a different date from the
+one its own Z-reading used, and a report for the business day missed it. Invariant #9 says the fiscal-day foreign key is
+the only source of truth for which day a sale belongs to.
+
+**Decision.** `ReportQueryService::withinBusinessDays()` restricts every sales-attributed report to
+`fiscal_days.business_date` between `from` and `to` (the contract already says these are inclusive dates, YYYY-MM-DD, so
+no API or schema text changes). It joins `fiscal_days` unless the query already has, and does nothing for an unbounded
+report. Affected: daily sales summary, sales by hour, gross profit (all three), product velocity, sales by date range,
+by product, by category, by cashier, by payment method, tax breakdown and discounts. Choices:
+
+- **Sales by hour** filters by business day but still buckets by the hour of `sold_at`, so a 00:30 sale appears under
+  its own business day at hour 0.
+- **Product velocity** applies the window inside the join (a small `sales` subquery that carries `fiscal_days`), so a
+  product that did not sell in the window is still listed.
+- **Voids and refunds stay on `requested_at`.** A void or refund that is only requested has no fiscal day yet (the
+  processing context is set at execution, invariants #67-#69), and those reports exist to show every status, so joining on
+  the reversal's own fiscal day would hide the pending ones. They are event listings, not sales attribution.
+- **Shifts, cash variance and inventory movement stay on their own timestamps**; they are not sale attribution.
+- No migration: every sale already carries a non-null `fiscal_day_id`; old reports simply re-bucket.
+
+**Stale business day notice (till and Fiscal Days screen).** The frozen state machine lets a fiscal day stay open on
+purpose (a store may trade past midnight), and `CheckoutService` attributes a sale to whichever day is open with no date
+check, so a shop that forgets the Z-close keeps selling into the old day. Blocking or auto-closing needs a policy the owner
+has not set; a notice does not. The till now shows an amber notice when the open business day is dated before today, and
+the Fiscal Days list marks such a day "still open, not closed since <date>". It never blocks a sale. The till reads the
+date from the existing `fiscalDayGet` (session-only), so there is no API change.
+
+Tests: `ReportsHttpTest` (4 new, plus 4 existing tests given fiscal days dated 2026-06-01, which they previously passed
+only because the window was `sold_at`). Verified in a browser against a scratch database: a sale rung into a day backdated
+to yesterday was reported under yesterday by three reports and not under today, and both notices appeared.
+

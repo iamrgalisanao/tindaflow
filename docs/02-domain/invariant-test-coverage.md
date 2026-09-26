@@ -24,7 +24,7 @@ Items marked **verified** were re-checked by hand after the audit; the rest are 
 
 Ranked by consequence. Each is a real difference between what `invariants.md` promises and what the repository does.
 
-> **Update 2026-09-27.** Findings 1 and 2 are fixed (see the notes under each). The verdict tables below show the audit as
+> **Update 2026-09-27.** Findings 1, 2 and 4 are fixed (see the notes under each). The verdict tables below show the audit as
 > it stood before the fixes.
 
 1. **The append-only hardening script would break void and refund (#48, #45, #23, #60, #76, #77). Verified.**
@@ -69,6 +69,8 @@ Ranked by consequence. Each is a real difference between what `invariants.md` pr
 4. **Reports select by `sold_at`, not by fiscal day (#9). Verified.** `ReportQueryService` filters on
    `sales.sold_at` while grouping by `fiscal_days.business_date`, so a sale made after midnight in fiscal day D is missed by a
    report run for day D. The invariant says the foreign key is the only source of truth.
+   **Fixed 2026-09-27**: the sales reports now window by `fiscal_days.business_date`, and the till and Fiscal Days screen warn
+   about a day left open past midnight. See [stage-10-reports.md](../06-backend/stage-10-reports.md), addendum.
 5. **`SHIFT_OPENED` is never journaled (#49). Verified.** It is in the journal's event-type list but no service writes
    it. The invariant lists shift open as journalable and calls an omission "a bug". Five other event types
    (`X_READING`, `Z_READING`, `SHIFT_CLOSED`, `CASH_IN`, `CASH_OUT`) are written but have no test.

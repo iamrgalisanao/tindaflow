@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { formatBusinessDate, isStaleBusinessDay } from '../lib/businessDay';
 import { usePrintFrame } from '../lib/usePrintFrame';
 import { request } from './admin/catalog/catalogApi';
 import { ConfirmDialog } from './admin/catalog/CatalogParts';
@@ -101,6 +102,7 @@ export default function Pos() {
     const view = sub === '' ? 'register' : receiptId !== null ? 'receipt' : sub;
     const goToView = (key) => navigate(key === 'register' ? '/pos' : `/pos/${key}`);
     const [terminalCode, setTerminalCode] = useState(null);
+    const [businessDate, setBusinessDate] = useState(null); // YYYY-MM-DD of the fiscal day this shift belongs to
 
     const [openingCash, setOpeningCash] = useState('');
     const [openingBusy, setOpeningBusy] = useState(false);
@@ -179,6 +181,8 @@ export default function Pos() {
             setShift(body);
             // Only labels the header; the till works without it.
             apiFetch('/api/v1/terminal/current').then((current) => current.ok && setTerminalCode(current.body.terminal_code));
+            // Only feeds the stale-business-day notice; the till works without it. fiscalDayGet needs the session only.
+            request(`/api/v1/fiscal-days/${body.fiscal_day_id}`).then((day) => day.ok && setBusinessDate(day.body.business_date));
             // shiftCurrentGet resolves the TERMINAL's open shift, not this cashier's: filtering by
             // terminal alone happily returns a shift another cashier left open here. CheckoutService
             // checks terminal AND cashier and rejects that case -- but only at finalisation, which
@@ -272,6 +276,7 @@ export default function Pos() {
         settleAttempt(attempts, 'open-shift', result);
         if (result.ok) {
             setShift(result.body.shift);
+            setBusinessDate(result.body.fiscal_day?.business_date ?? null);
             await checkReadiness();
         } else {
             setError(failureText(result, 'Could not open a shift.'));
@@ -674,6 +679,13 @@ export default function Pos() {
             )}
 
             {error && <p className="mx-4 mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
+
+            {isStaleBusinessDay(businessDate) && (
+                <p role="status" className="mx-4 mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+                    Business day <strong>{formatBusinessDate(businessDate)}</strong> is still open, so sales are being recorded under that date. A manager
+                    needs to close it (Z-reading) after the last shift, unless you are trading past midnight.
+                </p>
+            )}
 
             {step === 'open-shift' && (
                 <form onSubmit={openShift} className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-6">

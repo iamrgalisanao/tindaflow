@@ -85,11 +85,102 @@ class ReportsHttpTest extends PostgresSchemaTestCase
         $response->assertJson(['error' => ['code' => 'AUTHENTICATION_REQUIRED']]);
     }
 
+    /** The date-windowed reports that attribute sales to a business day, with the field that proves a sale is in one. */
+    private const WINDOWED_SALES_REPORTS = [
+        'daily-sales-summary', 'sales-by-hour', 'gross-profit', 'gross-profit-by-product', 'gross-profit-by-category',
+        'product-velocity', 'sales-by-date-range', 'sales-by-product', 'sales-by-category', 'sales-by-cashier',
+        'sales-by-payment-method', 'tax-breakdown', 'discounts',
+    ];
+
+    /** How many sales a report row set accounts for: product-velocity lists never-sold products too, so it is measured by quantity sold. */
+    private function salesSeen(string $report, array $rows): int
+    {
+        if ($report === 'product-velocity') {
+            return (int) collect($rows)->sum(fn (array $row) => (float) $row['quantity_sold']);
+        }
+
+        return count($rows);
+    }
+
+    /**
+     * invariants.md #9: a sale belongs to the business day of its fiscal day, never to the calendar date of sold_at.
+     * This sale is rung at 00:30 on 2 June inside the fiscal day dated 1 June (a shop trading past midnight), so every
+     * report windowed on 1 June must include it and every report windowed on 2 June must not.
+     */
+    public function test_a_sale_rung_after_midnight_belongs_to_the_business_day_it_was_opened_in(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store, '2026-06-01');
+        $product = Product::factory()->create(['store_id' => $store->id]);
+        $sale = $this->makeSale($shift, ['sold_at' => '2026-06-02 00:30:00', 'subtotal' => '100.00', 'discount_total' => '10.00', 'grand_total' => '90.00']);
+        SaleItem::factory()->create(['sale_id' => $sale->id, 'product_id' => $product->id, 'quantity' => '1.000', 'net_line_amount' => '90.00', 'line_discount_amount' => '10.00']);
+        Payment::factory()->create(['sale_id' => $sale->id, 'method' => 'CASH', 'amount' => '90.00']);
+        $session = $this->forwardSessionCookie($this->login($admin));
+
+        foreach (self::WINDOWED_SALES_REPORTS as $report) {
+            $onItsBusinessDay = $session->getJson("/api/v1/reports/{$report}?from=2026-06-01&to=2026-06-01");
+            $onTheCalendarDate = $session->getJson("/api/v1/reports/{$report}?from=2026-06-02&to=2026-06-02");
+
+            $onItsBusinessDay->assertOk();
+            $onTheCalendarDate->assertOk();
+            $this->assertGreaterThan(0, $this->salesSeen($report, $onItsBusinessDay->json('rows')), "{$report} must include the sale on the business day it was opened in");
+            $this->assertSame(0, $this->salesSeen($report, $onTheCalendarDate->json('rows')), "{$report} must not report the sale under the calendar date of sold_at");
+        }
+    }
+
+    public function test_a_sale_rung_in_a_day_left_open_from_the_day_before_is_reported_under_that_earlier_day(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store, '2026-05-31');
+        $this->makeSale($shift, ['sold_at' => '2026-06-01 09:00:00', 'grand_total' => '75.00', 'subtotal' => '75.00']);
+        $session = $this->forwardSessionCookie($this->login($admin));
+
+        $earlier = $session->getJson('/api/v1/reports/daily-sales-summary?from=2026-05-31&to=2026-05-31')->assertOk()->json('rows');
+        $later = $session->getJson('/api/v1/reports/daily-sales-summary?from=2026-06-01&to=2026-06-01')->assertOk()->json('rows');
+
+        $this->assertCount(1, $earlier);
+        $this->assertSame('2026-05-31', $earlier[0]['business_date']);
+        $this->assertSame('75.00', $earlier[0]['grand_total']);
+        $this->assertSame([], $later);
+    }
+
+    public function test_the_hourly_report_puts_an_after_midnight_sale_in_its_business_day_but_its_own_clock_hour(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store, '2026-06-01');
+        $this->makeSale($shift, ['sold_at' => '2026-06-02 00:30:00', 'subtotal' => '40.00', 'grand_total' => '40.00']);
+
+        $rows = $this->forwardSessionCookie($this->login($admin))
+            ->getJson('/api/v1/reports/sales-by-hour?from=2026-06-01&to=2026-06-01')->assertOk()->json('rows');
+
+        $this->assertCount(1, $rows);
+        $this->assertSame(0, $rows[0]['hour'], 'the bucket is the hour the sale was actually rung');
+    }
+
+    public function test_a_product_that_never_sold_in_the_window_is_still_listed_by_the_velocity_report(): void
+    {
+        $store = Store::factory()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $store->id]);
+        $shift = $this->makeShift($store, '2026-06-01');
+        $product = Product::factory()->create(['store_id' => $store->id]);
+        $sale = $this->makeSale($shift, ['sold_at' => '2026-06-01 10:00:00']);
+        SaleItem::factory()->create(['sale_id' => $sale->id, 'product_id' => $product->id, 'quantity' => '2.000', 'net_line_amount' => '50.00']);
+
+        $rows = $this->forwardSessionCookie($this->login($admin))
+            ->getJson('/api/v1/reports/product-velocity?from=2026-06-02&to=2026-06-02')->assertOk()->json('rows');
+
+        $this->assertCount(1, $rows, 'the product is listed even though it sold on another business day');
+        $this->assertSame('0.000', $rows[0]['quantity_sold']);
+    }
+
     public function test_daily_sales_summary_excludes_voided_sales(): void
     {
         $store = Store::factory()->create();
         $admin = User::factory()->admin()->create(['store_id' => $store->id]);
-        $shift = $this->makeShift($store);
+        $shift = $this->makeShift($store, '2026-06-01');
 
         $this->makeSale($shift, ['grand_total' => '100.00', 'subtotal' => '100.00', 'sold_at' => '2026-06-01 10:00:00']);
         $this->makeSale($shift, ['grand_total' => '50.00', 'subtotal' => '50.00', 'sold_at' => '2026-06-01 11:00:00']);
@@ -109,7 +200,7 @@ class ReportsHttpTest extends PostgresSchemaTestCase
     {
         $store = Store::factory()->create();
         $admin = User::factory()->admin()->create(['store_id' => $store->id]);
-        $shift = $this->makeShift($store);
+        $shift = $this->makeShift($store, '2026-06-01');
 
         $this->makeSale($shift, ['status' => 'COMPLETED', 'sold_at' => '2026-06-01 10:00:00']);
         $this->makeSale($shift, ['status' => 'VOIDED', 'sold_at' => '2026-06-01 11:00:00']);
@@ -220,7 +311,7 @@ class ReportsHttpTest extends PostgresSchemaTestCase
     {
         $store = Store::factory()->create();
         $admin = User::factory()->admin()->create(['store_id' => $store->id]);
-        $shift = $this->makeShift($store);
+        $shift = $this->makeShift($store, '2026-06-01');
 
         $this->makeSale($shift, ['vat_amount' => '12.00', 'taxable_sales' => '100.00', 'sold_at' => '2026-06-01 10:00:00']);
         $this->makeSale($shift, ['vat_amount' => '6.00', 'taxable_sales' => '50.00', 'sold_at' => '2026-06-01 11:00:00']);
@@ -562,7 +653,7 @@ class ReportsHttpTest extends PostgresSchemaTestCase
     {
         $store = Store::factory()->create();
         $admin = User::factory()->admin()->create(['store_id' => $store->id]);
-        $shift = $this->makeShift($store);
+        $shift = $this->makeShift($store, '2026-06-01');
         $location = InventoryLocation::factory()->create(['store_id' => $store->id]);
 
         // Named A/B/C (rather than the factory's random name) so the never-sold products' tie-break
