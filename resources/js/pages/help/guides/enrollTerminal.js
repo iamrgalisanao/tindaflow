@@ -9,7 +9,7 @@ export default {
     before: [
         'You are signed in as an **Admin**.',
         'You are at the computer or tablet that will be the till, or you can copy a short code to it.',
-        'The terminal already exists (for example **DEMO-01**). Terminals are set up with the store; you do not create them here.',
+        'The terminal already exists (for example **DEMO-01**). You do not create it on this screen: whoever looks after the server creates each till once, with `tindaflow:create-terminal TILL-1`. If the list below is empty, ask them.',
     ],
     steps: [
         {

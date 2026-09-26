@@ -396,3 +396,29 @@ your approval to add), so the dialog was verified by driving the browser.
 sessions, cache and `idempotency_records` live in the database and nothing prunes them on a schedule (Laravel's session
 lottery sweeps sessions; the other two grow slowly), so revisit after the pilot.
 
+## Addendum 2026-09-27 (4) — a production shop had no way to create its first till
+
+Found by the architect review's last pass and verified by reading the code: nothing sells until a browser is enrolled as a
+terminal, and enrolling needs a terminal row that already exists, but the API has no `terminalCreate` operation
+(`TerminalsPage.jsx` said so itself), and the only other writer of `terminals` is `DemoDataSeeder`, which refuses to run in
+production. A real shop could never get past first sign-in, and the README told the owner to "enroll the tills from Store
+Setup" without saying where tills came from. Every earlier go-live walk-through probably ran on demo data.
+
+**Decision.** `php artisan tindaflow:create-terminal {code} [--store=]`, a server-console tool like `tindaflow:reset-password`
+(so no API operation or contract change is needed, and the frozen corpus is untouched). It creates an ACTIVE, never-enrolled
+terminal (`activated_at` and the credential are set when a browser enrolls, as before), writes a `TERMINAL_CREATED` audit
+event (actor null, since no signed-in user did it), and prints the next step. It uses the only store, requires `--store`
+(name or id) when there are several, and refuses a blank or over-long code, a duplicate code in the same store (case
+insensitive), an unknown store, and a server with no store yet (it says to create the administrator first, which creates the
+store). Enrollment itself is unchanged: an administrator issues the token on the Terminals screen and enters it on the till.
+
+Also refreshed, text only: `docker/README.md` gains the step (5) that creates each till and lists the rest of first-run setup
+in order; the Terminals empty state now says who creates a till and how; and the Help guides describe behaviour added since
+they were written (the session-expired dialog, "the connection dropped", the stale business-day notice, re-enrolling a
+terminal whose credential was lost or revoked, and password recovery for a sole administrator), with no screenshots
+regenerated.
+
+Tests: `CreateTerminalCommandTest` (6, including one that creates the till with the command, issues an enrollment token,
+enrolls, and opens a shift on it). Not driven in a browser: the new Help steps are text-only steps of the same shape as the
+existing ones, and the empty-state text is one line.
+

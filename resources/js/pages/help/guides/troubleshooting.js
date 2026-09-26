@@ -101,6 +101,27 @@ export default {
             tip: 'The **Help** link at the top of the till opens in a new tab, so you can read a guide without losing your cart.',
         },
         {
+            title: '“Your session expired”',
+            body: 'If the till sits idle for a long time (two hours), the system signs you out for safety. A box appears over the screen asking for your password. **Type it and click Sign in.** Whatever was on the screen behind, such as the items in a basket, is still there. Then press the button again (for example **Complete sale**). Nothing was saved before you signed in, so nothing is counted twice.',
+            note: 'If you sign in as a different person, you are taken to the dashboard, because the open shift belongs to the person who opened it.',
+        },
+        {
+            title: '“The connection dropped, so this may already have been recorded”',
+            body: 'The till lost its connection at the worst moment, so it cannot know whether the server saved your action. **Press the same button again.** The system remembers the attempt and will not ring the sale (or record the cash, or close the shift) twice. If it keeps failing, open **Lookup** and check whether the sale is already there before you ring it up again.',
+        },
+        {
+            title: '“Business day … is still open”',
+            body: 'An amber notice on the till says the business day is dated before today. Nobody has closed yesterday’s day yet, so today’s sales are being recorded under that earlier date. Nothing is blocked and no sale is lost. A **manager** should close the day (see “Close the business day”) after the last shift. If you really trade past midnight on purpose, you can ignore it.',
+        },
+        {
+            title: 'The till stopped selling after its browser was replaced or its terminal was revoked',
+            body: 'A till only works while its browser holds the terminal’s credential. If the browser was reset, or the terminal was revoked, the till says it is not enrolled and cannot even close its own shift. **An admin fixes it under Terminals**: click **Enrollment token** on the same terminal, then enter the new token on the till. That re-enrolls the same terminal, so nothing is lost.',
+        },
+        {
+            title: 'I am the only admin and I forgot my password',
+            body: 'Another admin can set a new password for you under **Users**. If you are the only one, the person who looks after the server can reset it from the server’s command line with `tindaflow:reset-password` and your email. It prints a new password once and signs you out everywhere. Sign in with it and change it under **Users**.',
+        },
+        {
             title: 'A void is not possible any more',
             body: 'A void only works while the sale’s business day is still open. Once the day has been closed, use a **refund** instead. It returns the items and the money without changing the closed day’s figures.',
         },

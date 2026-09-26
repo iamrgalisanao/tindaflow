@@ -11,7 +11,8 @@ import { formatDateTime } from './reports/formatters';
  * Every POS_TERMINAL-classified operation (shiftOpen, saleFinalize, shifts/current) needs the
  * `tindaflow_terminal` credential ADR-011 establishes here, so nothing at the till works until a
  * browser is enrolled. Terminals themselves are not created here: no terminalCreate operation
- * exists in the contract, so they must already exist before they can be enrolled.
+ * exists in the contract, so they must already exist before they can be enrolled. The server operator creates
+ * them from the console (`php artisan tindaflow:create-terminal TILL-1`), which is what the empty state points to.
  *
  * Revocation is read from `revoked_at`, never from `status`: the two are independent by design
  * (module-a §14 Ruling 9 -- revoking writes `revoked_at` and deliberately leaves the TerminalStatus
@@ -211,7 +212,8 @@ export default function TerminalsPage() {
                 <div className="rounded-lg border border-dashed border-slate-800 p-8 text-center">
                     <p className="text-sm text-slate-200">No terminals exist for this store yet.</p>
                     <p className="mt-1 text-xs text-slate-500">
-                        Terminals are provisioned with the store, not created here — there is no operation in the API for adding one.
+                        A till is created once by whoever looks after the server, not from this screen. Ask them to run{' '}
+                        <code className="font-mono text-slate-400">php artisan tindaflow:create-terminal TILL-1</code>, then reload this page and enroll it.
                     </p>
                 </div>
             )}
