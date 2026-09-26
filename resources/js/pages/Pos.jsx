@@ -38,7 +38,7 @@ function newIdempotencyKey() {
 export default function Pos() {
     const { user } = useAuth();
     const navigate = useNavigate();
-    const [step, setStep] = useState('loading'); // loading | not-enrolled | open-shift | setup-incomplete | cart | checkout | receipt | close-shift | shift-closed | fiscal-day-closed
+    const [step, setStep] = useState('loading'); // loading | not-enrolled | other-cashier-shift | open-shift | setup-incomplete | cart | checkout | receipt | close-shift | shift-closed | fiscal-day-closed
     const [error, setError] = useState(null);
     const [shift, setShift] = useState(null);
     const [readinessChecks, setReadinessChecks] = useState(null);
@@ -120,6 +120,16 @@ export default function Pos() {
             setShift(body);
             // Only labels the header; the till works without it.
             apiFetch('/api/v1/terminal/current').then((current) => current.ok && setTerminalCode(current.body.terminal_code));
+            // shiftCurrentGet resolves the TERMINAL's open shift, not this cashier's: filtering by
+            // terminal alone happily returns a shift another cashier left open here. CheckoutService
+            // checks terminal AND cashier and rejects that case -- but only at finalisation, which
+            // would let a whole cart be rung up first and fail at Complete. Gate it here instead,
+            // where the cashier can still do something about it. (Same reasoning as the backend's own
+            // comment on that check: "Cashier A left a shift open, Cashier B is now logged in".)
+            if (body.cashier_id !== user.id) {
+                setStep('other-cashier-shift');
+                return;
+            }
             await checkReadiness();
         } else if (status === 403 && body?.error?.code === 'TERMINAL_NOT_ENROLLED') {
             setStep('not-enrolled');
@@ -129,7 +139,7 @@ export default function Pos() {
             setError(body?.error?.message ?? 'Could not determine shift status.');
             setStep('open-shift');
         }
-    }, [checkReadiness]);
+    }, [checkReadiness, user.id]);
 
     useEffect(() => {
         checkShiftState();
@@ -438,6 +448,35 @@ export default function Pos() {
                     <p className="rounded-md bg-amber-500/10 px-3 py-3 text-sm text-amber-300">
                         This browser is not enrolled as any terminal. Ask an admin to enroll it under Terminal Enrollment.
                     </p>
+                    <Link to="/" className="mt-4 inline-block text-sm text-slate-400 underline">
+                        Back to dashboard
+                    </Link>
+                </div>
+            </div>
+        );
+    }
+
+    // A shift another cashier left open on this terminal. Only one shift can be open per terminal
+    // (shifts_one_open_per_terminal), so opening your own is not an option until this one is closed --
+    // and closing is terminal-scoped, not cashier-scoped, so whoever is at the till may do it. The
+    // drawer still gets counted blind: closing goes through the same declared-cash step as always.
+    if (step === 'other-cashier-shift') {
+        return (
+            <div className="min-h-screen bg-slate-950 text-slate-100 [color-scheme:dark]">
+                <div className="mx-auto max-w-md p-8 text-center">
+                    <p className="rounded-md bg-amber-500/10 px-3 py-3 text-sm text-amber-300">
+                        Another cashier still has a shift open on this till. You cannot sell until it is closed, and only one shift can be open here at
+                        a time.
+                    </p>
+                    {shift?.opened_at && <p className="mt-2 font-mono text-[11px] text-slate-500">open since {new Date(shift.opened_at).toLocaleString()}</p>}
+                    <button
+                        type="button"
+                        onClick={goToCloseShift}
+                        className="mt-4 min-h-12 w-full rounded bg-emerald-500 px-4 text-sm font-bold uppercase tracking-wider text-slate-950 hover:bg-emerald-400"
+                    >
+                        Count the drawer and close it
+                    </button>
+                    <p className="mt-2 text-xs text-slate-500">You will be asked to count the cash in the drawer, exactly as the cashier who opened it would be.</p>
                     <Link to="/" className="mt-4 inline-block text-sm text-slate-400 underline">
                         Back to dashboard
                     </Link>
