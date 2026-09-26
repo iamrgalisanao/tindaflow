@@ -620,7 +620,7 @@ export default function Pos() {
                 />
             )}
 
-            {error && <p className="mx-4 mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
+            {error && <p className="mx-4 mt-3 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p>}
 
             {step === 'open-shift' && (
                 <form onSubmit={openShift} className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-6">
@@ -773,7 +773,7 @@ export default function Pos() {
                             </button>
                             {originalPrinted && <p className="text-xs text-slate-400">Another copy is marked REPRINT — COPY and recorded.</p>}
                             {printError && (
-                                <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                                <p role="alert" className="rounded-md bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
                                     {printError}
                                 </p>
                             )}
@@ -842,7 +842,7 @@ export default function Pos() {
                         </div>
                         <div className="flex justify-between">
                             <dt className="text-slate-400">Variance</dt>
-                            <dd className={`font-mono font-semibold ${Number(closeResult.shift.variance) < 0 ? 'text-red-400' : 'text-slate-100'}`}>
+                            <dd className={`font-mono font-semibold ${Number(closeResult.shift.variance) < 0 ? 'text-rose-400' : 'text-slate-100'}`}>
                                 ₱{closeResult.shift.variance}
                             </dd>
                         </div>

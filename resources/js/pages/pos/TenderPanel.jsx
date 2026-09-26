@@ -138,7 +138,7 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
                                         type="button"
                                         onClick={() => removePayment(index)}
                                         aria-label={`Remove this ${METHOD_LABELS[row.method] ?? row.method} payment`}
-                                        className="min-h-11 min-w-11 rounded text-lg text-slate-400 hover:bg-red-500/10 hover:text-red-400"
+                                        className="min-h-11 min-w-11 rounded text-lg text-slate-400 hover:bg-rose-500/10 hover:text-rose-400"
                                     >
                                         &times;
                                     </button>

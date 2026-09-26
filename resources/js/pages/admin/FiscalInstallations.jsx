@@ -85,7 +85,7 @@ export default function FiscalInstallations() {
                 Each terminal must be assigned to exactly one current fiscal installation before it can check out.
             </p>
 
-            {error && <p className="mb-4 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-300">{error}</p>}
+            {error && <p className="mb-4 rounded-md border border-rose-800 bg-rose-950 px-3 py-2 text-sm text-rose-300">{error}</p>}
 
             <form onSubmit={createInstallation} className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4 sm:grid-cols-4">
                 <select
