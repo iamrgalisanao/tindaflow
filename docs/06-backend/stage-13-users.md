@@ -50,15 +50,17 @@ Touched: `openapi.yaml` (new operation), `operation-inventory.md`, `error-catalo
 - **Email is unique per store, compared case-insensitively**, so two accounts cannot
   differ only by letter case. It is stored as typed. (Existing behaviour, not changed:
   sign-in matches the email exactly, so the case typed at login must match.)
-- **Lock-out protection is deliberately partial** (owner's choice): the API refuses
-  changing the last active `ADMIN` to another role (a `role` field error, which the
-  contract's `422` already allows; the check locks the store's active admins so two
-  concurrent demotions cannot both pass). It does **not** refuse deactivating yourself
-  or the last admin — `userDeactivate` declares only `404`, and adding a refusal would
-  need a new code in a frozen response. The screen therefore hides/disables Deactivate
-  and role change for your own account and for the only active administrator. Known
-  gap: the API itself can still deactivate the last admin, and `AdminUserSeeder` will
-  not recreate an admin while any `ADMIN` row exists, even an inactive one.
+- **Lock-out protection** (extended 2026-09-26; it was deliberately partial at first): the API refuses changing the
+  last active `ADMIN` to another role (a `role` field error) **and deactivating the last active `ADMIN`** (an `active` field
+  error). Both are the contract's ordinary `422 VALIDATION_FAILED` shape with a field in `error.details`, so no new error
+  code is invented; `userDeactivate` did not list a `422` in the frozen `openapi.yaml`, and this additive response is
+  recorded here rather than by editing that file (as with the other forward commits). Both rules take the same lock: the
+  store's active admins are locked in id order before any single user row, so two admins demoting or deactivating each
+  other at once cannot both pass the check, and the two operations cannot deadlock each other. An inactive admin, or an
+  admin of another store, never counts as a remaining admin. Deactivating yourself is allowed while another active admin
+  exists; the screen still hides Deactivate and role change for your own account and for the only active administrator.
+  Still open: `AdminUserSeeder` will not recreate an admin while any `ADMIN` row exists, even an inactive one (with the
+  rule above, an all-inactive admin set can now only arise from data edited outside the API).
 - **Deactivating ends the session** on the user's next request (`EnsureUserIsActive`),
   and they cannot sign in until reactivated; reactivating does not resurrect the old
   session (a test proves both).

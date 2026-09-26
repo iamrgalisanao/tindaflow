@@ -286,6 +286,54 @@ class UsersHttpTest extends PostgresSchemaTestCase
         $this->assertDatabaseHas('users', ['id' => $cashier->id, 'active' => false]);
     }
 
+    public function test_the_last_active_admin_cannot_be_deactivated(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $response = $this->asUser($admin)->postJson("/api/v1/users/{$admin->id}/deactivate");
+
+        $response->assertStatus(422);
+        $response->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
+        $this->assertArrayHasKey('active', $response->json('error.details'));
+        $this->assertDatabaseHas('users', ['id' => $admin->id, 'active' => true]);
+        $this->asUser($admin)->getJson('/api/v1/auth/me')->assertOk();
+    }
+
+    public function test_an_admin_can_be_deactivated_while_another_active_admin_remains_and_then_the_last_one_cannot(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $other = User::factory()->admin()->create(['store_id' => $admin->store_id]);
+
+        $this->asUser($admin)->postJson("/api/v1/users/{$other->id}/deactivate")->assertOk()->assertJson(['active' => false]);
+
+        $this->asUser($admin)->postJson("/api/v1/users/{$admin->id}/deactivate")->assertStatus(422);
+        $this->assertDatabaseHas('users', ['id' => $admin->id, 'active' => true]);
+
+        // Getting the other admin back makes deactivating this one possible again.
+        $this->asUser($admin)->postJson("/api/v1/users/{$other->id}/activate")->assertOk();
+        $this->asUser($admin)->postJson("/api/v1/users/{$admin->id}/deactivate")->assertOk();
+    }
+
+    public function test_an_inactive_admin_or_another_stores_admin_does_not_count_as_a_remaining_admin(): void
+    {
+        $admin = User::factory()->admin()->create();
+        User::factory()->admin()->inactive()->create(['store_id' => $admin->store_id]);
+        User::factory()->admin()->create();
+
+        $this->asUser($admin)->postJson("/api/v1/users/{$admin->id}/deactivate")->assertStatus(422);
+    }
+
+    public function test_deactivating_a_manager_or_cashier_is_not_affected_by_the_admin_rule(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $manager = User::factory()->manager()->create(['store_id' => $admin->store_id]);
+        $cashier = User::factory()->create(['store_id' => $admin->store_id]);
+
+        foreach ([$manager, $cashier] as $user) {
+            $this->asUser($admin)->postJson("/api/v1/users/{$user->id}/deactivate")->assertOk()->assertJson(['active' => false]);
+        }
+    }
+
     public function test_activate_restores_a_deactivated_user_idempotently(): void
     {
         $admin = User::factory()->admin()->create();

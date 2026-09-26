@@ -5,6 +5,7 @@ namespace App\Services\Users;
 use App\Domain\Exceptions\UserNotFoundException;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -63,19 +64,11 @@ final class UserService
     {
         try {
             return DB::transaction(function () use ($storeId, $userId, $data) {
+                $activeAdmins = $this->lockActiveAdmins($storeId);
                 $user = $this->lock($storeId, $userId);
 
-                if ($user->role === 'ADMIN' && $user->active && $data['role'] !== 'ADMIN') {
-                    $otherActiveAdmins = User::where('store_id', $storeId)
-                        ->where('role', 'ADMIN')
-                        ->where('active', true)
-                        ->where('id', '!=', $user->id)
-                        ->lockForUpdate()
-                        ->get(['id']);
-
-                    if ($otherActiveAdmins->isEmpty()) {
-                        throw ValidationException::withMessages(['role' => 'The last active administrator cannot be changed to another role.']);
-                    }
+                if ($user->role === 'ADMIN' && $user->active && $data['role'] !== 'ADMIN' && $this->isLastAdmin($activeAdmins, $user)) {
+                    throw ValidationException::withMessages(['role' => 'The last active administrator cannot be changed to another role.']);
                 }
 
                 $user->name = $data['name'];
@@ -95,11 +88,21 @@ final class UserService
         }
     }
 
-    /** Idempotent: setting the state a user is already in returns them unchanged. */
+    /**
+     * Idempotent: setting the state a user is already in returns them unchanged. The last active ADMIN cannot
+     * be deactivated (reported as an `active` field error, the same 422 VALIDATION_FAILED shape as the role
+     * rule in update()): the store would have nobody able to manage users or reactivate anyone. The active
+     * admins are locked first, so two admins deactivating each other at once cannot both pass the check.
+     */
     public function setActive(string $storeId, string $userId, bool $active): User
     {
         return DB::transaction(function () use ($storeId, $userId, $active) {
+            $activeAdmins = $active ? collect() : $this->lockActiveAdmins($storeId);
             $user = $this->lock($storeId, $userId);
+
+            if (! $active && $user->active && $user->role === 'ADMIN' && $this->isLastAdmin($activeAdmins, $user)) {
+                throw ValidationException::withMessages(['active' => 'The last active administrator cannot be deactivated.']);
+            }
 
             if ($user->active !== $active) {
                 $user->active = $active;
@@ -108,6 +111,29 @@ final class UserService
 
             return $user;
         });
+    }
+
+    /**
+     * Locks every active administrator of the store, in id order, before any single user row is locked. One
+     * fixed order for every operation that needs the "is this the last admin" answer, so two of them cannot
+     * deadlock each other or both see the other admin as still remaining.
+     *
+     * @return Collection<int, string> the ids of the store's active administrators
+     */
+    private function lockActiveAdmins(string $storeId): Collection
+    {
+        return User::where('store_id', $storeId)
+            ->where('role', 'ADMIN')
+            ->where('active', true)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->pluck('id');
+    }
+
+    /** True when $user is an active administrator and no other active administrator exists in $activeAdmins. */
+    private function isLastAdmin(Collection $activeAdmins, User $user): bool
+    {
+        return $activeAdmins->reject(fn (string $id): bool => $id === $user->id)->isEmpty();
     }
 
     private function lock(string $storeId, string $userId): User
