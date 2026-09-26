@@ -94,6 +94,111 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
         $second->assertStatus(201);
     }
 
+    /** Creates a series through the API, then makes it look like $issued invoices were allocated from it, and closes it. */
+    private function closedSeriesThatIssued(TestResponse $login, FiscalInstallation $installation, int $start, int $issued): void
+    {
+        $created = $this->forwardSessionCookie($login)->postJson('/api/v1/invoice-series', [
+            'fiscal_installation_id' => $installation->id,
+            'series_code' => 'OLD-'.$start,
+            'starting_number' => $start,
+        ]);
+        $created->assertStatus(201);
+
+        InvoiceSeries::whereKey($created->json('id'))->update(['current_number' => $start - 1 + $issued]);
+
+        $this->forwardSessionCookie($login)->postJson("/api/v1/invoice-series/{$created->json('id')}/close")->assertOk();
+    }
+
+    public function test_a_replacement_series_cannot_start_at_or_below_a_number_already_issued(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
+        $login = $this->login($admin);
+        $this->closedSeriesThatIssued($login, $installation, 1, 250);
+
+        foreach ([1, 100, 250] as $start) {
+            $this->forwardSessionCookie($login)->postJson('/api/v1/invoice-series', [
+                'fiscal_installation_id' => $installation->id,
+                'series_code' => 'NEW-'.$start,
+                'starting_number' => $start,
+            ])->assertStatus(422)->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
+        }
+
+        $this->assertSame(1, InvoiceSeries::where('fiscal_installation_id', $installation->id)->count());
+
+        $this->forwardSessionCookie($login)->postJson('/api/v1/invoice-series', [
+            'fiscal_installation_id' => $installation->id,
+            'series_code' => 'NEW-251',
+            'starting_number' => 251,
+        ])->assertStatus(201)->assertJson(['current_number' => 250, 'starting_number' => 251]);
+    }
+
+    public function test_the_refusal_names_the_starting_number_field(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
+        $login = $this->login($admin);
+        $this->closedSeriesThatIssued($login, $installation, 1, 250);
+
+        $response = $this->forwardSessionCookie($login)->postJson('/api/v1/invoice-series', [
+            'fiscal_installation_id' => $installation->id,
+            'series_code' => 'AGAIN',
+            'starting_number' => 1,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
+        $this->assertArrayHasKey('starting_number', $response->json('error.details'));
+    }
+
+    public function test_an_earlier_series_that_never_issued_a_number_does_not_block_a_lower_start(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
+        $login = $this->login($admin);
+        $this->closedSeriesThatIssued($login, $installation, 1000, 0);
+
+        $this->forwardSessionCookie($login)->postJson('/api/v1/invoice-series', [
+            'fiscal_installation_id' => $installation->id,
+            'series_code' => 'CORRECTED',
+            'starting_number' => 1,
+        ])->assertStatus(201);
+    }
+
+    public function test_a_series_of_another_fiscal_installation_does_not_reserve_numbers(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $used = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
+        $other = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
+        $login = $this->login($admin);
+        $this->closedSeriesThatIssued($login, $used, 1, 250);
+
+        $this->forwardSessionCookie($login)->postJson('/api/v1/invoice-series', [
+            'fiscal_installation_id' => $other->id,
+            'series_code' => 'OTHER',
+            'starting_number' => 1,
+        ])->assertStatus(201);
+    }
+
+    public function test_an_active_series_still_answers_already_active_not_a_number_error(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
+        $login = $this->login($admin);
+        $first = $this->forwardSessionCookie($login)->postJson('/api/v1/invoice-series', [
+            'fiscal_installation_id' => $installation->id,
+            'series_code' => 'MAIN',
+            'starting_number' => 1,
+        ]);
+        InvoiceSeries::whereKey($first->json('id'))->update(['current_number' => 40]);
+
+        $this->forwardSessionCookie($login)->postJson('/api/v1/invoice-series', [
+            'fiscal_installation_id' => $installation->id,
+            'series_code' => 'SECOND',
+            'starting_number' => 1,
+        ])->assertStatus(409)->assertJson(['error' => ['code' => 'INVOICE_SERIES_ALREADY_ACTIVE']]);
+    }
+
     public function test_closing_an_already_closed_series_is_rejected(): void
     {
         $admin = User::factory()->admin()->create();

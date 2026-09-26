@@ -163,7 +163,7 @@ final class RefundService
         if ($sale->status === 'VOIDED') {
             throw RefundNotAllowedException::becauseSaleVoided($sale->id);
         }
-        $items = $this->lockItems($sale, $lockOrder);
+        $items = $this->loadItems($sale);
 
         $lines = $this->deriveLines($sale, $items, $payload['items']);
         $total = $this->totalOf($lines);
@@ -229,7 +229,7 @@ final class RefundService
         }
 
         $requested = $refund->requestedPayload() ?? throw new LogicException("Refund {$refund->id} has no recorded request.");
-        $items = $this->lockItems($sale, $lockOrder);
+        $items = $this->loadItems($sale);
 
         // Re-derived now, against every refund completed since the request was made (invariants #27/#28/#70).
         $lines = $this->deriveLines($sale, $items, $requested['items']);
@@ -241,13 +241,16 @@ final class RefundService
         return new OperationOutcome(resultType: 'refund', resultResourceId: $refund->id);
     }
 
-    /** @return Collection<string, SaleItem> the sale's lines keyed by id, locked in ascending line order */
-    private function lockItems(Sale $sale, GlobalLockOrder $lockOrder): Collection
+    /**
+     * @return Collection<string, SaleItem> the sale's lines keyed by id, in ascending line order
+     *
+     * The lines are read, not locked: the caller already holds the sale row FOR UPDATE, which serializes every void and
+     * refund of that sale, and sale_items are immutable once written. Locking them as well would need UPDATE on
+     * sale_items, which the append-only hardening (invariants #2/#45) revokes from the application role.
+     */
+    private function loadItems(Sale $sale): Collection
     {
-        $items = SaleItem::where('sale_id', $sale->id)->orderBy('line_number')->lockForUpdate()->get();
-        foreach ($items as $item) {
-            $lockOrder->acquire(LockableResource::SaleItem, $item->line_number);
-        }
+        $items = SaleItem::where('sale_id', $sale->id)->orderBy('line_number')->get();
 
         return $items->keyBy('id');
     }

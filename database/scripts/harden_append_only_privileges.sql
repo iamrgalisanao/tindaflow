@@ -32,6 +32,10 @@
 --
 --   psql -U postgres -d tindaflow -f database/scripts/harden_append_only_privileges.sql
 --
+-- tests/Database/AppendOnlyPrivilegesTest.php applies this script to a scratch role inside a rolled-back transaction and
+-- proves that checkout, void and refund still work under it and that the append-only tables refuse UPDATE/DELETE. Keep
+-- the two in step: a new UPDATE the application makes on a table revoked below needs a GRANT here AND a test there.
+--
 -- Idempotent: safe to re-run after every future migration that adds a
 -- new append-only table (add it to the list below and re-run).
 
@@ -76,10 +80,17 @@ FROM tindaflow_app;
 -- allowed to change. Every other column (sale_id, requested_by, reason,
 -- requested_at) is immutable once written, exactly like the fully
 -- append-only tables above.
-GRANT UPDATE (status, approved_by, resolved_at, terminal_id, fiscal_day_id, shift_id)
+GRANT UPDATE (status, approved_by, resolved_at, terminal_id, fiscal_day_id, shift_id, updated_at)
     ON voids TO tindaflow_app;
-GRANT UPDATE (status, approved_by, resolved_at, refunded_at, refund_total, terminal_id, fiscal_day_id, shift_id)
+GRANT UPDATE (status, approved_by, resolved_at, refunded_at, refund_total, terminal_id, fiscal_day_id, shift_id, updated_at)
     ON refunds TO tindaflow_app;
+
+-- sales is revoked above, but its status is the one column the application legitimately changes after the row is
+-- written: a void sets it to VOIDED and a refund recomputes it (invariants #23/#31). This grant is also what lets
+-- the void and refund services take their SELECT ... FOR UPDATE on the sale row -- PostgreSQL requires UPDATE on at
+-- least one column for any row lock. Every other sales column stays immutable (invariant #2), and the sale_items,
+-- payments and invoices rows a void or refund reads are never locked or updated.
+GRANT UPDATE (status) ON sales TO tindaflow_app;
 
 -- stock_balances is a derived cache, explicitly NOT covered by the
 -- REVOKE UPDATE above -- domain-model.md SS2.4/invariant #44 require it

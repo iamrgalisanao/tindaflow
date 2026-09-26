@@ -626,3 +626,27 @@ gap" situation, and fully addresses the owner's actual concern (a
 reader must not be misled about what `stage-6a-baseline` does and
 doesn't cover) without the risk profile of rewriting an approved,
 already-reported-on tag.
+
+## Addendum 2026-09-27 — a replacement series may not reissue a number
+
+The invariant audit ([invariant-test-coverage.md](../02-domain/invariant-test-coverage.md), findings on #11 and #18)
+found that `POST /invoice-series` checked only `starting_number >= 1`. `invoice_number` is the bare digits of the
+counter (the prefix is not part of it) and is unique only per series, so closing a series that had issued 250 numbers
+and creating a new one starting at 1 issued numbers 1–250 a second time, and was also a way to rewind the counter.
+
+**Decision.** `InvoiceSeriesService::create` now refuses a `starting_number` at or below the highest number any earlier
+series of the **same fiscal installation** reached (`current_number` of a series that has issued at least one number),
+answering `422 VALIDATION_FAILED` with a `starting_number` field error. Choices made, and why:
+
+- **Per fiscal installation, not per store.** Numbering belongs to the installation (INVSERIES-002), and two machines
+  legitimately number independently.
+- **A series that never issued a number reserves nothing**, so a mistaken, unused series can be replaced with any start.
+- **No new error code.** The API error catalog is frozen; the field error carries the message, the same choice made for
+  the last-administrator rule (Stage 13).
+- **An ACTIVE series still answers `409 INVOICE_SERIES_ALREADY_ACTIVE`**, as before; the number check stays out of its way.
+- The earlier series are read `FOR UPDATE` in the same transaction as the insert, so a concurrent allocation cannot move
+  the high-water mark under the check.
+
+Not done: a database-level guard (it would need a trigger across series rows), so the rule is enforced by the service
+only; the range of an existing series is still bounded by INVSERIES-004. Tests: `InvoiceSeriesHttpTest` (5 new).
+

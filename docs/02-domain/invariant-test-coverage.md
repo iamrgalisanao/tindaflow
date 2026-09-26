@@ -24,6 +24,9 @@ Items marked **verified** were re-checked by hand after the audit; the rest are 
 
 Ranked by consequence. Each is a real difference between what `invariants.md` promises and what the repository does.
 
+> **Update 2026-09-27.** Finding 2 is fixed. Finding 1 is fixed in the script and the code, but the script is still not
+> applied by any deployment (see the note under it). The verdict tables below show the audit as it stood before the fixes.
+
 1. **The append-only hardening script would break void and refund (#48, #45, #23, #60, #76, #77). Verified.**
    `database/scripts/harden_append_only_privileges.sql` revokes UPDATE on `sales`, and never re-grants it, yet
    `VoidService.php:234` and `RefundService.php:360` update `sales.status`. Those are the only application writes to any
@@ -32,10 +35,32 @@ Ranked by consequence. Each is a real difference between what `invariants.md` pr
    script alone. Two further problems: it names the role `tindaflow_app` while `.env.example` connects as `tindaflow`, and
    a comment in the audit-events migration cites a `..._restrict_application_role_privileges.php` migration that does not
    exist. So today the database enforces none of the append-only rules, and applying the script as written breaks reversals.
+   **Fixed 2026-09-27** in the script and one service, and now proven by `tests/Database/AppendOnlyPrivilegesTest.php`
+   (6 tests), which applies the script to a scratch role inside a rolled-back transaction and runs checkout, void
+   (immediate, approve, reject) and refund (immediate, approve, reject) under it. Building that test found more than
+   the audit did:
+   - `sales` needed `GRANT UPDATE (status)`. That grant is also what lets void and refund take `SELECT … FOR UPDATE` on
+     the sale row, because PostgreSQL requires UPDATE on at least one column for any row lock.
+   - `voids` and `refunds` needed `updated_at` in their column grants (Eloquent writes it on every update); the
+     approve and reject paths would have failed.
+   - `RefundService` also locked every `sale_items` row `FOR UPDATE`, which the same rule forbids under the hardening.
+     The lock was redundant (the sale row is already locked, which serializes every void and refund of that sale, and
+     lines are immutable), so it was dropped; the reversal concurrency tests still pass.
+   **Still open, and needs your decision:** nothing applies the script. The Docker stack runs one role (`POSTGRES_USER`
+   = `DB_USERNAME`, a superuser inside its own container) for migrations and for the running app, and a superuser
+   ignores privileges, so the append-only rules are still not enforced in a deployment. Enforcing them means adopting
+   the two-role setup the script describes: create `tindaflow_migrator` and `tindaflow_app`, run migrations as the first,
+   serve as the second, then apply the script. The audit-events migration's comment also still cites a
+   `..._restrict_application_role_privileges.php` migration that does not exist; it lives in the frozen Stage 5 corpus
+   and was left alone.
 2. **Invoice numbers can be reissued (#11, #18). Verified at the request layer.** Series creation checks only
    `starting_number >= 1`. Closing a series and creating a new one for the same installation with the same prefix and a
    low starting number appears to issue numbers that were already used. Uniqueness is per series row only. I did not run
    this end to end. If it holds, it also defeats #18 ("no administrative rewind").
+   **Fixed 2026-09-27, and confirmed real:** on the old code a replacement series starting at 1 was accepted (HTTP 201)
+   after 250 numbers had been issued. `InvoiceSeriesService::create` now refuses a start at or below the highest number
+   an earlier series of the same fiscal installation reached (422 on `starting_number`). See
+   [stage-6b-invoice-series-allocation.md](../06-backend/stage-6b-invoice-series-allocation.md), addendum.
 3. **Z-reading reads a prior stored total as an input (#40). Verified.** `FiscalDayReadingAggregator.php:51` takes
    `accumulated_grand_total_sales_after` from the previous Z-reading's snapshot. The invariant says readings are never
    inputs. Also, a void executed after its shift closed is not reflected in that shift's stored totals, so a closing
