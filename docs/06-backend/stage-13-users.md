@@ -59,8 +59,11 @@ Touched: `openapi.yaml` (new operation), `operation-inventory.md`, `error-catalo
   other at once cannot both pass the check, and the two operations cannot deadlock each other. An inactive admin, or an
   admin of another store, never counts as a remaining admin. Deactivating yourself is allowed while another active admin
   exists; the screen still hides Deactivate and role change for your own account and for the only active administrator.
-  Still open: `AdminUserSeeder` will not recreate an admin while any `ADMIN` row exists, even an inactive one (with the
-  rule above, an all-inactive admin set can now only arise from data edited outside the API).
+  `AdminUserSeeder` (a Stage 5 file, changed under an owner-approved exception to the freeze) now skips a store only when
+  it has an *active* `ADMIN`. With none it creates the configured admin; if that email already exists as an inactive
+  `ADMIN` it is reactivated with a new password (email compared case-insensitively, matching the unique index); if the
+  email belongs to a `MANAGER` or `CASHIER` it prints an error and changes nothing, so the seeder never promotes an
+  existing user. That recovery is only reachable when the admins were deactivated outside the API.
 - **Deactivating ends the session** on the user's next request (`EnsureUserIsActive`),
   and they cannot sign in until reactivated; reactivating does not resurrect the old
   session (a test proves both).

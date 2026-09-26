@@ -231,7 +231,7 @@ registration" state invariant #54 already requires a real setup step
 for.
 
 **Verified live**: `php artisan db:seed` run twice in sequence confirmed
-`AdminUserSeeder`'s idempotency (second run: "already exists — skipping"),
+`AdminUserSeeder`'s idempotency (second run: "An active ADMIN user already exists — skipping"; since 2026-09-26 a store with no *active* admin is recovered instead, see `06-backend/stage-13-users.md`),
 and re-run with `APP_ENV=production` confirmed `DemoDataSeeder` is never
 even invoked.
 
