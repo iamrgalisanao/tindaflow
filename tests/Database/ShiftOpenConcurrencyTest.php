@@ -43,7 +43,7 @@ class ShiftOpenConcurrencyTest extends TestCase
             Artisan::call('migrate:fresh', ['--force' => true, '--database' => 'pgsql']);
             self::$migrated = true;
         } else {
-            foreach (['idempotency_records', 'shifts', 'fiscal_days', 'terminals', 'users', 'stores'] as $table) {
+            foreach (['electronic_journal_entries', 'audit_events', 'idempotency_records', 'shifts', 'fiscal_days', 'terminals', 'users', 'stores'] as $table) {
                 DB::table($table)->delete();
             }
         }
@@ -83,6 +83,8 @@ class ShiftOpenConcurrencyTest extends TestCase
 
         $this->assertSame(1, Shift::where('terminal_id', $terminal->id)->count());
         $this->assertSame(1, FiscalDay::where('terminal_id', $terminal->id)->count(), 'exactly one fiscal_day, never two');
+        $this->assertSame(1, DB::table('electronic_journal_entries')->where('event_type', 'SHIFT_OPENED')->count(), 'invariant #49: the losing open leaves no journal row behind');
+        $this->assertSame(1, DB::table('audit_events')->where('event_type', 'SHIFT_OPENED')->count());
     }
 
     public function test_one_cashier_racing_to_open_a_shift_on_two_terminals_produces_exactly_one_shift(): void
@@ -105,6 +107,7 @@ class ShiftOpenConcurrencyTest extends TestCase
         $this->assertSame('SHIFT_ALREADY_OPEN', $loser['error_code']);
 
         $this->assertSame(1, Shift::where('cashier_id', $cashier->id)->count(), 'invariant #34: at most one open shift per cashier, across terminals');
+        $this->assertSame(1, DB::table('electronic_journal_entries')->where('event_type', 'SHIFT_OPENED')->count(), 'invariant #49: the losing open leaves no journal row behind');
     }
 
     /** @return array{0: array, 1: array} decoded JSON output from worker A and worker B */

@@ -3,6 +3,8 @@
 namespace App\Services\Shift;
 
 use App\Domain\Exceptions\ShiftAlreadyOpenException;
+use App\Models\AuditEvent;
+use App\Models\ElectronicJournalEntry;
 use App\Models\FiscalDay;
 use App\Models\Shift;
 use App\Services\Idempotency\CanonicalRequestHasher;
@@ -137,6 +139,38 @@ final class ShiftOpenService
         } catch (QueryException $e) {
             $this->exceptionTranslator->translate($e);
         }
+
+        // Invariant #49: opening a shift is a fiscally journalable event, so it writes exactly one journal row (and its audit
+        // event) in the same transaction as the shift. The (source_type, source_id, event_type) unique index backs "exactly
+        // one"; an idempotent replay never reaches here.
+        $event = [
+            'shift_id' => $shift->id,
+            'terminal_id' => $terminalId,
+            'cashier_id' => $cashierId,
+            'fiscal_day_id' => $fiscalDay->id,
+            'opening_cash' => (string) $payload['opening_cash'],
+            'opened_at' => $openedAt->toJSON(),
+        ];
+
+        $auditEvent = AuditEvent::create([
+            'store_id' => $fiscalDay->store_id,
+            'event_type' => 'SHIFT_OPENED',
+            'actor_user_id' => $cashierId,
+            'terminal_id' => $terminalId,
+            'entity_type' => 'shift',
+            'entity_id' => $shift->id,
+            'after_metadata' => $event,
+        ]);
+
+        ElectronicJournalEntry::create([
+            'store_id' => $fiscalDay->store_id,
+            'terminal_id' => $terminalId,
+            'event_type' => 'SHIFT_OPENED',
+            'source_type' => 'shift',
+            'source_id' => $shift->id,
+            'audit_event_id' => $auditEvent->id,
+            'payload_json' => $event,
+        ]);
 
         return new OperationOutcome(resultType: 'shift', resultResourceId: $shift->id);
     }

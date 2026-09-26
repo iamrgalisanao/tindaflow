@@ -2,11 +2,15 @@
 
 namespace Tests\Database;
 
+use App\Models\AuditEvent;
+use App\Models\ElectronicJournalEntry;
 use App\Models\FiscalDay;
 use App\Models\Shift;
 use App\Models\Store;
 use App\Models\Terminal;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
@@ -262,5 +266,99 @@ class ShiftOpenHttpTest extends PostgresSchemaTestCase
 
         $response->assertStatus(201);
         $response->assertJson(['shift' => ['terminal_id' => $terminal->id, 'cashier_id' => $cashier->id]]);
+    }
+
+    /** invariants.md #49: opening a shift is a journalable event -- exactly one audit event and one journal entry, in the shift's transaction. */
+    public function test_opening_a_shift_writes_one_audit_event_and_one_journal_entry(): void
+    {
+        ['cashier' => $cashier, 'terminal' => $terminal, 'terminalCredential' => $terminalCredential] = $this->enrolledCashier();
+
+        $response = $this->forwardSessionCookie($this->login($cashier))->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/shifts/open', ['opening_cash' => '500.00']);
+        $response->assertStatus(201);
+        $shiftId = $response->json('shift.id');
+
+        $audit = AuditEvent::where('event_type', 'SHIFT_OPENED')->get();
+        $this->assertCount(1, $audit);
+        $this->assertSame($cashier->id, $audit[0]->actor_user_id);
+        $this->assertSame($terminal->id, $audit[0]->terminal_id);
+        $this->assertSame('shift', $audit[0]->entity_type);
+        $this->assertSame($shiftId, $audit[0]->entity_id);
+
+        $journal = ElectronicJournalEntry::where('event_type', 'SHIFT_OPENED')->get();
+        $this->assertCount(1, $journal);
+        $this->assertSame('shift', $journal[0]->source_type);
+        $this->assertSame($shiftId, $journal[0]->source_id);
+        $this->assertSame($audit[0]->id, $journal[0]->audit_event_id);
+        $this->assertSame($terminal->store_id, $journal[0]->store_id);
+        $this->assertSame($shiftId, $journal[0]->payload_json['shift_id']);
+        $this->assertSame($response->json('shift.fiscal_day_id'), $journal[0]->payload_json['fiscal_day_id']);
+        $this->assertSame('500.00', $journal[0]->payload_json['opening_cash']);
+    }
+
+    public function test_a_retried_shift_open_does_not_journal_the_shift_twice(): void
+    {
+        ['cashier' => $cashier, 'terminalCredential' => $terminalCredential] = $this->enrolledCashier();
+        $login = $this->login($cashier);
+        $idempotencyKey = (string) Str::uuid();
+
+        foreach ([1, 2] as $attempt) {
+            $this->forwardSessionCookie($login)->withTerminalCredential($terminalCredential)
+                ->withHeader('Idempotency-Key', $idempotencyKey)
+                ->postJson('/api/v1/shifts/open', ['opening_cash' => '500.00'])
+                ->assertStatus(201);
+        }
+
+        $this->assertSame(1, ElectronicJournalEntry::where('event_type', 'SHIFT_OPENED')->count());
+        $this->assertSame(1, AuditEvent::where('event_type', 'SHIFT_OPENED')->count());
+    }
+
+    public function test_every_shift_on_an_already_open_day_is_journaled_against_its_own_id(): void
+    {
+        ['cashier' => $first, 'terminalCredential' => $terminalCredential, 'terminal' => $terminal] = $this->enrolledCashier();
+        $second = User::factory()->create(['store_id' => $terminal->store_id]);
+
+        $openFirst = $this->forwardSessionCookie($this->login($first))->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())->postJson('/api/v1/shifts/open', ['opening_cash' => '100.00']);
+        $openFirst->assertStatus(201);
+        $this->forwardSessionCookie($this->login($first))->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson("/api/v1/shifts/{$openFirst->json('shift.id')}/close", ['declared_cash' => '100.00'])->assertOk();
+        $openSecond = $this->forwardSessionCookie($this->login($second))->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())->postJson('/api/v1/shifts/open', ['opening_cash' => '200.00']);
+        $openSecond->assertStatus(201);
+
+        $this->assertSame($openFirst->json('shift.fiscal_day_id'), $openSecond->json('shift.fiscal_day_id'), 'the second shift reuses the open day');
+        $this->assertEqualsCanonicalizing(
+            [$openFirst->json('shift.id'), $openSecond->json('shift.id')],
+            ElectronicJournalEntry::where('event_type', 'SHIFT_OPENED')->pluck('source_id')->all(),
+        );
+    }
+
+    public function test_a_failure_while_journaling_leaves_no_shift_no_audit_no_journal_and_the_key_reusable(): void
+    {
+        ['cashier' => $cashier, 'terminalCredential' => $terminalCredential] = $this->enrolledCashier();
+        $login = $this->login($cashier);
+        $idempotencyKey = (string) Str::uuid();
+
+        Event::listen('eloquent.creating: '.ElectronicJournalEntry::class, fn () => throw new \RuntimeException('the journal write failed'));
+        $failed = $this->forwardSessionCookie($login)->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', $idempotencyKey)
+            ->postJson('/api/v1/shifts/open', ['opening_cash' => '500.00']);
+        Event::forget('eloquent.creating: '.ElectronicJournalEntry::class);
+
+        $failed->assertStatus(500);
+        $this->assertSame(0, Shift::count(), 'the shift must roll back with the journal write');
+        $this->assertSame(0, FiscalDay::count());
+        $this->assertSame(0, AuditEvent::where('event_type', 'SHIFT_OPENED')->count());
+        $this->assertSame(0, ElectronicJournalEntry::where('event_type', 'SHIFT_OPENED')->count());
+        $this->assertSame(0, DB::table('idempotency_records')->where('idempotency_key', $idempotencyKey)->count());
+
+        $this->forwardSessionCookie($login)->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', $idempotencyKey)
+            ->postJson('/api/v1/shifts/open', ['opening_cash' => '500.00'])
+            ->assertStatus(201);
+        $this->assertSame(1, ElectronicJournalEntry::where('event_type', 'SHIFT_OPENED')->count());
     }
 }

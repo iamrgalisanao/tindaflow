@@ -24,7 +24,7 @@ Items marked **verified** were re-checked by hand after the audit; the rest are 
 
 Ranked by consequence. Each is a real difference between what `invariants.md` promises and what the repository does.
 
-> **Update 2026-09-27.** Findings 1, 2 and 4 are fixed (see the notes under each). The verdict tables below show the audit as
+> **Update 2026-09-27.** Findings 1, 2, 3, 4 and 5 are fixed (see the notes under each). The verdict tables below show the audit as
 > it stood before the fixes.
 
 1. **The append-only hardening script would break void and refund (#48, #45, #23, #60, #76, #77). Verified.**
@@ -66,6 +66,9 @@ Ranked by consequence. Each is a real difference between what `invariants.md` pr
    `accumulated_grand_total_sales_after` from the previous Z-reading's snapshot. The invariant says readings are never
    inputs. Also, a void executed after its shift closed is not reflected in that shift's stored totals, so a closing
    X-reading stops being reproducible.
+   **Fixed 2026-09-27** for the accumulated total: it is derived from the ledger and a closed day reproduces its stored
+   reading (tested). The shift X-reading question ("as of close" or recomputed now) is recorded as open in
+   [stage-9-shift-close-fiscal-day-close.md](../06-backend/stage-9-shift-close-fiscal-day-close.md), addendum.
 4. **Reports select by `sold_at`, not by fiscal day (#9). Verified.** `ReportQueryService` filters on
    `sales.sold_at` while grouping by `fiscal_days.business_date`, so a sale made after midnight in fiscal day D is missed by a
    report run for day D. The invariant says the foreign key is the only source of truth.
@@ -74,6 +77,8 @@ Ranked by consequence. Each is a real difference between what `invariants.md` pr
 5. **`SHIFT_OPENED` is never journaled (#49). Verified.** It is in the journal's event-type list but no service writes
    it. The invariant lists shift open as journalable and calls an omission "a bug". Five other event types
    (`X_READING`, `Z_READING`, `SHIFT_CLOSED`, `CASH_IN`, `CASH_OUT`) are written but have no test.
+   **Fixed 2026-09-27**: shift open writes one audit event and one journal entry (no backfill for shifts opened before the
+   change). The five other types still have no journal test.
 6. **Discount eligibility is entirely untested (#66).** No test anywhere sets `order_discount_eligible` to false, so
    ignoring the flag would fail nothing.
 7. **Cash-out threshold is `>=`, the text says "above" (#39). Verified.** `CashMovementService.php:70` uses
@@ -149,7 +154,7 @@ Format: `# title — verdict — the gap`.
 | 37 | Shift totals computed | PARTIAL | `refunds_total`, void exclusion and non-cash refunds untested |
 | 38 | Variance recorded, never corrected | PARTIAL | Post-close immutability unpinned |
 | 39 | Cash-out authorization | PARTIAL | Boundary untested; code is `>=` (finding 7) |
-| 40 | Readings reproducible | UNCOVERED | No reproducibility test; drift (finding 3) |
+| 40 | Readings reproducible | UNCOVERED | No reproducibility test; drift (finding 3), since fixed and tested |
 | 41 | Readings append-only | UNCOVERED-structural | No test pins the absence of update/delete |
 | 42 | One Z-reading per fiscal day | PARTIAL | Atomicity of close unproven |
 | 43 | X-reading without closing the shift | PARTIAL | "Resets no total" unproven; allowed on closed shifts |
@@ -163,7 +168,7 @@ Format: `# title — verdict — the gap`.
 | 46 | Adjustments require a reason | PARTIAL | Only one adjustment type tested for a missing reason |
 | 47 | Sale deducts, void/refund restore | COVERED | Void restore tested on a one-line sale only |
 | 48 | Audit/journal append-only at DB layer | UNCOVERED | Script never applied (finding 1) |
-| 49 | One journal entry per fiscal event | PARTIAL | `SHIFT_OPENED` never written (finding 5) |
+| 49 | One journal entry per fiscal event | PARTIAL | `SHIFT_OPENED` never written (finding 5), since fixed |
 | 50 | Journal references its source | PARTIAL | Shift, cash and reading events untested; some sources differ from the text |
 | 51 | No edit or purge via the app | STRUCTURAL (partly pinned) | `/{id}` routes and Artisan commands not pinned |
 | 52 | Capability-gated endpoints | PARTIAL | Adjustment denial and request gates untested |

@@ -46,12 +46,21 @@ final class FiscalDayReadingAggregator
             Refund::where('fiscal_day_id', $fiscalDay->id)->where('status', 'COMPLETED')->sum('refund_total'),
         );
 
-        $priorReading = ZReading::where('terminal_id', $fiscalDay->terminal_id)->orderByDesc('z_counter')->first();
-        $accumulatedBefore = Money::fromApiString(
-            (string) ($priorReading?->totals_snapshot['accumulated_grand_total_sales_after'] ?? '0.00'),
+        // This reading's own counter: a day that already has one keeps it (so aggregating a closed day again reproduces its
+        // stored snapshot), a day still being closed takes the next number on this terminal.
+        $zCounter = ZReading::where('fiscal_day_id', $fiscalDay->id)->value('z_counter')
+            ?? ZReading::where('terminal_id', $fiscalDay->terminal_id)->count() + 1;
+
+        // The accumulated grand total is derived from the ledger, never chained from the previous reading's stored
+        // snapshot (invariants.md #40: readings are never inputs): the gross of every earlier closed day of this terminal.
+        // A closed day's gross cannot change after it closes -- a sale can only be voided while its own fiscal day is open
+        // (VoidService), and a refund never marks a sale VOIDED -- so no "as of close" logic is needed; later voids and
+        // refunds land in the day they were executed in, through void_total and refund_total.
+        $earlierDayIds = ZReading::where('terminal_id', $fiscalDay->terminal_id)->where('z_counter', '<', $zCounter)->pluck('fiscal_day_id');
+        $accumulatedBefore = $this->sumMoney(
+            Sale::whereIn('fiscal_day_id', $earlierDayIds)->where('status', '!=', 'VOIDED')->sum('grand_total'),
         );
         $accumulatedAfter = $accumulatedBefore->add($grossSales);
-        $zCounter = ZReading::where('terminal_id', $fiscalDay->terminal_id)->count() + 1;
 
         return [
             'accumulated_grand_total_sales_before' => $accumulatedBefore->toApiString(),

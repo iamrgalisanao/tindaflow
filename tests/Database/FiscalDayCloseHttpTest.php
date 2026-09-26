@@ -8,6 +8,7 @@ use App\Models\Store;
 use App\Models\Terminal;
 use App\Models\User;
 use App\Models\ZReading;
+use App\Services\FiscalDay\FiscalDayReadingAggregator;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
@@ -204,5 +205,90 @@ class FiscalDayCloseHttpTest extends PostgresSchemaTestCase
 
         $response->assertOk();
         $this->assertSame(2, $response->json('z_reading.totals_snapshot.z_counter'));
+    }
+
+    /** Rings one sale in a shift's fiscal day, closes the shift, then closes the day as the admin; returns the fiscal-day close response. */
+    private function ringAndCloseTheDay(User $admin, User $cashier, TestResponse $terminalCredential, array $shift, array $sales): TestResponse
+    {
+        foreach ($sales as [$amount, $status]) {
+            Sale::factory()->create([
+                'store_id' => $admin->store_id,
+                'terminal_id' => $shift['terminal_id'],
+                'fiscal_day_id' => $shift['fiscal_day_id'],
+                'shift_id' => $shift['id'],
+                'cashier_id' => $cashier->id,
+                'grand_total' => $amount,
+                'status' => $status,
+            ]);
+        }
+
+        $this->forwardSessionCookie($this->login($cashier))->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson("/api/v1/shifts/{$shift['id']}/close", ['declared_cash' => '1000.00'])
+            ->assertOk();
+
+        return $this->forwardSessionCookie($this->login($admin))->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson("/api/v1/fiscal-days/{$shift['fiscal_day_id']}/close");
+    }
+
+    /** Opens the next day's shift on the same terminal (a new fiscal day opens because the previous one is closed). */
+    private function openNextShift(User $admin, TestResponse $terminalCredential): array
+    {
+        $cashier = User::factory()->create(['store_id' => $admin->store_id]);
+        $opened = $this->forwardSessionCookie($this->login($cashier))->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/shifts/open', ['opening_cash' => '500.00']);
+        $opened->assertStatus(201);
+
+        return ['cashier' => $cashier, 'shift' => $opened->json('shift')];
+    }
+
+    /**
+     * invariants.md #40: readings are reproducible and never inputs. The accumulated grand total is derived from the ledger
+     * (the gross of every earlier closed day of the terminal), so a wrong figure stored on an earlier Z-reading must not leak
+     * into the next one. Voided sales are not in any day's gross.
+     */
+    public function test_the_accumulated_total_is_derived_from_the_ledger_and_not_chained_from_the_previous_reading(): void
+    {
+        ['admin' => $admin, 'cashier' => $cashier, 'terminalCredential' => $credential, 'shift' => $shift] = $this->openShift();
+
+        $day1 = $this->ringAndCloseTheDay($admin, $cashier, $credential, $shift, [['200.00', 'COMPLETED'], ['999.00', 'VOIDED']]);
+        $day1->assertOk();
+        $this->assertSame('200.00', $day1->json('z_reading.totals_snapshot.accumulated_grand_total_sales_after'), 'a voided sale is in no day\'s gross');
+
+        // Corrupt what day 1's reading stored. A chained total would carry this into every later reading.
+        $reading1 = ZReading::where('fiscal_day_id', $shift['fiscal_day_id'])->firstOrFail();
+        $snapshot = $reading1->totals_snapshot;
+        $snapshot['accumulated_grand_total_sales_after'] = '999999.00';
+        ZReading::where('id', $reading1->id)->update(['totals_snapshot' => json_encode($snapshot)]);
+
+        $next = $this->openNextShift($admin, $credential);
+        $day2 = $this->ringAndCloseTheDay($admin, $next['cashier'], $credential, $next['shift'], [['50.00', 'COMPLETED']]);
+        $day2->assertOk();
+        $this->assertSame(2, $day2->json('z_reading.totals_snapshot.z_counter'));
+        $this->assertSame('200.00', $day2->json('z_reading.totals_snapshot.accumulated_grand_total_sales_before'));
+        $this->assertSame('250.00', $day2->json('z_reading.totals_snapshot.accumulated_grand_total_sales_after'));
+
+        $third = $this->openNextShift($admin, $credential);
+        $day3 = $this->ringAndCloseTheDay($admin, $third['cashier'], $credential, $third['shift'], []);
+        $day3->assertOk();
+        $this->assertSame(3, $day3->json('z_reading.totals_snapshot.z_counter'));
+        $this->assertSame('250.00', $day3->json('z_reading.totals_snapshot.accumulated_grand_total_sales_before'), 'the sum of every earlier closed day');
+        $this->assertSame('250.00', $day3->json('z_reading.totals_snapshot.accumulated_grand_total_sales_after'));
+    }
+
+    public function test_aggregating_a_closed_day_again_reproduces_its_stored_reading(): void
+    {
+        ['admin' => $admin, 'cashier' => $cashier, 'terminalCredential' => $credential, 'shift' => $shift] = $this->openShift();
+        $this->ringAndCloseTheDay($admin, $cashier, $credential, $shift, [['200.00', 'COMPLETED']])->assertOk();
+        $next = $this->openNextShift($admin, $credential);
+        $this->ringAndCloseTheDay($admin, $next['cashier'], $credential, $next['shift'], [['75.50', 'COMPLETED']])->assertOk();
+
+        foreach (ZReading::orderBy('z_counter')->get() as $reading) {
+            $again = json_decode(json_encode(app(FiscalDayReadingAggregator::class)->aggregate($reading->fiscalDay)), true);
+
+            $this->assertEquals($reading->totals_snapshot, $again, "Z-reading #{$reading->z_counter} must be reproducible from the ledger");
+        }
     }
 }

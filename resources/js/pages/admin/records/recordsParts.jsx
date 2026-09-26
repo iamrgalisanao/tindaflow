@@ -24,6 +24,7 @@ export const AUDIT_TYPES = [
     { id: 'STOCK_TRANSFERRED', label: 'Stock transferred' },
     { id: 'CASH_IN', label: 'Cash in' },
     { id: 'CASH_OUT', label: 'Cash out' },
+    { id: 'SHIFT_OPENED', label: 'Shift opened' },
     { id: 'SHIFT_CLOSED', label: 'Shift closed' },
     { id: 'X_READING_GENERATED', label: 'X-Reading generated' },
     { id: 'Z_READING_GENERATED', label: 'Z-Reading generated' },
@@ -157,6 +158,8 @@ export function describeAudit(event) {
         case 'CASH_IN':
         case 'CASH_OUT':
             return `${event.event_type === 'CASH_IN' ? 'Cash added to' : 'Cash taken from'} the drawer: ${money(after.amount)}`;
+        case 'SHIFT_OPENED':
+            return `Shift opened with ${money(after.opening_cash)} in the drawer`;
         case 'SHIFT_CLOSED':
             return `Shift closed, variance ${money(after.variance)}`;
         case 'X_READING_GENERATED':
@@ -187,6 +190,8 @@ export function describeJournal(entry) {
             return `X-Reading · ${payload.transaction_count ?? 0} sales, expected cash ${money(payload.expected_cash)}`;
         case 'Z_READING':
             return `Z-Reading #${payload.z_counter ?? '?'} · gross sales ${money(payload.gross_sales)}`;
+        case 'SHIFT_OPENED':
+            return `Shift opened · opening cash ${money(payload.opening_cash)}`;
         case 'SHIFT_CLOSED':
             return `Shift closed · variance ${money(payload.variance)}`;
         default:

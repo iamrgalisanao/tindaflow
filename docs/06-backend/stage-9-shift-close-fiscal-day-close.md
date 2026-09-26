@@ -72,9 +72,11 @@ never trusting a prior reading's own stored totals. Key formulas:
   view — and counted separately in Z-Reading's `void_total` instead,
   attributed to the fiscal day the void itself was recorded on
   (`SaleVoid.fiscal_day_id`), not the original sale's day.
-- `accumulated_grand_total_sales_before` is read from the terminal's
-  most recent prior `ZReading.totals_snapshot`, or `"0.00"` for a
-  terminal's first-ever closure; `z_counter` is a derived count
+- `accumulated_grand_total_sales_before` is the gross of every earlier
+  closed day of the terminal, derived from the sales ledger (see the
+  addendum at the end of this note; it was originally chained from the
+  previous `ZReading.totals_snapshot`, which invariant #40 forbids), or
+  `"0.00"` for a terminal's first-ever closure; `z_counter` is a derived count
   (`ZReading::where('terminal_id', ...)->count() + 1`), never a
   separately mutated column, matching the migration's own documented
   intent.
@@ -159,3 +161,37 @@ shows the corrected figures for any date range.
 
 **Tests.** `NetTenderAllocatorTest` (unit) and `CashChangeCollectionHttpTest` (real checkout, shift close, refund,
 Z-reading and report). Sales-by-payment-method is also described in `stage-10-reports.md`.
+
+## Addendum 2026-09-27 — reading integrity: a derived accumulated total, and `SHIFT_OPENED` journaled
+
+The invariant audit ([invariant-test-coverage.md](../02-domain/invariant-test-coverage.md), findings 3 and 5) found two
+places where the code contradicted the frozen invariants.
+
+**#40, the accumulated grand total.** `FiscalDayReadingAggregator` chained `accumulated_grand_total_sales_before` from the
+previous Z-reading's stored `accumulated_grand_total_sales_after`, so one wrong stored figure would have propagated to every
+later reading, and readings are append-only. It is now derived from the ledger: the sum of `sales.grand_total` (status not
+VOIDED) over the fiscal days of this terminal whose Z-reading has a lower `z_counter`. No "as of close" logic is needed,
+because a closed day's gross cannot change: a sale can only be voided while its own fiscal day is open (`VoidService`), and a
+refund never marks a sale VOIDED. Voids and refunds executed later land in the later day's `void_total` and `refund_total`.
+A day that already has a reading keeps its own `z_counter`, so aggregating a closed day again reproduces its stored snapshot
+(now tested). Printed Z-readings do not change unless a stored figure had been corrupted or data was edited outside the app;
+the derivation fixes future readings and does not rewrite past ones. Before the pilot it is worth a read-only comparison of
+each terminal's stored chain against the derived sums.
+
+Left open, recorded rather than decided: a shift's closing X-reading is stored "as of close", and a void executed after the
+shift closed (while its fiscal day is still open) leaves that shift's stored totals unchanged. Whether a shift reading should
+be "as of close" or recomputed now is an interpretation of #40 that needs the owner.
+
+**#49, `SHIFT_OPENED`.** `ShiftOpenService` now writes one audit event and one electronic-journal entry (`event_type`
+`SHIFT_OPENED`, `source_type` `shift`, `source_id` the shift, payload: shift, terminal, cashier, fiscal day, opening cash,
+time) in the shift's own transaction, mirroring `ShiftCloseService`. The event type was already in the journal CHECK and the
+API enum, so there is no contract change; an idempotent replay never re-enters the service and the
+`(source_type, source_id, event_type)` unique index backs "exactly one". **No backfill:** shifts opened before this change keep
+no journal row, because a backfill would invent entries after the fact. The audit and journal screens describe the new event.
+
+Tests: `FiscalDayCloseHttpTest` (2 new: derived from the ledger with a tampered earlier snapshot and a voided sale; a closed day
+reproduces its stored reading), `ShiftOpenHttpTest` (4 new: one audit and one journal row with the right source; a retried open
+journals once; every shift on an open day journals against its own id; a failure while journaling leaves no shift, audit or
+journal row and the key reusable), `ShiftOpenConcurrencyTest` (the losing open leaves no journal row). Eight of these fail on the
+old code.
+
