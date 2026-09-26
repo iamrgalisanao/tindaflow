@@ -46,6 +46,9 @@ class SaleFinalizeRequest extends FormRequest
             'statutory_discount.type' => ['required_with:statutory_discount', 'string', 'in:SENIOR_CITIZEN,PWD'],
             'statutory_discount.id_number' => ['required_with:statutory_discount', 'string', 'max:50'],
             'statutory_discount.name' => ['required_with:statutory_discount', 'string', 'max:150'],
+            // Stage 38: which rule applies. Absent = STANDARD_20 (Stage 36); BNPC_5 is DTI-DA-DOE JAO 24-02.
+            'statutory_discount.rule' => ['nullable', 'string', 'in:STANDARD_20,BNPC_5'],
+            'statutory_discount.weekly_discount_used' => ['nullable', 'regex:/^\d+\.\d{2}$/'],
         ];
     }
 }

@@ -7,6 +7,7 @@ import { ConfirmDialog } from './admin/catalog/CatalogParts';
 import CartPanel from './pos/CartPanel';
 import CatalogPanel from './pos/CatalogPanel';
 import PosHeader from './pos/PosHeader';
+import PosLookupPanel from './pos/PosLookupPanel';
 import ShiftPanel from './pos/ShiftPanel';
 import TenderPanel from './pos/TenderPanel';
 import XReadingPanel from './pos/XReadingPanel';
@@ -37,11 +38,11 @@ function newIdempotencyKey() {
 export default function Pos() {
     const { user } = useAuth();
     const navigate = useNavigate();
-    const [step, setStep] = useState('loading'); // loading | not-enrolled | open-shift | setup-incomplete | cart | checkout | receipt | close-shift | shift-closed | fiscal-day-closed
+    const [step, setStep] = useState('loading'); // loading | not-enrolled | other-cashier-shift | open-shift | setup-incomplete | cart | checkout | receipt | close-shift | shift-closed | fiscal-day-closed
     const [error, setError] = useState(null);
     const [shift, setShift] = useState(null);
     const [readinessChecks, setReadinessChecks] = useState(null);
-    const [view, setView] = useState('register'); // register | shift (only while a cart is open)
+    const [view, setView] = useState('register'); // register | lookup | shift (only while a cart is open)
     const [terminalCode, setTerminalCode] = useState(null);
 
     const [openingCash, setOpeningCash] = useState('');
@@ -63,7 +64,7 @@ export default function Pos() {
     // legal entitlement, not a discretionary override -- but the exact amount is computed only by the server
     // (the VAT decomposition it runs is not duplicated here), so the total shown before Complete sale stays the
     // pre-discount figure: always enough to cover the real, lower charge, never a risk of under-tendering.
-    const [statutoryDiscount, setStatutoryDiscount] = useState({ enabled: false, type: 'SENIOR_CITIZEN', idNumber: '', name: '' });
+    const [statutoryDiscount, setStatutoryDiscount] = useState({ enabled: false, type: 'SENIOR_CITIZEN', rule: 'STANDARD_20', weeklyUsed: '', idNumber: '', name: '' });
 
     const [payments, setPayments] = useState([{ method: 'CASH', amount: '' }]); // [{method, amount}], split tender is 2+ rows
     const [checkoutBusy, setCheckoutBusy] = useState(false);
@@ -119,6 +120,16 @@ export default function Pos() {
             setShift(body);
             // Only labels the header; the till works without it.
             apiFetch('/api/v1/terminal/current').then((current) => current.ok && setTerminalCode(current.body.terminal_code));
+            // shiftCurrentGet resolves the TERMINAL's open shift, not this cashier's: filtering by
+            // terminal alone happily returns a shift another cashier left open here. CheckoutService
+            // checks terminal AND cashier and rejects that case -- but only at finalisation, which
+            // would let a whole cart be rung up first and fail at Complete. Gate it here instead,
+            // where the cashier can still do something about it. (Same reasoning as the backend's own
+            // comment on that check: "Cashier A left a shift open, Cashier B is now logged in".)
+            if (body.cashier_id !== user.id) {
+                setStep('other-cashier-shift');
+                return;
+            }
             await checkReadiness();
         } else if (status === 403 && body?.error?.code === 'TERMINAL_NOT_ENROLLED') {
             setStep('not-enrolled');
@@ -128,7 +139,7 @@ export default function Pos() {
             setError(body?.error?.message ?? 'Could not determine shift status.');
             setStep('open-shift');
         }
-    }, [checkReadiness]);
+    }, [checkReadiness, user.id]);
 
     useEffect(() => {
         checkShiftState();
@@ -238,7 +249,11 @@ export default function Pos() {
 
     const canDiscount = user.capabilities.includes('DISCOUNT_OVERRIDE');
     const hasInvalidLine = cart.some((line) => lineCents(line.product.selling_price, line.quantity) === null);
-    const statutoryDiscountIncomplete = statutoryDiscount.enabled && (statutoryDiscount.idNumber.trim() === '' || statutoryDiscount.name.trim() === '');
+    const statutoryDiscountIncomplete =
+        statutoryDiscount.enabled &&
+        (statutoryDiscount.idNumber.trim() === '' ||
+            statutoryDiscount.name.trim() === '' ||
+            (statutoryDiscount.rule === 'BNPC_5' && statutoryDiscount.weeklyUsed.trim() !== '' && toCents(statutoryDiscount.weeklyUsed) === null));
 
     // Whole centavos, never floating point. A line whose quantity is half-typed counts as nothing and blocks Charge.
     // "subtotalCents" is the raw pre-discount total (what CartPanel shows as "Subtotal"); each line's own discount
@@ -279,7 +294,17 @@ export default function Pos() {
                     .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
                 ...(orderDiscountCents > 0n ? { order_level_discount_amount: moneyText(orderDiscountCents) } : {}),
                 ...(statutoryDiscount.enabled
-                    ? { statutory_discount: { type: statutoryDiscount.type, id_number: statutoryDiscount.idNumber.trim(), name: statutoryDiscount.name.trim() } }
+                    ? {
+                          statutory_discount: {
+                              type: statutoryDiscount.type,
+                              rule: statutoryDiscount.rule,
+                              ...(statutoryDiscount.rule === 'BNPC_5' && statutoryDiscount.weeklyUsed.trim() !== ''
+                                  ? { weekly_discount_used: moneyText(toCents(statutoryDiscount.weeklyUsed) ?? 0n) }
+                                  : {}),
+                              id_number: statutoryDiscount.idNumber.trim(),
+                              name: statutoryDiscount.name.trim(),
+                          },
+                      }
                     : {}),
             },
         });
@@ -327,7 +352,7 @@ export default function Pos() {
         setCopyKey(newIdempotencyKey());
         setCart([]);
         setDiscount('');
-        setStatutoryDiscount({ enabled: false, type: 'SENIOR_CITIZEN', idNumber: '', name: '' });
+        setStatutoryDiscount({ enabled: false, type: 'SENIOR_CITIZEN', rule: 'STANDARD_20', weeklyUsed: '', idNumber: '', name: '' });
         setPayments([{ method: 'CASH', amount: '' }]);
         setResults(null);
         setSearch('');
@@ -445,6 +470,35 @@ export default function Pos() {
         );
     }
 
+    // A shift another cashier left open on this terminal. Only one shift can be open per terminal
+    // (shifts_one_open_per_terminal), so opening your own is not an option until this one is closed --
+    // and closing is terminal-scoped, not cashier-scoped, so whoever is at the till may do it. The
+    // drawer still gets counted blind: closing goes through the same declared-cash step as always.
+    if (step === 'other-cashier-shift') {
+        return (
+            <div className="min-h-screen bg-slate-950 text-slate-100 [color-scheme:dark]">
+                <div className="mx-auto max-w-md p-8 text-center">
+                    <p className="rounded-md bg-amber-500/10 px-3 py-3 text-sm text-amber-300">
+                        Another cashier still has a shift open on this till. You cannot sell until it is closed, and only one shift can be open here at
+                        a time.
+                    </p>
+                    {shift?.opened_at && <p className="mt-2 font-mono text-[11px] text-slate-500">open since {new Date(shift.opened_at).toLocaleString()}</p>}
+                    <button
+                        type="button"
+                        onClick={goToCloseShift}
+                        className="mt-4 min-h-12 w-full rounded bg-emerald-500 px-4 text-sm font-bold uppercase tracking-wider text-slate-950 hover:bg-emerald-400"
+                    >
+                        Count the drawer and close it
+                    </button>
+                    <p className="mt-2 text-xs text-slate-500">You will be asked to count the cash in the drawer, exactly as the cashier who opened it would be.</p>
+                    <Link to="/" className="mt-4 inline-block text-sm text-slate-400 underline">
+                        Back to dashboard
+                    </Link>
+                </div>
+            </div>
+        );
+    }
+
     if (step === 'setup-incomplete') {
         const failed = Object.entries(readinessChecks ?? {}).filter(([, ready]) => !ready);
         return (
@@ -528,6 +582,8 @@ export default function Pos() {
                     </button>
                 </form>
             )}
+
+            {step === 'cart' && view === 'lookup' && <PosLookupPanel canSeeAllSales={user.capabilities.includes('REPORT_VIEW')} />}
 
             {step === 'cart' && view === 'shift' && (
                 <ShiftPanel

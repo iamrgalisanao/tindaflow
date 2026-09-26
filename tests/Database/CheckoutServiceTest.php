@@ -672,6 +672,75 @@ class CheckoutServiceTest extends PostgresSchemaTestCase
         $this->assertSame('VAT_EXEMPT', $sale->items->sole()->tax_classification_snapshot);
     }
 
+    public function test_the_five_percent_basic_necessities_rule_keeps_the_vat(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+
+        $sale = $this->checkoutService->finalize(
+            $shift->terminal_id,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'SENIOR_CITIZEN', 'rule' => 'BNPC_5', 'id_number' => 'OSCA-00123', 'name' => 'Juana Dela Cruz'],
+                'payments' => [['method' => 'CASH', 'amount' => '95.00']],
+            ]
+        );
+
+        // 5% of the 100.00 shelf price, VAT stays: 95.00 VAT-inclusive -> 84.82 base + 10.18 VAT.
+        $this->assertSame('5.00', $sale->discount_total);
+        $this->assertSame('95.00', $sale->grand_total);
+        $this->assertSame('84.82', $sale->taxable_sales);
+        $this->assertSame('10.18', $sale->vat_amount);
+        $this->assertSame('VATABLE', $sale->items->sole()->tax_classification_snapshot);
+
+        $invoice = Invoice::where('sale_id', $sale->id)->sole();
+        $this->assertSame('Senior Citizen (5% basic necessities)', $invoice->invoice_snapshot_json['discount_beneficiary']['type']);
+
+        $event = AuditEvent::where('event_type', 'DISCOUNT_APPLIED')->sole();
+        $this->assertSame('BNPC_5', $event->after_metadata['statutory_discount_rule']);
+        $this->assertSame('0.00', $event->after_metadata['statutory_weekly_discount_used']);
+    }
+
+    public function test_the_five_percent_rule_only_gives_what_is_left_of_the_weekly_cap(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+
+        $sale = $this->checkoutService->finalize(
+            $shift->terminal_id,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'PWD', 'rule' => 'BNPC_5', 'weekly_discount_used' => '123.00', 'id_number' => 'PWD-1', 'name' => 'Juan Dela Cruz'],
+                'payments' => [['method' => 'CASH', 'amount' => '100.00']],
+            ]
+        );
+
+        // 125.00 cap - 123.00 already used = 2.00 left, less than the 5.00 the rate would give.
+        $this->assertSame('2.00', $sale->discount_total);
+        $this->assertSame('98.00', $sale->grand_total);
+    }
+
+    public function test_the_five_percent_rule_gives_nothing_once_the_weekly_cap_is_used_up(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+
+        $sale = $this->checkoutService->finalize(
+            $shift->terminal_id,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'PWD', 'rule' => 'BNPC_5', 'weekly_discount_used' => '125.00', 'id_number' => 'PWD-1', 'name' => 'Juan Dela Cruz'],
+                'payments' => [['method' => 'CASH', 'amount' => '100.00']],
+            ]
+        );
+
+        $this->assertSame('0.00', $sale->discount_total);
+        $this->assertSame('100.00', $sale->grand_total);
+    }
+
     public function test_a_pwd_discount_on_a_non_vat_store_has_no_vat_to_remove(): void
     {
         $shift = Shift::factory()->create();

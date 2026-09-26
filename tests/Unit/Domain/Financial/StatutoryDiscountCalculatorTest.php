@@ -76,4 +76,33 @@ class StatutoryDiscountCalculatorTest extends TestCase
 
         $this->assertSame('10.67', $discount->toApiString());
     }
+
+    public function test_basic_necessities_rule_is_five_percent_of_the_vat_inclusive_price(): void
+    {
+        $discount = $this->calculator->computeBasicNecessitiesDiscount(Money::fromApiString('112.00'), Money::zero());
+
+        $this->assertSame('5.60', $discount->toApiString());
+    }
+
+    public function test_basic_necessities_discount_is_limited_to_the_rest_of_the_weekly_cap(): void
+    {
+        // 5% of 2,000.00 = 100.00, but only 125.00 - 60.00 = 65.00 of the week's cap is left.
+        $discount = $this->calculator->computeBasicNecessitiesDiscount(Money::fromApiString('2000.00'), Money::fromApiString('60.00'));
+
+        $this->assertSame('65.00', $discount->toApiString());
+    }
+
+    public function test_basic_necessities_discount_is_zero_once_the_cap_is_spent(): void
+    {
+        $this->assertTrue($this->calculator->computeBasicNecessitiesDiscount(Money::fromApiString('500.00'), Money::fromApiString('125.00'))->isZero());
+        $this->assertTrue($this->calculator->computeBasicNecessitiesDiscount(Money::fromApiString('500.00'), Money::fromApiString('130.00'))->isZero());
+    }
+
+    public function test_basic_necessities_discount_never_exceeds_the_cap_on_a_large_sale(): void
+    {
+        // The 2,500.00 purchase cap in the JAO is the same limit as 125.00 of discount at 5%.
+        $discount = $this->calculator->computeBasicNecessitiesDiscount(Money::fromApiString('10000.00'), Money::zero());
+
+        $this->assertSame('125.00', $discount->toApiString());
+    }
 }

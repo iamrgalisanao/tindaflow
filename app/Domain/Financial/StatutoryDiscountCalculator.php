@@ -28,6 +28,10 @@ final class StatutoryDiscountCalculator
 {
     private const RATE = '0.20';
 
+    private const BNPC_RATE = '0.05';
+
+    private const BNPC_WEEKLY_CAP = '125.00';
+
     /**
      * @param  Money  $vatExclusiveVatableBase  the sale's already-net-of-other-discounts VATABLE base
      *                                          (FinancialCalculator's own taxableSales from an unmodified
@@ -50,5 +54,27 @@ final class StatutoryDiscountCalculator
         $otherDiscount = $otherEligibleNet->percentageOf(self::RATE);
 
         return $vatableDiscount->add($otherDiscount);
+    }
+
+    /**
+     * DTI-DA-DOE JAO 24-02: 5% of the regular retail price of basic necessities and prime commodities,
+     * WITHOUT VAT exemption (the price shown, VAT included, is the base), capped at PHP 125.00 of discount
+     * per week. The JAO tracks the weekly cap on the beneficiary's purchase booklet and does not define
+     * the week, so the cashier reports the discount the booklet already shows this week and only the
+     * remainder of the cap is available here -- this class never invents a week boundary.
+     *
+     * @param  Money  $eligibleNet  the sale's VAT-inclusive net after any line/manual discounts
+     * @param  Money  $weeklyDiscountUsed  discount already taken this week per the booklet (zero if none)
+     */
+    public function computeBasicNecessitiesDiscount(Money $eligibleNet, Money $weeklyDiscountUsed): Money
+    {
+        $remainingCap = Money::fromApiString(self::BNPC_WEEKLY_CAP)->subtract($weeklyDiscountUsed);
+        if (! $remainingCap->isPositive()) {
+            return Money::zero();
+        }
+
+        $discount = $eligibleNet->percentageOf(self::BNPC_RATE);
+
+        return $discount->greaterThan($remainingCap) ? $remainingCap : $discount;
     }
 }

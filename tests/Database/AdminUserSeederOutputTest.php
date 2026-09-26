@@ -18,6 +18,21 @@ use Symfony\Component\Console\Output\BufferedOutput;
  */
 class AdminUserSeederOutputTest extends PostgresSchemaTestCase
 {
+    private const PASSWORD_ENV = 'TINDAFLOW_INITIAL_ADMIN_PASSWORD';
+
+    /**
+     * A developer's own .env may set the initial admin password, which makes the seeder skip the "Generated
+     * password" line these tests assert on. Blank it for this class so the result does not depend on that file.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        putenv(self::PASSWORD_ENV.'=');
+        $_ENV[self::PASSWORD_ENV] = '';
+        $_SERVER[self::PASSWORD_ENV] = '';
+    }
+
     /**
      * @return array{0: string, 1: string} the password the seeder used and the text the console showed
      */

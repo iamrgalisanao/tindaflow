@@ -94,8 +94,8 @@ sale is finalized.
 
 ## 4. Not built
 
-The 5% Basic-Necessities-and-Prime-Commodities rule (DTI-DA-DOE JAO 24-02) — the owner explicitly chose the simpler
-20%+VAT-exempt pattern instead (see §1). Solo Parent (RA 11861) discounts — different eligibility rules, out of
+The 5% Basic-Necessities-and-Prime-Commodities rule (DTI-DA-DOE JAO 24-02) — not part of this stage; added as a
+selectable rule in Stage 38 (`stage-38-basic-necessities-discount.md`). Solo Parent (RA 11861) discounts — different eligibility rules, out of
 scope. A per-beneficiary purchase cap or weekly-limit tracking (relevant only to the 5% rule this pass did not
 implement). ID verification/lookup against any OSCA/NCDA registry — the ID number and name are captured as typed,
 not validated against an external source, matching how every other POS in this market handles it at the till.
