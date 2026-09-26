@@ -57,7 +57,11 @@ export default function Pos() {
      * never be reloaded into anything meaningful.
      */
     const sub = pathname.replace(/^\/pos\/?/, '');
-    const view = sub === '' ? 'register' : sub;
+    // A finished sale is the one step with a server-side identity, so it is the one that can be
+    // addressed, reloaded and linked to. Everything else in the till is either a resolved condition
+    // or depends on state that exists only here.
+    const receiptId = sub.startsWith('receipt/') ? sub.slice('receipt/'.length) : null;
+    const view = sub === '' ? 'register' : receiptId !== null ? 'receipt' : sub;
     const goToView = (key) => navigate(key === 'register' ? '/pos' : `/pos/${key}`);
     const [terminalCode, setTerminalCode] = useState(null);
 
@@ -75,6 +79,7 @@ export default function Pos() {
     // The cart lives in this component's state, so unmounting is what destroys it -- the confirmation
     // has to happen before the route changes, not after. Holds the destination until the cashier decides.
     const [pendingExit, setPendingExit] = useState(null);
+    const [receiptMissing, setReceiptMissing] = useState(false);
     // Senior Citizen (RA 9994) / PWD (RA 10754): 20% off the VAT-exclusive price, VAT exempt where the store
     // charges VAT at all. Unlike the discount box above, any cashier can use this -- it is the customer's own
     // legal entitlement, not a discretionary override -- but the exact amount is computed only by the server
@@ -160,6 +165,38 @@ export default function Pos() {
     useEffect(() => {
         checkShiftState();
     }, [checkShiftState]);
+
+    /**
+     * A receipt reached by its own URL -- a reload, a bookmark, a link -- rather than by finishing a
+     * sale. saleGet carries every field this screen renders, so it re-renders from the record itself.
+     *
+     * `originalPrinted` is set true on this path deliberately. The unmarked original belongs to the
+     * moment of sale; anything printed from a re-entry is a copy and must be recorded as one. The
+     * screen therefore offers "Print another copy" here and can never emit an unmarked duplicate,
+     * which is the same rule InvoicePanel follows.
+     */
+    useEffect(() => {
+        if (receiptId === null || receiptId === '' || sale?.id === receiptId) {
+            return undefined;
+        }
+        let cancelled = false;
+        setStep('loading');
+        apiFetch(`/api/v1/sales/${receiptId}`).then(({ ok, body }) => {
+            if (cancelled) {
+                return;
+            }
+            if (ok) {
+                setSale(body);
+                setOriginalPrinted(true);
+                setStep('receipt');
+            } else {
+                setReceiptMissing(true);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [receiptId, sale?.id]);
 
     // Readings already taken on this shift (possibly on another browser). Session-only read, so it works
     // even where the terminal credential does not; a failure just leaves the list empty rather than
@@ -328,6 +365,9 @@ export default function Pos() {
         if (ok) {
             setSale(body);
             setStep('receipt');
+            // `replace`, not push: Back from the receipt should return to the register the cashier
+            // started from, never to a checkout step whose cart no longer exists.
+            navigate(`/pos/receipt/${body.id}`, { replace: true });
         } else {
             setError(body?.error?.message ?? 'Checkout failed.');
         }
@@ -469,7 +509,9 @@ export default function Pos() {
 
     // The splat route means this component now receives every /pos/* path, so it owns the 404 for the
     // ones it does not define -- otherwise the router's catch-all would never see them.
-    if (!['register', 'lookup', 'shift'].includes(view)) {
+    // A sale id that is malformed, belongs to another store, or is not this cashier's to read is,
+    // from the address bar's point of view, simply not a page that exists.
+    if (!['register', 'lookup', 'shift', 'receipt'].includes(view) || (view === 'receipt' && receiptId === '') || receiptMissing) {
         return <NotFound />;
     }
 
@@ -557,7 +599,7 @@ export default function Pos() {
                 terminalCode={terminalCode}
                 operatorName={user.name}
                 shift={shift}
-                showTabs={step === 'cart' || step === 'checkout'}
+                showTabs={(step === 'cart' || step === 'checkout') && view !== 'receipt'}
                 view={view}
                 paying={step === 'checkout'}
                 onView={goToView}
@@ -684,7 +726,7 @@ export default function Pos() {
                 />
             )}
 
-            {step === 'receipt' && sale && (
+            {view === 'receipt' && sale && (
                 <div className="mx-auto mt-8 max-w-sm space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-6">
                     <h2 className="text-sm font-medium text-slate-300">Sale complete</h2>
                     <dl className="space-y-1 text-sm">
