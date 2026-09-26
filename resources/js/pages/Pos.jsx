@@ -7,6 +7,7 @@ import { ConfirmDialog } from './admin/catalog/CatalogParts';
 import CartPanel from './pos/CartPanel';
 import CatalogPanel from './pos/CatalogPanel';
 import PosHeader from './pos/PosHeader';
+import PosLookupPanel from './pos/PosLookupPanel';
 import ShiftPanel from './pos/ShiftPanel';
 import TenderPanel from './pos/TenderPanel';
 import XReadingPanel from './pos/XReadingPanel';
@@ -41,7 +42,7 @@ export default function Pos() {
     const [error, setError] = useState(null);
     const [shift, setShift] = useState(null);
     const [readinessChecks, setReadinessChecks] = useState(null);
-    const [view, setView] = useState('register'); // register | shift (only while a cart is open)
+    const [view, setView] = useState('register'); // register | lookup | shift (only while a cart is open)
     const [terminalCode, setTerminalCode] = useState(null);
 
     const [openingCash, setOpeningCash] = useState('');
@@ -528,6 +529,8 @@ export default function Pos() {
                     </button>
                 </form>
             )}
+
+            {step === 'cart' && view === 'lookup' && <PosLookupPanel canSeeAllSales={user.capabilities.includes('REPORT_VIEW')} />}
 
             {step === 'cart' && view === 'shift' && (
                 <ShiftPanel

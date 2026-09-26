@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 const TABS = [
     { key: 'register', label: 'Register' },
     { key: 'payment', label: 'Payment' },
+    { key: 'lookup', label: 'Lookup' },
     { key: 'shift', label: 'Shift' },
 ];
 
