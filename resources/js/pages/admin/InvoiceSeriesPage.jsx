@@ -85,7 +85,7 @@ export default function InvoiceSeriesPage() {
                 At most one ACTIVE series per fiscal installation. Close the current one before activating another.
             </p>
 
-            {error && <p className="mb-4 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-300">{error}</p>}
+            {error && <p className="mb-4 rounded-md border border-rose-800 bg-rose-950 px-3 py-2 text-sm text-rose-300">{error}</p>}
 
             <form onSubmit={createSeries} className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4 sm:grid-cols-5">
                 <select
@@ -187,7 +187,7 @@ export default function InvoiceSeriesPage() {
                                             type="button"
                                             disabled={busy}
                                             onClick={() => closeSeries(row.id)}
-                                            className="text-xs text-red-400 underline disabled:opacity-50"
+                                            className="text-xs text-rose-400 underline disabled:opacity-50"
                                         >
                                             Close
                                         </button>

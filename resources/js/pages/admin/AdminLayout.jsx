@@ -497,7 +497,7 @@ export default function AdminLayout({
                     ) : (
                         deniedView ?? (
                             <div className="rounded-lg border border-slate-800 bg-slate-900 p-6">
-                                <p className="text-sm text-red-400">Your role does not include this section.</p>
+                                <p className="text-sm text-rose-400">Your role does not include this section.</p>
                                 <Link to="/" className="mt-4 inline-block text-sm text-slate-400 underline">
                                     Back to dashboard
                                 </Link>

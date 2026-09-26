@@ -55,7 +55,7 @@ export default function StoreSetupOverview() {
                 What a fresh store needs before a POS terminal can complete a checkout.
             </p>
 
-            {error && <p className="mb-4 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-300">{error}</p>}
+            {error && <p className="mb-4 rounded-md border border-rose-800 bg-rose-950 px-3 py-2 text-sm text-rose-300">{error}</p>}
 
             {checks === null && !error && <p className="text-sm text-slate-500">Loading…</p>}
 

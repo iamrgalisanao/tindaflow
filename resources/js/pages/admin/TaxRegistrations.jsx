@@ -47,7 +47,7 @@ export default function TaxRegistrations() {
                 Registering a new one closes the current registration the day before this one starts — history is never overwritten.
             </p>
 
-            {error && <p className="mb-4 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-300">{error}</p>}
+            {error && <p className="mb-4 rounded-md border border-rose-800 bg-rose-950 px-3 py-2 text-sm text-rose-300">{error}</p>}
 
             <form onSubmit={createRegistration} className="mb-6 flex flex-wrap gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4">
                 <select

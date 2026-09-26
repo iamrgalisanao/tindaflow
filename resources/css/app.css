@@ -3,6 +3,14 @@
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
+/*
+ * Tailwind v4 detects sources across the whole project, so prose that merely NAMES a utility gets
+ * compiled as if something used it. docs/06-ui/design-tokens.md lists the `red-*` utilities this
+ * codebase is migrating away from, and that alone was enough to keep them in the production bundle
+ * after the last source reference was gone. Documentation describes the CSS; it must not generate it.
+ */
+@source not '../../docs';
+
 @theme {
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';

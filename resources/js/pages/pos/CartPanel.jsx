@@ -110,7 +110,7 @@ export default function CartPanel({
                                     aria-label={`Quantity of ${line.product.name}`}
                                     aria-invalid={invalid}
                                     className={`min-h-11 w-16 border-y px-1 text-center font-mono text-sm tabular-nums focus:outline-none focus:ring-1 ${
-                                        invalid ? 'border-red-500 bg-red-500/10 focus:ring-red-500' : 'border-slate-700 focus:ring-emerald-500'
+                                        invalid ? 'border-rose-500 bg-rose-500/10 focus:ring-rose-500' : 'border-slate-700 focus:ring-emerald-500'
                                     }`}
                                 />
                                 <button
@@ -131,7 +131,7 @@ export default function CartPanel({
                                 type="button"
                                 onClick={() => onRemove(line.product.id)}
                                 aria-label={`Remove ${line.product.name}`}
-                                className="min-h-11 min-w-11 shrink-0 rounded text-lg text-slate-400 hover:bg-red-500/10 hover:text-red-400"
+                                className="min-h-11 min-w-11 shrink-0 rounded text-lg text-slate-400 hover:bg-rose-500/10 hover:text-rose-400"
                             >
                                 &times;
                             </button>
@@ -142,7 +142,7 @@ export default function CartPanel({
 
             <div className="border-t border-slate-700 px-4 py-3">
                 {hasInvalidLine && (
-                    <p role="alert" className="mb-2 rounded bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                    <p role="alert" className="mb-2 rounded bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
                         A quantity is not valid. Use a number above zero, with up to 3 decimals.
                     </p>
                 )}
@@ -278,7 +278,7 @@ export default function CartPanel({
                     <p className="mt-2 text-right text-[11px] text-slate-400">A preview. The server works out the final total when the sale is finalised.</p>
                 </div>
                 {statutoryDiscountIncomplete && (
-                    <p role="alert" className="mb-2 rounded bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                    <p role="alert" className="mb-2 rounded bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
                         Enter the ID number and name for the Senior Citizen / PWD discount.
                     </p>
                 )}

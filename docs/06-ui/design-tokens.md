@@ -96,23 +96,29 @@ a figure withheld during an open shift.
 | `warn-line` | `amber-700` |
 | `warn-tint` | `amber-950` |
 
-## Known inconsistency: two reds
+## Resolved: the two reds
 
-The app uses **both** `rose-*` and `red-*` for the same idea. Measured on 2026-09-26:
+The app used **both** `rose-*` and `red-*` for the same idea. Measured on 2026-09-26, `red-*` appeared
+47 times across 12 files — the POS screens and the older Store Setup admin screens — while the
+records, reports and catalog screens used `rose-*`. Both rendered as "this went wrong", and the
+difference showed whenever a POS error sat beside an admin one.
 
-- `rose-*` — the majority, and what the tokens alias.
-- `red-*` — **47 utilities across 12 files**: `text-red-300` (14), `bg-red-500/10` (12),
-  `text-red-400` (5), `border-red-800` (5), `bg-red-950` (5), `border-red-500/30` (4),
-  `ring-red-500` (1), `border-red-500` (1).
+**Converged 2026-09-26** as a pure hue swap, step for step (`red-400` to `rose-400`, and so on), so
+contrast and relative lightness are unchanged and no error styling was redesigned. `resources/js` now
+contains zero `red-*` utilities.
 
-The split runs by area rather than by meaning: the POS screens and the older Store Setup admin
-screens use `red-*`; the records, reports and catalog screens use `rose-*`. Both render as "this went
-wrong", and the difference is visible when a POS error sits next to an admin one.
+`text-rose-300` remains alongside `text-rose-400`, and that is intentional rather than leftover: the
+300 step is used for text sitting on a dark rose tint, the 400 for text on an ordinary surface. Same
+hue, two contrast situations.
 
-**Not converged in this change, on purpose.** It touches 12 files including `Pos.jsx` and the POS
-panels, which are under active concurrent work; a mechanical 47-site sweep landing on top of that is
-how a clean-looking merge turns into a broken one. It is recorded here with its exact scope so the
-sweep can be done deliberately, in one commit, when those files are quiet.
+One consequence worth knowing, found while verifying the sweep: **Tailwind v4 detects sources across
+the whole project**, so this document naming those utilities was enough to keep them compiled into
+the production bundle after the last real reference was gone. `app.css` now carries
+`@source not '../../docs'`. Documentation describes the CSS; it must not generate it.
+
+The only `red-*` utilities still reaching the bundle are `selection:bg-red-500` and
+`focus:outline-red-500`, which come from a compiled Blade template under `storage/framework/views`
+that `app.css` deliberately scans. That is framework output, not application code.
 
 ## How to use them
 

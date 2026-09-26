@@ -84,7 +84,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
             {scanNotice && (
                 <p
                     role="status"
-                    className={`rounded px-3 py-2 text-sm ${scanNotice.kind === 'added' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}
+                    className={`rounded px-3 py-2 text-sm ${scanNotice.kind === 'added' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-rose-500/10 text-rose-300'}`}
                 >
                     {scanNotice.text}
                 </p>
@@ -124,7 +124,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
             <div className="min-h-0 flex-1 overflow-y-auto">
                 {shown === null && <p className="py-8 text-center text-sm text-slate-400">Loading products…</p>}
                 {loadFailed && !searching && (
-                    <p role="alert" className="rounded bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                    <p role="alert" className="rounded bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
                         The products could not be loaded. You can still scan a barcode or search.
                     </p>
                 )}

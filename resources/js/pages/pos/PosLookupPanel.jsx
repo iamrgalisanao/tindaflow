@@ -214,7 +214,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
 
                 <div className="min-h-0 flex-1 overflow-y-auto">
                     {listFailure && (
-                        <p role="alert" className="m-3 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                        <p role="alert" className="m-3 rounded border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
                             {failureMessage(listFailure, 'The transactions could not be loaded.')}
                         </p>
                     )}
@@ -279,7 +279,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                 )}
 
                 {detailFailure && (
-                    <p role="alert" className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                    <p role="alert" className="rounded border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
                         {failureMessage(detailFailure, 'That transaction could not be opened.')}
                     </p>
                 )}
