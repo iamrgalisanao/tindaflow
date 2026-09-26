@@ -6,4 +6,53 @@
 @theme {
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
+
+    /*
+     * Semantic colour tokens. These NAME the palette the app already uses -- every value below was
+     * read out of the components, not chosen here (see docs/06-ui/design-tokens.md for the counts).
+     * They are aliases, so `bg-canvas` and `bg-slate-950` render identically and the two can coexist
+     * while screens migrate; nothing breaks if a file never adopts them.
+     *
+     * Use these in new work instead of a raw slate/emerald/rose/amber step, so that a change of mind
+     * about, say, what "muted text" means is one edit rather than 211.
+     */
+
+    /* Surfaces, darkest to lightest. */
+    --color-canvas: var(--color-slate-950);
+    --color-surface: var(--color-slate-900);
+    --color-surface-raised: var(--color-slate-800);
+
+    /* Borders and dividers. */
+    --color-line-subtle: var(--color-slate-800);
+    --color-line: var(--color-slate-700);
+    --color-line-strong: var(--color-slate-600);
+
+    /* Text, most prominent to least. `ink-inverse` is for text ON an accent fill. */
+    --color-ink: var(--color-slate-100);
+    --color-ink-soft: var(--color-slate-300);
+    --color-ink-muted: var(--color-slate-400);
+    --color-ink-faint: var(--color-slate-500);
+    --color-ink-ghost: var(--color-slate-600);
+    --color-ink-inverse: var(--color-slate-950);
+
+    /* Emerald: the primary action, and the colour of a settled//balanced figure. */
+    --color-accent: var(--color-emerald-500);
+    --color-accent-hover: var(--color-emerald-400);
+    --color-accent-ink: var(--color-emerald-400);
+    --color-accent-line: var(--color-emerald-700);
+    --color-accent-tint: var(--color-emerald-950);
+
+    /*
+     * Rose: failure, destruction, a shortage. The app also contains 47 `red-*` utilities meaning
+     * exactly this -- two reds for one idea. Rose is the majority and the intended one; see the
+     * convergence note in docs/06-ui/design-tokens.md.
+     */
+    --color-danger: var(--color-rose-400);
+    --color-danger-line: var(--color-rose-800);
+    --color-danger-tint: var(--color-rose-950);
+
+    /* Amber: a caution that is not yet a failure -- pending, blocked, over/short, withheld. */
+    --color-warn: var(--color-amber-400);
+    --color-warn-line: var(--color-amber-700);
+    --color-warn-tint: var(--color-amber-950);
 }
