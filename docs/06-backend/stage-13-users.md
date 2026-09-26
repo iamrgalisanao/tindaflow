@@ -103,3 +103,21 @@ The slide-over shell (focus trap, Escape, scroll lock, focus restore) was extrac
 Stock receipts/adjustments, audit log and electronic journal screens (no backend routes),
 product CSV import/export and barcode lookup, and the deferred shift/fiscal-day read
 endpoints.
+
+## Addendum 2026-09-27 — recovering a sole administrator who forgot the password
+
+Found by the architect review: the only way to reset a password was `userUpdate` by **another** administrator, and
+`AdminUserSeeder` does nothing while an active ADMIN exists, so a sole owner who forgot the password had no recovery, and no
+document mentioned one. A small shop's server sends no e-mail, so a "forgot password" link is not an option.
+
+**Decision.** `php artisan tindaflow:reset-password {email} [--activate]`, run from the server console (`docker compose exec app
+...`); being able to run it already means holding the server, the same trust as owning the database. It sets a generated
+20-character password and prints it once, raw (the console would otherwise treat `<...>` in it as markup and lock the
+administrator out again, the same care as `AdminUserSeeder`), deletes that user's rows in `sessions` when the session driver is
+`database`, and writes one `PASSWORD_RESET` audit event (actor null because no signed-in user did it; the metadata holds the
+e-mail, role and whether the user was reactivated, never the password). It matches the e-mail without regard to case, refuses an
+unknown e-mail, an e-mail used in more than one store, and an inactive user unless `--activate` is given, in each case changing
+nothing. No API, route, error code or schema change; the audit and journal screens describe the new event. Tests:
+`ResetUserPasswordCommandTest` (8, including one that proves a password shaped like console markup is printed exactly and
+fails if the raw printing is removed). Documented in `docker/README.md`.
+

@@ -54,6 +54,16 @@ A stack first deployed with a single `DB_USERNAME` (the earlier setup) keeps wor
 
 Check it took effect: `docker compose exec postgres psql -U <owner> -d tindaflow -c "select has_table_privilege('tindaflow_app','audit_events','UPDATE')"` must print `f`.
 
+## Forgot the administrator's password
+
+A small shop's server sends no e-mail, so there is no "forgot password" link, and a sole administrator has nobody else who could reset it from Users. Anyone who can run commands on the server can:
+
+```bash
+docker compose exec app php artisan tindaflow:reset-password owner@example.com
+```
+
+It sets a new strong password, **prints it once** (copy it now; it is stored nowhere in plain text), ends every session that user has, and records a `PASSWORD_RESET` entry in the audit log. Sign in with it and change it under Users. If the user was deactivated, add `--activate`. It refuses an unknown e-mail, and an e-mail used in more than one store, without changing anything.
+
 ## Backups
 
 The `backup` container writes a dump to `./backups` (`BACKUP_DIR`) every `BACKUP_INTERVAL_MINUTES` (default 60): **the most sales you can lose in a crash is one interval.** Each dump is checked readable before it is kept. Retention is every dump for 24 hours, then the first of each day for 30 days, then the first of each month for 12 months (all set in `.env`); pruning removes old copies only, never database rows.

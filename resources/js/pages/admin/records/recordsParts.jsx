@@ -26,6 +26,7 @@ export const AUDIT_TYPES = [
     { id: 'CASH_OUT', label: 'Cash out' },
     { id: 'SHIFT_OPENED', label: 'Shift opened' },
     { id: 'SHIFT_CLOSED', label: 'Shift closed' },
+    { id: 'PASSWORD_RESET', label: 'Password reset' },
     { id: 'X_READING_GENERATED', label: 'X-Reading generated' },
     { id: 'Z_READING_GENERATED', label: 'Z-Reading generated' },
 ];
@@ -158,6 +159,8 @@ export function describeAudit(event) {
         case 'CASH_IN':
         case 'CASH_OUT':
             return `${event.event_type === 'CASH_IN' ? 'Cash added to' : 'Cash taken from'} the drawer: ${money(after.amount)}`;
+        case 'PASSWORD_RESET':
+            return `Password reset from the server for ${after.email ?? 'a user'}${after.reactivated ? ' (reactivated)' : ''}; their sessions were ended`;
         case 'SHIFT_OPENED':
             return `Shift opened with ${money(after.opening_cash)} in the drawer`;
         case 'SHIFT_CLOSED':
