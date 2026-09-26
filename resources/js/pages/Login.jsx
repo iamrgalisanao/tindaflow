@@ -63,20 +63,29 @@ export default function Login() {
         setSubmitting(false);
     }
 
+    const field = 'min-h-12 w-full rounded-md border bg-slate-950 px-3 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-1';
+
     return (
-        <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-            <form
-                onSubmit={handleSubmit}
-                className="w-full max-w-sm space-y-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
-            >
-                <h1 className="text-lg font-semibold text-gray-900">TindaFlow</h1>
+        <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100 [color-scheme:dark]">
+            <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-6">
+                <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+                    <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-emerald-500 text-sm font-bold text-slate-950">
+                        TF
+                    </span>
+                    <div>
+                        <h1 className="text-sm font-bold tracking-wide text-slate-100">TINDAFLOW</h1>
+                        <p className="font-mono text-[10px] tracking-[0.2em] text-emerald-400">SIGN IN</p>
+                    </div>
+                </div>
 
                 {formError && (
-                    <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</p>
+                    <p role="alert" className="rounded-md border border-rose-800/60 bg-rose-950/40 px-3 py-2 text-sm text-rose-300">
+                        {formError}
+                    </p>
                 )}
 
                 <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                    <label htmlFor="email" className="mb-1 block text-xs text-slate-400">
                         Email
                     </label>
                     <input
@@ -85,15 +94,19 @@ export default function Login() {
                         autoComplete="username"
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
-                        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
+                        aria-invalid={fieldErrors.email ? 'true' : undefined}
+                        aria-describedby={fieldErrors.email ? 'email_error' : undefined}
+                        className={`${field} ${fieldErrors.email ? 'border-rose-700 focus:border-rose-500 focus:ring-rose-500' : 'border-slate-700 focus:border-emerald-500 focus:ring-emerald-500'}`}
                     />
                     {fieldErrors.email && (
-                        <p className="mt-1 text-sm text-red-600">{fieldErrors.email[0]}</p>
+                        <p id="email_error" className="mt-1 text-xs text-rose-400">
+                            {fieldErrors.email[0]}
+                        </p>
                     )}
                 </div>
 
                 <div>
-                    <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                    <label htmlFor="password" className="mb-1 block text-xs text-slate-400">
                         Password
                     </label>
                     <input
@@ -102,17 +115,21 @@ export default function Login() {
                         autoComplete="current-password"
                         value={password}
                         onChange={(event) => setPassword(event.target.value)}
-                        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
+                        aria-invalid={fieldErrors.password ? 'true' : undefined}
+                        aria-describedby={fieldErrors.password ? 'password_error' : undefined}
+                        className={`${field} ${fieldErrors.password ? 'border-rose-700 focus:border-rose-500 focus:ring-rose-500' : 'border-slate-700 focus:border-emerald-500 focus:ring-emerald-500'}`}
                     />
                     {fieldErrors.password && (
-                        <p className="mt-1 text-sm text-red-600">{fieldErrors.password[0]}</p>
+                        <p id="password_error" className="mt-1 text-xs text-rose-400">
+                            {fieldErrors.password[0]}
+                        </p>
                     )}
                 </div>
 
                 <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                    className="min-h-12 w-full rounded-md bg-emerald-500 px-4 text-sm font-bold uppercase tracking-wider text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
                 >
                     {submitting ? 'Signing in…' : 'Sign in'}
                 </button>
