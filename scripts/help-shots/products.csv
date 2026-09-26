@@ -1,0 +1,4 @@
+sku,name,barcode,unit_of_measure,cost,selling_price,tax_class,track_inventory,reorder_level
+BEV-002,Bottled Juice (250ml),4800000000066,pc,9.00,15.00,VATABLE,true,12
+SNK-002,Peanuts (100g),4800000000073,pack,11.00,18.00,VATABLE,true,10
+HOU-002,Dishwashing Liquid (250ml),4800000000080,pc,21.00,32.00,VATABLE,true,6

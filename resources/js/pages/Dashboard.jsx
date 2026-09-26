@@ -78,7 +78,8 @@ export default function Dashboard() {
         { to: '/admin/users', label: 'Users', note: 'Cashiers, managers, admins', capability: 'USER_MANAGE' },
         { to: '/admin/terminals', label: 'Terminals', note: 'Enrol a till, review enrolled terminals', capability: 'TERMINAL_MANAGE' },
         { to: '/admin/store-setup', label: 'Store setup', note: 'Fiscal configuration and readiness', capability: 'FISCAL_CONFIGURATION_MANAGE' },
-    ].filter((shortcut) => holds(shortcut.capability));
+        { to: '/help', label: 'Help & guides', note: 'Step-by-step guides with pictures', capability: null },
+    ].filter((shortcut) => shortcut.capability === null || holds(shortcut.capability));
 
     return (
         <AdminLayout title="Dashboard" requiredCapability={null} wide>
@@ -163,6 +164,9 @@ export default function Dashboard() {
                         Open the till to start selling. You can look up an earlier transaction, reprint its invoice, or ask for a void or refund from
                         Sales history — a manager decides those.
                     </p>
+                    <Link to="/help" className="mt-2 inline-block text-sm text-emerald-400 hover:underline">
+                        New here? Read the step-by-step guides →
+                    </Link>
                 </section>
             )}
 

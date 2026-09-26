@@ -1,0 +1,42 @@
+import { launch, ensureLogin, go, click, fill, shot, saveAnnotations, sleep, find, setValue, api, text, tall, normal } from './lib.mjs';
+const { browser, page } = await launch({ scale: 2 });
+const dump = async (l, n = 600) => console.log(l, '::', (await page.evaluate(() => (document.querySelector('[role=alertdialog]') ?? document.querySelector('[role=dialog]') ?? document.body).innerText)).replace(/\n+/g, ' | ').slice(0, n));
+await ensureLogin(page, 'marco@tindaflow.test', 'Manager-2026!');
+// an old product that was retired but still has its barcode on the shelf
+const created = await api(page, 'POST', '/api/v1/products', { sku: 'OLD-001', barcode: '4800000000998', name: 'Old Brand Biscuits', unit_of_measure: 'pc', selling_price: '12.00', cost: '8.00', tax_class: 'VATABLE', track_inventory: true, reorder_level: 0 });
+console.log('create', created.status);
+if (created.body?.id) console.log('deactivate', (await api(page, 'POST', `/api/v1/products/${created.body.id}/deactivate`)).status);
+await go(page, '/pos');
+await sleep(1500);
+const search = 'input[aria-label="Scan a barcode or search products"]';
+await fill(page, search, '4800000000998');
+await page.keyboard.press('Enter');
+await sleep(1200);
+await shot(page, 'till-scan-inactive', { targets: { search: { sel: search }, notice: { sel: '[role=status]' } } });
+await fill(page, search, 'zzz');
+await page.keyboard.press('Enter');
+await sleep(1200);
+await shot(page, 'till-scan-nomatch', { targets: { search: { sel: search }, notice: { sel: '[role=status]' }, back: { text: 'Back to all products' } } });
+await click(page, 'Back to all products');
+await click(page, 'Rice (1kg)', { tag: 'button', exact: false });
+await sleep(400);
+// leaving with a sale in progress
+await click(page, 'Dashboard', { tag: 'a' });
+await sleep(800);
+await dump('leave dialog');
+await shot(page, 'till-leave-warning', { clip: { x: 250, y: 200, w: 700, h: 360 }, targets: { dialog: { sel: '[role=alertdialog] > div.relative', nth: 0 }, stay: { text: 'Cancel', tag: 'button', within: '[role=alertdialog]' }, leave: { text: 'Leave and clear the cart', tag: 'button' } } }).catch((e) => console.log('err', e.message));
+await click(page, 'Cancel', { tag: 'button', within: '[role=alertdialog]' });
+await sleep(400);
+// short payment
+await click(page, 'Charge', { exact: false, tag: 'button' });
+await sleep(800);
+await tall(page, 940);
+await fill(page, '#payment_amount', '10.00');
+await sleep(400);
+await shot(page, 'till-tender-short', { targets: { amount: { sel: '#payment_amount' }, balance: { sel: '[aria-live=polite]' }, complete: { text: 'Short by', exact: false, tag: 'button' } } });
+await normal(page);
+await click(page, 'Back to cart', { tag: 'button' });
+await sleep(500);
+await click(page, 'Remove Rice (1kg)', { tag: 'button' }).catch(async () => { const b = await page.$('button[aria-label="Remove Rice (1kg)"]'); await b.click(); });
+saveAnnotations();
+await browser.close();

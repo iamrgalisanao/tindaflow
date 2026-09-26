@@ -55,4 +55,60 @@
     --color-warn: var(--color-amber-400);
     --color-warn-line: var(--color-amber-700);
     --color-warn-tint: var(--color-amber-950);
+
+    /* Help guides (resources/js/pages/help): the pulsing "click here" ring, the click ripple and the "don't" wobble. */
+    --animate-help-pulse: help-pulse 1.4s ease-in-out infinite;
+    --animate-help-ripple: help-ripple 0.8s ease-out forwards;
+    --animate-help-wobble: help-wobble 1.6s ease-in-out infinite;
+    --animate-help-caret: help-caret 1s steps(1) infinite;
+
+    @keyframes help-pulse {
+        0%,
+        100% {
+            box-shadow: 0 0 0 0 rgb(52 211 153 / 0.55);
+        }
+        50% {
+            box-shadow: 0 0 0 7px rgb(52 211 153 / 0);
+        }
+    }
+
+    @keyframes help-ripple {
+        0% {
+            opacity: 0.9;
+            transform: translate(-50%, -50%) scale(0.2);
+        }
+        100% {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(1.6);
+        }
+    }
+
+    @keyframes help-wobble {
+        0%,
+        100% {
+            transform: translateX(0);
+        }
+        20% {
+            transform: translateX(-2px);
+        }
+        40% {
+            transform: translateX(2px);
+        }
+        60% {
+            transform: translateX(-1px);
+        }
+        80% {
+            transform: translateX(1px);
+        }
+    }
+
+    @keyframes help-caret {
+        0%,
+        100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0;
+        }
+    }
 }

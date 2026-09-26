@@ -74,6 +74,10 @@ export default function PosHeader({ terminalCode, operatorName, shift, showTabs,
             )}
 
             <div className="flex items-center gap-1 text-sm">
+                {/* A plain link in a new tab: the guides must never cost the cashier a cart in progress. */}
+                <a href="/help" target="_blank" rel="noopener" className="flex min-h-11 items-center px-3 text-slate-400 underline">
+                    Help
+                </a>
                 <Link to="/admin/sales" onClick={(event) => leave(event, '/admin/sales')} className="flex min-h-11 items-center px-3 text-slate-400 underline">
                     Sales history
                 </Link>

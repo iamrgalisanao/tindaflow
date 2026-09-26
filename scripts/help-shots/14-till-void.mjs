@@ -1,0 +1,17 @@
+import { launch, ensureLogin, go, click, fill, shot, saveAnnotations, sleep, api, PANEL } from './lib.mjs';
+const { browser, page } = await launch({ scale: 2 });
+await ensureLogin(page, 'liza@tindaflow.test', 'Cashier-2026!');
+await go(page, '/pos/lookup');
+await sleep(1500);
+await click(page, '000003', { tag: 'button', exact: false });
+await sleep(1200);
+await click(page, 'Request void', { tag: 'button' });
+await sleep(800);
+await fill(page, '[role=dialog] textarea', 'Customer decided not to buy; items returned right away.');
+await shot(page, 'till-void-form', { clip: PANEL, targets: { info: { closest: 'div.rounded-md', of: { text: 'This cancels', tag: 'p, div, span', exact: false } }, reason: { sel: '[role=dialog] textarea' }, request: { text: 'Request void', tag: 'button', within: '[role=dialog]' } } });
+await click(page, 'Request void', { tag: 'button', within: '[role=dialog]' });
+await sleep(1500);
+console.log(JSON.stringify((await api(page, 'GET', '/api/v1/voids?per_page=5')).body?.data?.map((r) => [r.status, r.sale_id])));
+await shot(page, 'till-void-requested', { targets: { notice: { text: 'Void requested', exact: false, tag: 'p, div, span' }, tabs: { sel: 'nav[aria-label="Till"]' } } });
+saveAnnotations();
+await browser.close();

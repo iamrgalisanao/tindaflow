@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
@@ -30,6 +31,11 @@ import CountDetailPage from './pages/admin/inventory/CountDetailPage';
 import TransfersPage from './pages/admin/inventory/TransfersPage';
 import ReportsHub from './pages/admin/reports/ReportsHub';
 import ReportViewer from './pages/admin/reports/ReportViewer';
+
+
+// The guides carry a lot of text and pictures, so they are fetched only when someone opens Help, never on the till's path.
+const HelpHome = lazy(() => import('./pages/help/HelpHome'));
+const GuidePage = lazy(() => import('./pages/help/GuidePage'));
 
 function RequireAuth({ children }) {
     const { user } = useAuth();
@@ -304,6 +310,26 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <ReportViewer />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/help"
+                    element={
+                        <RequireAuth>
+                            <Suspense fallback={null}>
+                                <HelpHome />
+                            </Suspense>
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/help/:slug"
+                    element={
+                        <RequireAuth>
+                            <Suspense fallback={null}>
+                                <GuidePage />
+                            </Suspense>
                         </RequireAuth>
                     }
                 />

@@ -1,0 +1,38 @@
+import { launch, ensureLogin, go, click, fill, shot, saveAnnotations, sleep, find, setValue, pick, text, tall, normal } from './lib.mjs';
+const { browser, page } = await launch({ scale: 2 });
+const dump = async (l) => console.log(l, '::', (await page.evaluate(() => document.body.innerText)).replace(/\n+/g, ' | ').slice(0, 900));
+await ensureLogin(page, 'liza@tindaflow.test', 'Cashier-2026!');
+await go(page, '/pos');
+await sleep(1200);
+await click(page, 'Shift', { tag: 'button' });
+await sleep(1200);
+await dump('shift tab');
+await shot(page, 'till-shift-tab', { targets: { tabs: { sel: 'nav[aria-label="Till"]' }, drawer: { closest: 'form, section', of: { text: 'Cash drawer', tag: 'h2' } }, summary: { closest: 'form, section', of: { text: 'This shift', tag: 'h2' } }, xreading: { closest: 'form, section', of: { text: 'X-reading', tag: 'h2' } }, close: { text: 'Close shift', tag: 'button' } } });
+const type = await page.$('#cash_movement_type');
+await pick(page, type, 'Cash in');
+await fill(page, '#cash_movement_amount', '200.00');
+await fill(page, '#cash_movement_reason', 'Change fund from the owner');
+await shot(page, 'till-cash-in', { targets: { type: { sel: '#cash_movement_type' }, amount: { sel: '#cash_movement_amount' }, reason: { sel: '#cash_movement_reason' }, record: { text: 'Record', tag: 'button', exact: true } } });
+await click(page, 'Record', { tag: 'button' });
+await sleep(1200);
+await dump('after cash in');
+await shot(page, 'till-cash-in-done', { targets: { notice: { text: 'Recorded', exact: false, tag: 'p, div, span' } } }).catch((e) => console.log('nonotice', e.message));
+await click(page, 'Take X-reading', { tag: 'button' });
+await sleep(1500);
+await tall(page, 1150);
+await dump('xreading');
+await shot(page, 'till-xreading', { targets: { take: { text: 'Take X-reading', tag: 'button' }, figures: { closest: 'section, div.rounded-lg', of: { text: 'Expected cash', tag: 'dt' } }, expected: { text: 'Expected cash', tag: 'dt' } } });
+await normal(page);
+
+// close the shift
+await sleep(300);
+await click(page, 'Close shift', { tag: 'button' }).catch(async () => { console.log('no close button on tab; trying text'); await click(page, 'Close shift'); });
+await sleep(900);
+await fill(page, '#declared_cash', '953.00');
+await shot(page, 'till-close-shift', { clip: { x: 300, y: 40, w: 600, h: 400 }, targets: { note: { sel: 'form p.text-xs' }, counted: { sel: '#declared_cash' }, close: { text: 'Close shift', tag: 'button' } } });
+await click(page, 'Close shift', { tag: 'button', nth: 1 }).catch(async () => click(page, 'Close shift', { tag: 'button' }));
+await sleep(1500);
+await dump('closed');
+await shot(page, 'till-shift-closed', { clip: { x: 300, y: 40, w: 600, h: 400 }, targets: { expected: { text: 'Expected cash', tag: 'dt' }, counted: { text: 'Counted cash', tag: 'dt' }, variance: { text: 'Variance', tag: 'dt' }, back: { text: 'Back to dashboard' } } });
+saveAnnotations();
+await browser.close();

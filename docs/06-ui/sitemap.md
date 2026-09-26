@@ -97,6 +97,9 @@ manager/admin can switch to Back-office mode.
   /back-office/settings/terminals
   /back-office/settings/invoice-template
   /back-office/settings/audit-log      read-only view of audit_events / electronic journal
+
+/help                              (any signed-in role — the knowledge base)
+/help/:slug                        one step-by-step guide, with annotated screenshots
 ```
 
 ## Navigation notes
@@ -205,6 +208,16 @@ compliance status — for that, see the existing
 different set of reference products for product-positioning purposes and
 carries its own sourcing caveats.
 
+## Help (knowledge base)
+
+`/help` and `/help/:slug` are open to every signed-in role and use the back-office shell (sidebar entry "Help &
+Guides"; also a "Jump to" tile on the Dashboard and a "Help" link in the POS header, which opens in a new tab so a
+cart in progress is never lost). The guides are data in `resources/js/pages/help/guides/`; each step can show a real
+screenshot from `resources/js/pages/help/shots/` with an animated layer (click, type, don't-click, look) whose boxes
+come from `annotations.json`. Both are produced by `scripts/help-shots`, which drives a scratch database, so the pictures
+never contain real store data and can be regenerated whenever a screen changes. Guides are filtered by role on the
+index but never hidden by it: the sidebar link and the URLs work for everyone.
+
 ## Revision log
 
 - **2026-09-16 (initial):** Stage 1 sitemap drafted as a preliminary
@@ -216,3 +229,5 @@ carries its own sourcing caveats.
   research. Route tree unchanged. Implementation-status note added
   reflecting Stage 7 pass 1's actual shipped routes (`/login`, `/`) versus
   this document's proposed, still-backend-blocked routes.
+- **2026-09-26 (Help knowledge base):** Added `/help` and `/help/:slug` (any signed-in role) with role-tagged
+  step-by-step guides, animated annotated screenshots, a glossary and a troubleshooting page.

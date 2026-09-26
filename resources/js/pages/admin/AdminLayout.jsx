@@ -139,6 +139,12 @@ const ICONS = {
             <path d="M7 20h10M12 16v4M7 8h6M7 11h3" />
         </Icon>
     ),
+    help: (
+        <Icon>
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9.5 9.5a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8M12 17v.01" />
+        </Icon>
+    ),
 };
 
 const REPORT_LINKS = [
@@ -228,6 +234,8 @@ const SECTIONS = [
         matches: (path) => path.startsWith('/admin/store-setup'),
         links: STORE_SETUP_NAV,
     },
+    // Open to every signed-in role: the guides are how a new cashier finds out what the rest of this menu is for.
+    { id: 'help', label: 'Help & Guides', to: '/help', icon: 'help', matches: (path) => path.startsWith('/help') },
 ];
 
 const initials = (name) =>
