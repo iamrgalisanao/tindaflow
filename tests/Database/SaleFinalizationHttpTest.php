@@ -280,4 +280,60 @@ class SaleFinalizationHttpTest extends PostgresSchemaTestCase
         $response->assertJson(['grand_total' => '90.00']);
         $this->assertSame(1, DB::table('audit_events')->where('event_type', 'DISCOUNT_APPLIED')->count());
     }
+
+    public function test_a_cashier_checkout_with_a_statutory_discount_succeeds_without_discount_override(): void
+    {
+        ['shift' => $shift, 'product' => $product, 'terminalCredential' => $terminalCredential] = $this->readyToCheckoutViaHttp();
+        $this->assertSame('CASHIER', $shift->cashier->role);
+        $cashierLogin = $this->login($shift->cashier);
+
+        $response = $this->forwardSessionCookie($cashierLogin)->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/sales', [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'SENIOR_CITIZEN', 'id_number' => 'OSCA-00123', 'name' => 'Juana Dela Cruz'],
+                'payments' => [['method' => 'CASH', 'amount' => '71.43']],
+            ]);
+
+        $response->assertStatus(201);
+        $response->assertJson(['grand_total' => '71.43']);
+    }
+
+    public function test_a_statutory_discount_requires_a_beneficiary_name_and_id_number(): void
+    {
+        ['shift' => $shift, 'product' => $product, 'terminalCredential' => $terminalCredential] = $this->readyToCheckoutViaHttp();
+        $cashierLogin = $this->login($shift->cashier);
+
+        $response = $this->forwardSessionCookie($cashierLogin)->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/sales', [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'SENIOR_CITIZEN'],
+                'payments' => [['method' => 'CASH', 'amount' => '71.43']],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
+        $details = $response->json('error.details');
+        $this->assertArrayHasKey('statutory_discount.id_number', $details);
+        $this->assertArrayHasKey('statutory_discount.name', $details);
+    }
+
+    public function test_a_statutory_discount_type_must_be_senior_citizen_or_pwd(): void
+    {
+        ['shift' => $shift, 'product' => $product, 'terminalCredential' => $terminalCredential] = $this->readyToCheckoutViaHttp();
+        $cashierLogin = $this->login($shift->cashier);
+
+        $response = $this->forwardSessionCookie($cashierLogin)->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/sales', [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'SOLO_PARENT', 'id_number' => '123', 'name' => 'Someone'],
+                'payments' => [['method' => 'CASH', 'amount' => '71.43']],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
+        $this->assertArrayHasKey('statutory_discount.type', $response->json('error.details'));
+    }
 }

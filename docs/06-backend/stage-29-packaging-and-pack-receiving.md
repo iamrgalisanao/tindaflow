@@ -46,6 +46,27 @@ The owner's outline named `ProductPackaging` (name, units_per_base, barcode, can
 - **Reusing `product_barcodes`** rather than a new `product_packagings` table avoids a second table with its own barcode
   uniqueness rules and a second place the Stage 20 scan lookup must consult.
 
+**2026-09-26 — competitor research on this specific deviation (owner request), still awaiting the veto/accept decision.**
+Read the actual schema of the two competitors Stage 26 §9-11 already researched for pack *mechanics*, this time for the
+*shape* question above, plus Square (the most architecturally modern multi-location POS with a public schema) and Loyverse
+(already the Philippine-relevant precedent for composite items):
+
+| Competitor | Source read | Base-unit row? | Per-store/company table? |
+|---|---|---|---|
+| Odoo 17 `product.packaging` | `product_packaging.py` (V, GitHub source) | No — fields are `name, sequence, product_id, qty, barcode, product_uom_id, company_id`; the base is always the product's own UoM | **No.** `company_id` is one nullable column on the *same* table, not a second table. Odoo needs it because one product record there can be shared across companies; barcode uniqueness itself is checked globally, not per-company |
+| ERPNext `Item Barcode` | `item_barcode.json` (V, GitHub DocType) | No — fields are `barcode, barcode_type, uom` only | No company/warehouse field at all |
+| ERPNext `UOM Conversion Detail` (their pack-size analogue) | `uom_conversion_detail.json` (V) | No — fields are `uom, conversion_factor`; base is only ever the parent Item's `stock_uom` | No scoping field |
+| Square `CatalogItemVariation` | Square API Reference (V) | N/A (different model) | **No separate table either** — per-location behavior is `location_overrides`, an array field embedded on the *same* variation object |
+| Loyverse composite item | Support Center (V) | N/A (pattern B, not this question) | Confirms Stage 26 §9's existing finding; no new evidence on this specific question |
+
+**Reading.** No competitor schema found uses an explicit base-unit row (matches the `is_base_unit` deviation exactly) or a
+separate per-store/per-company join table for packaging (matches the no-`StoreProductPackaging` deviation). Where a leading
+system genuinely needs per-location/per-company scoping at all — Odoo (multi-company products) and Square (multi-location
+variations) — the pattern is one extra field on the *existing* row, never a second table, which is precisely what this
+stage already named as the additive step if TindaFlow's own products are ever shared across stores. This is reference
+evidence for the deviation, not a requirement in itself, and does not by itself decide the veto — that is still the
+owner's call.
+
 ## 3. Contract (forward-committed)
 
 `productBarcodeCreate` and `productBarcodeList` in `openapi.yaml` and `operation-inventory.md` (both were forward-committed

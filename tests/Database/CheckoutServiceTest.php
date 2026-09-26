@@ -645,4 +645,138 @@ class CheckoutServiceTest extends PostgresSchemaTestCase
 
         $this->assertSame(0, AuditEvent::where('event_type', 'DISCOUNT_APPLIED')->count());
     }
+
+    public function test_a_cashier_can_apply_a_senior_citizen_discount_without_discount_override(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+        $this->assertSame('CASHIER', $shift->cashier->role);
+
+        $sale = $this->checkoutService->finalize(
+            $shift->terminal_id,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'SENIOR_CITIZEN', 'id_number' => 'OSCA-00123', 'name' => 'Juana Dela Cruz'],
+                'payments' => [['method' => 'CASH', 'amount' => '71.43']],
+            ]
+        );
+
+        // 100.00 VAT-inclusive -> 89.29 VAT-exclusive (VAT 10.71); 20% of 89.29 = 17.86.
+        // Discount = 10.71 + 17.86 = 28.57; grand_total = 100.00 - 28.57 = 71.43, exactly 89.29 x 0.80.
+        $this->assertSame('28.57', $sale->discount_total);
+        $this->assertSame('71.43', $sale->grand_total);
+        $this->assertSame('0.00', $sale->vat_amount);
+        $this->assertSame('71.43', $sale->vat_exempt_sales);
+        $this->assertSame('0.00', $sale->taxable_sales);
+        $this->assertSame('VAT_EXEMPT', $sale->items->sole()->tax_classification_snapshot);
+    }
+
+    public function test_a_pwd_discount_on_a_non_vat_store_has_no_vat_to_remove(): void
+    {
+        $shift = Shift::factory()->create();
+        $storeId = $shift->fiscalDay->store_id;
+        $terminalId = $shift->terminal_id;
+
+        $fiscalInstallation = FiscalInstallation::factory()->create(['store_id' => $storeId]);
+        InvoiceSeries::factory()->create(['store_id' => $storeId, 'fiscal_installation_id' => $fiscalInstallation->id]);
+        DB::table('terminal_fiscal_installations')->insert([
+            'id' => (string) Str::uuid(), 'store_id' => $storeId, 'terminal_id' => $terminalId,
+            'fiscal_installation_id' => $fiscalInstallation->id, 'effective_from' => now()->subYear(),
+            'effective_to' => null, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        InventoryLocation::factory()->create(['store_id' => $storeId, 'is_default' => true]);
+        DB::table('tax_registrations')->insert([
+            'id' => (string) Str::uuid(), 'store_id' => $storeId, 'registration_type' => 'NON_VAT',
+            'effective_from' => now()->subYear()->toDateString(), 'effective_to' => null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $product = Product::factory()->create(['store_id' => $storeId, 'selling_price' => '100.00', 'tax_class' => 'NON_VAT']);
+
+        $sale = $this->checkoutService->finalize(
+            $terminalId,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'PWD', 'id_number' => 'PWD-00456', 'name' => 'Juan Dela Cruz'],
+                'payments' => [['method' => 'CASH', 'amount' => '80.00']],
+            ]
+        );
+
+        // No VAT to remove -- just 20% of the NON_VAT price.
+        $this->assertSame('20.00', $sale->discount_total);
+        $this->assertSame('80.00', $sale->grand_total);
+        $this->assertSame('80.00', $sale->non_vat_sales);
+        $this->assertSame('0.00', $sale->vat_amount);
+    }
+
+    public function test_a_statutory_discount_does_not_excuse_an_added_manual_discount(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+        $this->assertSame('CASHIER', $shift->cashier->role);
+
+        $this->expectException(AuthorizationException::class);
+
+        try {
+            $this->checkoutService->finalize(
+                $shift->terminal_id,
+                $shift->cashier_id,
+                (string) Str::uuid(),
+                [
+                    'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                    'order_level_discount_amount' => '5.00',
+                    'statutory_discount' => ['type' => 'SENIOR_CITIZEN', 'id_number' => 'OSCA-00123', 'name' => 'Juana Dela Cruz'],
+                    'payments' => [['method' => 'CASH', 'amount' => '66.43']],
+                ]
+            );
+        } finally {
+            // The manual 5.00 alone already needs DISCOUNT_OVERRIDE; the check runs before the statutory
+            // amount is even computed, so nothing is committed.
+            $this->assertSame(0, Sale::count());
+        }
+    }
+
+    public function test_statutory_discount_populates_the_invoice_snapshot_beneficiary(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+
+        $sale = $this->checkoutService->finalize(
+            $shift->terminal_id,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'SENIOR_CITIZEN', 'id_number' => 'OSCA-00123', 'name' => 'Juana Dela Cruz'],
+                'payments' => [['method' => 'CASH', 'amount' => '71.43']],
+            ]
+        );
+
+        $beneficiary = Invoice::where('sale_id', $sale->id)->sole()->invoice_snapshot_json['discount_beneficiary'];
+        $this->assertSame('Senior Citizen', $beneficiary['type']);
+        $this->assertSame('Juana Dela Cruz', $beneficiary['name']);
+        $this->assertSame('OSCA-00123', $beneficiary['id_number']);
+        $this->assertNull($beneficiary['tin']);
+    }
+
+    public function test_discount_applied_audit_event_records_the_statutory_beneficiary(): void
+    {
+        ['shift' => $shift, 'product' => $product] = $this->readyToCheckout();
+
+        $this->checkoutService->finalize(
+            $shift->terminal_id,
+            $shift->cashier_id,
+            (string) Str::uuid(),
+            [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'PWD', 'id_number' => 'PWD-00456', 'name' => 'Juan Dela Cruz'],
+                'payments' => [['method' => 'CASH', 'amount' => '71.43']],
+            ]
+        );
+
+        $event = AuditEvent::where('event_type', 'DISCOUNT_APPLIED')->sole();
+        $this->assertSame('PWD', $event->after_metadata['statutory_discount_type']);
+        $this->assertSame('Juan Dela Cruz', $event->after_metadata['statutory_discount_beneficiary_name']);
+        $this->assertSame('28.57', $event->after_metadata['discount_total']);
+    }
 }

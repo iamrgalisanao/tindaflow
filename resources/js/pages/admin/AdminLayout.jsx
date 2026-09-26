@@ -129,6 +129,12 @@ const ICONS = {
             <path d="M16 17l5-5-5-5M21 12H9" />
         </Icon>
     ),
+    pos: (
+        <Icon>
+            <rect x="3" y="4" width="18" height="12" rx="1.5" />
+            <path d="M7 20h10M12 16v4M7 8h6M7 11h3" />
+        </Icon>
+    ),
 };
 
 const REPORT_LINKS = [
@@ -144,6 +150,10 @@ const REPORT_LINKS = [
 
 const SECTIONS = [
     { id: 'dashboard', label: 'Dashboard', to: '/', icon: 'dashboard', matches: (path) => path === '/' },
+    // The way back to POS mode. No capability: any cashier who followed "Sales history" out of the till
+    // needs it, and they are exactly the role with the fewest other sections listed. Never "active" --
+    // this shell does not render on /pos -- it is a mode switch, not a section of the back office.
+    { id: 'pos', label: 'POS / Till', to: '/pos', icon: 'pos', matches: () => false },
     {
         id: 'sales',
         label: 'Sales',
@@ -368,7 +378,8 @@ export default function AdminLayout({
 }) {
     const { user, logout } = useAuth();
     const { pathname } = useLocation();
-    const allowed = user.capabilities.includes(requiredCapability);
+    // `null` = every authenticated user may see this page (the dashboard). Any other value is a real gate.
+    const allowed = requiredCapability === null || user.capabilities.includes(requiredCapability);
     const holds = (capability) => [capability].flat().some((name) => user.capabilities.includes(name));
     const sections = SECTIONS.filter((section) => !section.capability || holds(section.capability)).map((section) => ({
         ...section,

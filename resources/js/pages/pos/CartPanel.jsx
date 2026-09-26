@@ -8,6 +8,11 @@ const STEP = 1000n; // one whole unit
  * cents; the server recomputes the sale (and the discount authorization check) when it is finalised. Both discount
  * controls are shown only to a user holding DISCOUNT_OVERRIDE (CheckoutService rejects a non-zero discount, line or
  * order-level, from anyone else) -- a cashier who cannot use them is not shown either.
+ *
+ * The Senior Citizen / PWD control is different: it is shown to every cashier (it is the customer's own legal
+ * entitlement, not a discretionary override) and captures only who the discount is for -- the 20%-off-VAT-exclusive
+ * amount is computed exclusively by the server, never previewed here, so "Total amount due" stays the safe,
+ * pre-discount figure to collect until the receipt shows the real one.
  */
 export default function CartPanel({
     cart,
@@ -16,6 +21,9 @@ export default function CartPanel({
     onDiscountChange,
     onLineDiscountChange,
     canDiscount,
+    statutoryDiscount,
+    onStatutoryDiscountChange,
+    statutoryDiscountIncomplete,
     totalCents,
     hasInvalidLine,
     onQuantity,
@@ -159,6 +167,60 @@ export default function CartPanel({
                         </div>
                     </div>
                 )}
+                <div className="mb-2 rounded border border-slate-800 bg-slate-950 px-3 py-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-200">
+                        <input
+                            type="checkbox"
+                            checked={statutoryDiscount.enabled}
+                            onChange={(event) => onStatutoryDiscountChange({ ...statutoryDiscount, enabled: event.target.checked })}
+                            className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                        />
+                        Senior Citizen / PWD discount
+                    </label>
+                    {statutoryDiscount.enabled && (
+                        <div className="mt-2 space-y-2">
+                            <div role="radiogroup" aria-label="Discount type" className="flex gap-2">
+                                {[
+                                    ['SENIOR_CITIZEN', 'Senior Citizen'],
+                                    ['PWD', 'PWD'],
+                                ].map(([value, label]) => (
+                                    <button
+                                        key={value}
+                                        type="button"
+                                        role="radio"
+                                        aria-checked={statutoryDiscount.type === value}
+                                        onClick={() => onStatutoryDiscountChange({ ...statutoryDiscount, type: value })}
+                                        className={`min-h-9 flex-1 rounded border text-xs font-bold uppercase tracking-wide ${
+                                            statutoryDiscount.type === value ? 'border-emerald-500 bg-emerald-500 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            <input
+                                type="text"
+                                placeholder="OSCA / PWD ID number"
+                                value={statutoryDiscount.idNumber}
+                                onChange={(event) => onStatutoryDiscountChange({ ...statutoryDiscount, idNumber: event.target.value })}
+                                aria-label="Senior Citizen or PWD ID number"
+                                className="min-h-9 w-full rounded border border-slate-700 bg-slate-900 px-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
+                            />
+                            <input
+                                type="text"
+                                placeholder="Name on the ID"
+                                value={statutoryDiscount.name}
+                                onChange={(event) => onStatutoryDiscountChange({ ...statutoryDiscount, name: event.target.value })}
+                                aria-label="Senior Citizen or PWD name"
+                                className="min-h-9 w-full rounded border border-slate-700 bg-slate-900 px-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
+                            />
+                            <p className="text-[11px] text-slate-400">
+                                20% off, VAT removed where it applies. The server works out the exact amount — the total shown below is what to
+                                collect at most; the receipt shows the real total.
+                            </p>
+                        </div>
+                    )}
+                </div>
                 <div className="rounded-lg bg-slate-950 p-3 ring-1 ring-slate-800">
                     {subtotalCents > totalCents && (
                         <div className="mb-1 flex items-center justify-between gap-3 text-xs text-slate-400">
@@ -180,9 +242,14 @@ export default function CartPanel({
                     </div>
                     <p className="mt-2 text-right text-[11px] text-slate-400">A preview. The server works out the final total when the sale is finalised.</p>
                 </div>
+                {statutoryDiscountIncomplete && (
+                    <p role="alert" className="mb-2 rounded bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                        Enter the ID number and name for the Senior Citizen / PWD discount.
+                    </p>
+                )}
                 <button
                     type="button"
-                    disabled={itemCount === 0 || hasInvalidLine}
+                    disabled={itemCount === 0 || hasInvalidLine || statutoryDiscountIncomplete}
                     onClick={onCharge}
                     className="mt-3 min-h-16 w-full rounded-lg bg-emerald-500 px-4 text-lg font-bold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-400"
                 >
