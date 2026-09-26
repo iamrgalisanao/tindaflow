@@ -210,14 +210,22 @@ final class CheckoutService
         // calculation path, and DISC-006 (sum of net_line_amount = grand_total) holds by the same
         // construction it always does.
         $discountBeneficiary = null;
+        $statutoryRule = $payload['statutory_discount']['rule'] ?? 'STANDARD_20';
         if (isset($payload['statutory_discount'])) {
-            $statutoryDiscountAmount = $this->statutoryDiscountCalculator->computeDiscount(
-                $calculation->taxableSales,
-                $calculation->vatAmount,
-                $calculation->vatExemptSales->add($calculation->zeroRatedSales)->add($calculation->nonVatSales),
-            );
 
-            if ($taxRegistrationType === 'VAT') {
+            // Stage 38: the 5% basic-necessities rule (JAO 24-02) keeps VAT, so no reclassification below.
+            $statutoryDiscountAmount = $statutoryRule === 'BNPC_5'
+                ? $this->statutoryDiscountCalculator->computeBasicNecessitiesDiscount(
+                    $calculation->grandTotal,
+                    Money::fromApiString((string) ($payload['statutory_discount']['weekly_discount_used'] ?? '0.00')),
+                )
+                : $this->statutoryDiscountCalculator->computeDiscount(
+                    $calculation->taxableSales,
+                    $calculation->vatAmount,
+                    $calculation->vatExemptSales->add($calculation->zeroRatedSales)->add($calculation->nonVatSales),
+                );
+
+            if ($statutoryRule === 'STANDARD_20' && $taxRegistrationType === 'VAT') {
                 $lines = array_map(
                     fn (SaleLineInput $line) => $line->taxClassification === 'VATABLE'
                         ? new SaleLineInput(
@@ -238,7 +246,7 @@ final class CheckoutService
                 'type' => match ($payload['statutory_discount']['type']) {
                     'SENIOR_CITIZEN' => 'Senior Citizen',
                     'PWD' => 'PWD',
-                },
+                }.($statutoryRule === 'BNPC_5' ? ' (5% basic necessities)' : ''),
                 'name' => $payload['statutory_discount']['name'],
                 'id_number' => $payload['statutory_discount']['id_number'],
                 'tin' => null,
@@ -476,6 +484,8 @@ final class CheckoutService
                     // ordinary discount's audit row is unchanged from before this stage.
                     'statutory_discount_type' => $discountBeneficiary['type'] ?? null,
                     'statutory_discount_beneficiary_name' => $discountBeneficiary['name'] ?? null,
+                    'statutory_discount_rule' => $discountBeneficiary !== null ? $statutoryRule : null,
+                    'statutory_weekly_discount_used' => $statutoryRule === 'BNPC_5' ? ($payload['statutory_discount']['weekly_discount_used'] ?? '0.00') : null,
                 ], fn ($value) => $value !== null),
             ]);
         }

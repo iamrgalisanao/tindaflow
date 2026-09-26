@@ -64,7 +64,7 @@ export default function Pos() {
     // legal entitlement, not a discretionary override -- but the exact amount is computed only by the server
     // (the VAT decomposition it runs is not duplicated here), so the total shown before Complete sale stays the
     // pre-discount figure: always enough to cover the real, lower charge, never a risk of under-tendering.
-    const [statutoryDiscount, setStatutoryDiscount] = useState({ enabled: false, type: 'SENIOR_CITIZEN', idNumber: '', name: '' });
+    const [statutoryDiscount, setStatutoryDiscount] = useState({ enabled: false, type: 'SENIOR_CITIZEN', rule: 'STANDARD_20', weeklyUsed: '', idNumber: '', name: '' });
 
     const [payments, setPayments] = useState([{ method: 'CASH', amount: '' }]); // [{method, amount}], split tender is 2+ rows
     const [checkoutBusy, setCheckoutBusy] = useState(false);
@@ -249,7 +249,11 @@ export default function Pos() {
 
     const canDiscount = user.capabilities.includes('DISCOUNT_OVERRIDE');
     const hasInvalidLine = cart.some((line) => lineCents(line.product.selling_price, line.quantity) === null);
-    const statutoryDiscountIncomplete = statutoryDiscount.enabled && (statutoryDiscount.idNumber.trim() === '' || statutoryDiscount.name.trim() === '');
+    const statutoryDiscountIncomplete =
+        statutoryDiscount.enabled &&
+        (statutoryDiscount.idNumber.trim() === '' ||
+            statutoryDiscount.name.trim() === '' ||
+            (statutoryDiscount.rule === 'BNPC_5' && statutoryDiscount.weeklyUsed.trim() !== '' && toCents(statutoryDiscount.weeklyUsed) === null));
 
     // Whole centavos, never floating point. A line whose quantity is half-typed counts as nothing and blocks Charge.
     // "subtotalCents" is the raw pre-discount total (what CartPanel shows as "Subtotal"); each line's own discount
@@ -290,7 +294,17 @@ export default function Pos() {
                     .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
                 ...(orderDiscountCents > 0n ? { order_level_discount_amount: moneyText(orderDiscountCents) } : {}),
                 ...(statutoryDiscount.enabled
-                    ? { statutory_discount: { type: statutoryDiscount.type, id_number: statutoryDiscount.idNumber.trim(), name: statutoryDiscount.name.trim() } }
+                    ? {
+                          statutory_discount: {
+                              type: statutoryDiscount.type,
+                              rule: statutoryDiscount.rule,
+                              ...(statutoryDiscount.rule === 'BNPC_5' && statutoryDiscount.weeklyUsed.trim() !== ''
+                                  ? { weekly_discount_used: moneyText(toCents(statutoryDiscount.weeklyUsed) ?? 0n) }
+                                  : {}),
+                              id_number: statutoryDiscount.idNumber.trim(),
+                              name: statutoryDiscount.name.trim(),
+                          },
+                      }
                     : {}),
             },
         });
@@ -338,7 +352,7 @@ export default function Pos() {
         setCopyKey(newIdempotencyKey());
         setCart([]);
         setDiscount('');
-        setStatutoryDiscount({ enabled: false, type: 'SENIOR_CITIZEN', idNumber: '', name: '' });
+        setStatutoryDiscount({ enabled: false, type: 'SENIOR_CITIZEN', rule: 'STANDARD_20', weeklyUsed: '', idNumber: '', name: '' });
         setPayments([{ method: 'CASH', amount: '' }]);
         setResults(null);
         setSearch('');

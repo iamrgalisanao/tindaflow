@@ -336,4 +336,23 @@ class SaleFinalizationHttpTest extends PostgresSchemaTestCase
         $response->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
         $this->assertArrayHasKey('statutory_discount.type', $response->json('error.details'));
     }
+
+    public function test_a_statutory_discount_rule_must_be_a_known_rule(): void
+    {
+        ['shift' => $shift, 'product' => $product, 'terminalCredential' => $terminalCredential] = $this->readyToCheckoutViaHttp();
+        $cashierLogin = $this->login($shift->cashier);
+
+        $response = $this->forwardSessionCookie($cashierLogin)->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/sales', [
+                'items' => [['product_id' => $product->id, 'quantity' => '1']],
+                'statutory_discount' => ['type' => 'PWD', 'rule' => 'TEN_PERCENT', 'weekly_discount_used' => '12.5', 'id_number' => '1', 'name' => 'Someone'],
+                'payments' => [['method' => 'CASH', 'amount' => '100.00']],
+            ]);
+
+        $response->assertStatus(422);
+        $details = $response->json('error.details');
+        $this->assertArrayHasKey('statutory_discount.rule', $details);
+        $this->assertArrayHasKey('statutory_discount.weekly_discount_used', $details);
+    }
 }

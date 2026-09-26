@@ -214,9 +214,44 @@ export default function CartPanel({
                                 aria-label="Senior Citizen or PWD name"
                                 className="min-h-9 w-full rounded border border-slate-700 bg-slate-900 px-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                             />
+                            <div role="radiogroup" aria-label="Discount rule" className="flex gap-2">
+                                {[
+                                    ['STANDARD_20', '20% + no VAT'],
+                                    ['BNPC_5', '5% basic goods'],
+                                ].map(([value, label]) => (
+                                    <button
+                                        key={value}
+                                        type="button"
+                                        role="radio"
+                                        aria-checked={statutoryDiscount.rule === value}
+                                        onClick={() => onStatutoryDiscountChange({ ...statutoryDiscount, rule: value })}
+                                        className={`min-h-9 flex-1 rounded border text-xs font-bold uppercase tracking-wide ${
+                                            statutoryDiscount.rule === value ? 'border-sky-500 bg-sky-500 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            {statutoryDiscount.rule === 'BNPC_5' && (
+                                <label className="flex items-center justify-between gap-2 text-xs text-slate-300">
+                                    Already discounted this week (from the booklet)
+                                    <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        placeholder="0.00"
+                                        value={statutoryDiscount.weeklyUsed}
+                                        onChange={(event) => onStatutoryDiscountChange({ ...statutoryDiscount, weeklyUsed: event.target.value })}
+                                        aria-label="Discount already taken this week"
+                                        className="min-h-9 w-24 rounded border border-slate-700 bg-slate-900 px-2 text-right font-mono text-sm tabular-nums text-slate-100 focus:border-sky-500 focus:outline-none"
+                                    />
+                                </label>
+                            )}
                             <p className="text-[11px] text-slate-400">
-                                20% off, VAT removed where it applies. The server works out the exact amount — the total shown below is what to
-                                collect at most; the receipt shows the real total.
+                                {statutoryDiscount.rule === 'BNPC_5'
+                                    ? '5% off basic necessities, VAT kept, at most ₱125.00 a week. Ring up only qualifying items.'
+                                    : '20% off, VAT removed where it applies.'}{' '}
+                                The server works out the exact amount — the total shown below is what to collect at most; the receipt shows the real total.
                             </p>
                         </div>
                     )}
