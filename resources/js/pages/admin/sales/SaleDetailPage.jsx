@@ -170,7 +170,7 @@ export default function SaleDetailPage() {
                         <div role="status" className="rounded-md border border-amber-800 bg-amber-950/30 px-3 py-2 text-sm text-slate-200">
                             This browser is not enrolled as a terminal, so it can show this sale but not void or refund it.{' '}
                             {can('TERMINAL_MANAGE') ? (
-                                <Link to="/terminals" className="text-emerald-400 underline">
+                                <Link to="/admin/terminals" className="text-emerald-400 underline">
                                     Enroll this browser
                                 </Link>
                             ) : (

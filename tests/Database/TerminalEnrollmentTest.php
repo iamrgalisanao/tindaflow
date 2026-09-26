@@ -228,6 +228,41 @@ class TerminalEnrollmentTest extends PostgresSchemaTestCase
         $me->assertOk();
     }
 
+    /**
+     * `revoked_at` on TerminalSummary (forward-committed under §14 Ruling 9's own condition: the
+     * back-office terminal-management UI now exists and cannot show revocation without it).
+     *
+     * Asserted on both shapes that carry a TerminalSummary -- terminalRevoke's own response and the
+     * terminalList the management screen actually reads -- because the screen reads the list, not the
+     * revoke response, to decide what to mark. `status` is asserted unchanged in the same breath:
+     * Ruling 9 keeps revocation independent of the TerminalStatus enum, so a reader must never infer
+     * one from the other.
+     */
+    public function test_revoked_at_is_exposed_and_status_is_left_alone(): void
+    {
+        [$admin, $terminal, $plaintext, $login] = $this->issueToken();
+        $statusBefore = $terminal->status;
+
+        $before = $this->forwardSessionCookie($login)->getJson('/api/v1/terminals');
+        $before->assertOk();
+        $this->assertNull($before->json('data.0.revoked_at'), 'a terminal that was never revoked reports null, not a missing key');
+        $this->assertArrayHasKey('revoked_at', $before->json('data.0'));
+
+        $revoke = $this->forwardSessionCookie($login)->postJson("/api/v1/terminals/{$terminal->id}/revoke");
+        $revoke->assertOk();
+        $this->assertNotNull($revoke->json('revoked_at'), 'terminalRevoke must report when it revoked');
+        $this->assertSame($statusBefore, $revoke->json('status'), 'revocation must not move the TerminalStatus enum');
+
+        $after = $this->forwardSessionCookie($login)->getJson('/api/v1/terminals');
+        $after->assertOk();
+        $this->assertNotNull($after->json('data.0.revoked_at'), 'the management screen reads revocation from the list');
+        $this->assertSame($statusBefore, $after->json('data.0.status'));
+
+        // The secret and the still-unused issuance timestamp stay out of the shape.
+        $this->assertArrayNotHasKey('credential_hash', $after->json('data.0'));
+        $this->assertArrayNotHasKey('credential_issued_at', $after->json('data.0'));
+    }
+
     // 21. Old credential stops working after re-enrollment; re-enrollment clears revocation.
     public function test_re_enrollment_issues_a_new_credential_and_invalidates_the_old_one(): void
     {

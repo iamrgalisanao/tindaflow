@@ -136,7 +136,7 @@ export default function ApprovalsPage() {
                 <div role="status" className="mb-3 rounded-md border border-amber-800 bg-amber-950/30 px-3 py-2 text-sm text-slate-200">
                     This browser is not enrolled as a terminal, so you can review and reject requests here but not approve them.{' '}
                     {user.capabilities.includes('TERMINAL_MANAGE') ? (
-                        <Link to="/terminals" className="text-emerald-400 underline">
+                        <Link to="/admin/terminals" className="text-emerald-400 underline">
                             Enroll this browser
                         </Link>
                     ) : (

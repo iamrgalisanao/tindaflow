@@ -32,6 +32,10 @@ const RECORDS_NAV = [
 
 const INVENTORY_NAV = [
     { to: '/admin/inventory/stock', label: 'Stock' },
+    // The Low Stock report, surfaced where someone acting on stock will look for it. It lives under
+    // Reports (and stays listed there); this is a second way in, not a second screen. REPORT_VIEW is
+    // the report's own gate -- the Inventory section is gated on STOCK_ADJUST, which does not imply it.
+    { to: '/admin/reports/low-stock', label: 'Low stock', capability: 'REPORT_VIEW' },
     { to: '/admin/inventory/counts', label: 'Counts' },
     { to: '/admin/inventory/transfers', label: 'Transfers' },
     { to: '/admin/inventory/movements', label: 'Movements' },
@@ -206,6 +210,14 @@ const SECTIONS = [
         icon: 'users',
         capability: 'USER_MANAGE',
         matches: (path) => path.startsWith('/admin/users'),
+    },
+    {
+        id: 'terminals',
+        label: 'Terminals',
+        to: '/admin/terminals',
+        icon: 'pos',
+        capability: 'TERMINAL_MANAGE',
+        matches: (path) => path.startsWith('/admin/terminals'),
     },
     {
         id: 'store-setup',

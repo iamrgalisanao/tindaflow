@@ -4,7 +4,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import NotFound from './pages/NotFound';
 import Pos from './pages/Pos';
-import TerminalEnroll from './pages/TerminalEnroll';
+import TerminalsPage from './pages/admin/TerminalsPage';
 import StoreSetupOverview from './pages/admin/StoreSetupOverview';
 import StoreSettingsPage from './pages/admin/StoreSettingsPage';
 import FiscalInstallations from './pages/admin/FiscalInstallations';
@@ -87,11 +87,13 @@ export default function AppRouter() {
                         </RequireAuth>
                     }
                 />
+                {/* Moved under /admin with every other back-office screen; the old path still resolves. */}
+                <Route path="/terminals" element={<Navigate to="/admin/terminals" replace />} />
                 <Route
-                    path="/terminals"
+                    path="/admin/terminals"
                     element={
                         <RequireAuth>
-                            <TerminalEnroll />
+                            <TerminalsPage />
                         </RequireAuth>
                     }
                 />
