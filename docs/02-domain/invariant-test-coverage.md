@@ -240,8 +240,15 @@ are `ReversalMatrixTest`, `JournalEventsHttpTest`, plus additions to `SaleRefund
   pointing at their record and their audit event.
 - **#39** boundary pinned (see finding 7). **#30** `EXPIRED` now proven. **#34** cashier index now proven.
 
+**Closing pass (2026-09-27, `CloseAtomicityTest`):** #42 is now proven (a failure injected at the Z-reading, the fiscal-day
+update, the audit event or the journal leaves the day OPEN with nothing behind it and the same key then closes it exactly
+once; a closed day can never get a second Z-reading, and the stored reading is untouched); the shift close is proven the same
+way; #38 and #41 are proven for a closed shift (a second close with a "better" count is refused, a later refund of the same sale
+lands in the refunding shift and leaves the closed shift's stored figures and closing X-reading unchanged, and no route edits or
+deletes a closed shift or a reading).
+
 Still PARTIAL or open after this pass: #21 (the unique index is never exercised directly), #24 (audit metadata detail),
-#38 (post-close immutability), #42 (Z close atomicity), #43 (interim reading resets no total), #45/#41/#51 (structural
+#43 (interim reading resets no total), #45/#41/#51 (structural
 absence not pinned), #53/#54/#76 (a registration change after a sale; the tax-registration 500), #58 (Money vs Quantity), #73
 to #75 (NON_VAT through reports), #79/#80 (series installation checks), and the HTTP error-code mappings for series exhaustion.
 
