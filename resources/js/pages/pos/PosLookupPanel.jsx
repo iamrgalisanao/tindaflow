@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import InvoicePanel from '../admin/sales/InvoicePanel';
 import { failureMessage, request } from '../admin/catalog/catalogApi';
 import { formatMoney } from '../admin/reports/formatters';
@@ -21,6 +21,8 @@ import { formatMoney } from '../admin/reports/formatters';
  * subtle (one Idempotency-Key per attempt, every copy separately audited and visibly marked) and a
  * third copy of that logic would be a third chance to get it wrong.
  */
+
+const SEARCH_DEBOUNCE_MS = 250;
 
 const STATUSES = [
     { id: '', label: 'All' },
@@ -70,36 +72,50 @@ export default function PosLookupPanel({ canSeeAllSales }) {
     const [detailFailure, setDetailFailure] = useState(null);
     const [invoice, setInvoice] = useState(null); // { id, number } while the receipt panel is open
 
-    const load = useCallback(async () => {
-        setLoading(true);
-        setListFailure(null);
-        const params = new URLSearchParams({ per_page: '25', sort: '-sold_at' });
-        const term = search.trim();
-        if (term !== '') {
-            // transaction_number is "T-" + ULID (Stage 6C ruling); anything else is treated as an
-            // invoice number. Two separate filters exist server-side, so the box has to pick one.
-            params.set(/^t-/i.test(term) ? 'transaction_number' : 'invoice_number', term);
-        }
-        if (status !== '') {
-            params.set('status', status);
-        }
-        if (todayOnly) {
-            params.set('from', today());
-            params.set('to', today());
-        }
-        const response = await request(`/api/v1/sales?${params.toString()}`);
-        if (response.ok) {
-            setRows(response.body.data);
-        } else {
-            setRows(null);
-            setListFailure(response);
-        }
-        setLoading(false);
-    }, [search, status, todayOnly]);
+    // Bumped by the Search button so pressing it re-runs the same query straight away.
+    const [reloadTick, setReloadTick] = useState(0);
 
+    // A request per keystroke would let a slow answer for "T-0" land after the answer for "T-01M3" and
+    // replace it, so typing waits briefly and any request that has been superseded is discarded.
     useEffect(() => {
-        load();
-    }, [load]);
+        let cancelled = false;
+        const term = search.trim();
+
+        const run = async () => {
+            setLoading(true);
+            setListFailure(null);
+            const params = new URLSearchParams({ per_page: '25', sort: '-sold_at' });
+            if (term !== '') {
+                // transaction_number is "T-" + ULID (Stage 6C ruling); anything else is treated as an
+                // invoice number. Two separate filters exist server-side, so the box has to pick one.
+                params.set(/^t-/i.test(term) ? 'transaction_number' : 'invoice_number', term);
+            }
+            if (status !== '') {
+                params.set('status', status);
+            }
+            if (todayOnly) {
+                params.set('from', today());
+                params.set('to', today());
+            }
+            const response = await request(`/api/v1/sales?${params.toString()}`);
+            if (cancelled) {
+                return;
+            }
+            if (response.ok) {
+                setRows(response.body.data);
+            } else {
+                setRows(null);
+                setListFailure(response);
+            }
+            setLoading(false);
+        };
+
+        const timer = setTimeout(run, term === '' ? 0 : SEARCH_DEBOUNCE_MS);
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [search, status, todayOnly, reloadTick]);
 
     useEffect(() => {
         if (selectedId === null) {
@@ -132,7 +148,7 @@ export default function PosLookupPanel({ canSeeAllSales }) {
                     <form
                         onSubmit={(event) => {
                             event.preventDefault();
-                            load();
+                            setReloadTick((tick) => tick + 1);
                         }}
                         className="flex gap-2"
                     >
