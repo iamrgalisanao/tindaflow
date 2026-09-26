@@ -208,6 +208,14 @@ const SECTIONS = [
         matches: (path) => path.startsWith('/admin/users'),
     },
     {
+        id: 'terminals',
+        label: 'Terminals',
+        to: '/admin/terminals',
+        icon: 'pos',
+        capability: 'TERMINAL_MANAGE',
+        matches: (path) => path.startsWith('/admin/terminals'),
+    },
+    {
         id: 'store-setup',
         label: 'Store Setup',
         to: '/admin/store-setup',
