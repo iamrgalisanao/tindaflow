@@ -605,7 +605,7 @@ export default function Pos() {
                 </form>
             )}
 
-            {step === 'cart' && view === 'lookup' && <PosLookupPanel canSeeAllSales={user.capabilities.includes('REPORT_VIEW')} />}
+            {step === 'cart' && view === 'lookup' && <PosLookupPanel canSeeAllSales={user.capabilities.includes('REPORT_VIEW')} capabilities={user.capabilities} />}
 
             {step === 'cart' && view === 'shift' && (
                 <ShiftPanel

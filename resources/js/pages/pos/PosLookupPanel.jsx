@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import InvoicePanel from '../admin/sales/InvoicePanel';
+import RefundPanel from '../admin/sales/RefundPanel';
+import VoidSalePanel from '../admin/sales/VoidSalePanel';
 import { failureMessage, request } from '../admin/catalog/catalogApi';
 import { formatMoney } from '../admin/reports/formatters';
 
@@ -58,7 +60,8 @@ function StatusBadge({ status }) {
     );
 }
 
-export default function PosLookupPanel({ canSeeAllSales }) {
+export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
+    const can = (capability) => capabilities.includes(capability);
     const [search, setSearch] = useState('');
     const [status, setStatus] = useState('');
     const [todayOnly, setTodayOnly] = useState(true);
@@ -71,9 +74,22 @@ export default function PosLookupPanel({ canSeeAllSales }) {
     const [detail, setDetail] = useState(null);
     const [detailFailure, setDetailFailure] = useState(null);
     const [invoice, setInvoice] = useState(null); // { id, number } while the receipt panel is open
+    const [panel, setPanel] = useState(null); // 'void' | 'refund'
+    const [notice, setNotice] = useState(null);
 
     // Bumped by the Search button so pressing it re-runs the same query straight away.
     const [reloadTick, setReloadTick] = useState(0);
+
+    // Re-read the sale and the journal after a reversal: the status, and the void/refund blocks under
+    // it, all change. Sits below reloadTick because it drives it.
+    const reloadAfterReversal = (message) => {
+        setPanel(null);
+        setNotice(message);
+        setReloadTick((tick) => tick + 1);
+        // Re-read the detail directly: selectedId has not changed, so the effect that loads it would
+        // not re-run on its own.
+        request(`/api/v1/sales/${selectedId}`).then((response) => response.ok && setDetail(response.body));
+    };
 
     // A request per keystroke would let a slow answer for "T-0" land after the answer for "T-01M3" and
     // replace it, so typing waits briefly and any request that has been superseded is discarded.
@@ -250,6 +266,12 @@ export default function PosLookupPanel({ canSeeAllSales }) {
 
             {/* ---------------------------------------------------------------- the inspector */}
             <section className="flex min-h-0 flex-col overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-4">
+                {notice && (
+                    <p role="status" className="mb-3 rounded border border-emerald-800/60 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-300">
+                        {notice}
+                    </p>
+                )}
+
                 {selectedId === null && (
                     <p className="m-auto max-w-sm text-center text-sm text-slate-500">
                         Pick a transaction to see what was sold, how it was paid, and to print a copy of its receipt.
@@ -340,14 +362,54 @@ export default function PosLookupPanel({ canSeeAllSales }) {
                             >
                                 Receipt
                             </button>
+                            {detail.status === 'COMPLETED' && can('SALE_VOID') && (
+                                <button
+                                    type="button"
+                                    onClick={() => setPanel('void')}
+                                    className="min-h-12 rounded border border-rose-800/60 px-4 text-sm font-bold uppercase tracking-wider text-rose-400 hover:bg-rose-600 hover:text-white"
+                                >
+                                    {can('SALE_VOID_APPROVE') ? 'Void sale' : 'Request void'}
+                                </button>
+                            )}
+                            {['COMPLETED', 'PARTIALLY_REFUNDED'].includes(detail.status) && can('SALE_REFUND') && (
+                                <button
+                                    type="button"
+                                    onClick={() => setPanel('refund')}
+                                    className="min-h-12 rounded border border-amber-800/60 px-4 text-sm font-bold uppercase tracking-wider text-amber-400 hover:bg-amber-600 hover:text-slate-950"
+                                >
+                                    {can('SALE_REFUND_APPROVE') ? 'Refund' : 'Request refund'}
+                                </button>
+                            )}
                         </div>
                         <p className="mt-2 text-[11px] text-slate-500">
-                            Printing from here records a marked copy; the unmarked original is only ever printed once, at the sale itself. To void or
-                            refund this sale, open it in Sales history — a manager decides it.
+                            Printing from here records a marked copy; the unmarked original is only ever printed once, at the sale itself.
+                            {!can('SALE_VOID_APPROVE') && (detail.status === 'COMPLETED' || detail.status === 'PARTIALLY_REFUNDED')
+                                ? ' A void or refund you raise here is a request — a manager decides it under Approvals.'
+                                : ''}
                         </p>
                     </>
                 )}
             </section>
+
+            {panel === 'void' && detail && (
+                <VoidSalePanel
+                    sale={detail}
+                    executesImmediately={can('SALE_VOID_APPROVE')}
+                    onDone={(result) => reloadAfterReversal(result.status === 'VOIDED' ? 'Sale voided.' : 'Void requested. A manager decides it under Approvals.')}
+                    onClose={() => setPanel(null)}
+                    onUnauthorized={() => setPanel(null)}
+                />
+            )}
+
+            {panel === 'refund' && detail && (
+                <RefundPanel
+                    sale={detail}
+                    executesImmediately={can('SALE_REFUND_APPROVE')}
+                    onDone={(result) => reloadAfterReversal(result.status === 'COMPLETED' ? 'Refund completed.' : 'Refund requested. A manager decides it under Approvals.')}
+                    onClose={() => setPanel(null)}
+                    onUnauthorized={() => setPanel(null)}
+                />
+            )}
 
             {invoice && (
                 <InvoicePanel
