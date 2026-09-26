@@ -4,11 +4,11 @@ namespace App\Services\FiscalDay;
 
 use App\Domain\Money;
 use App\Models\FiscalDay;
-use App\Models\Payment;
 use App\Models\Refund;
 use App\Models\Sale;
 use App\Models\SaleVoid;
 use App\Models\ZReading;
+use App\Services\Payments\NetCollectionService;
 
 /**
  * Produces a ZReadingTotalsSnapshot (openapi.yaml, RMO 24-2023) for a
@@ -19,6 +19,8 @@ use App\Models\ZReading;
  */
 final class FiscalDayReadingAggregator
 {
+    public function __construct(private readonly NetCollectionService $netCollection) {}
+
     /** @return array<string, mixed> */
     public function aggregate(FiscalDay $fiscalDay): array
     {
@@ -31,12 +33,11 @@ final class FiscalDayReadingAggregator
         $vatAmount = $this->sumMoney(Sale::whereIn('id', $saleIds)->sum('vat_amount'));
         $nonVatSales = $this->sumMoney(Sale::whereIn('id', $saleIds)->sum('non_vat_sales'));
 
-        $paymentTotals = Payment::whereIn('sale_id', $saleIds)
-            ->selectRaw('method, SUM(amount) as total')
-            ->groupBy('method')
-            ->pluck('total', 'method')
-            ->map(fn ($amount) => $this->sumMoney($amount)->toApiString())
-            ->all();
+        // Net of the change handed back, exactly as the shift readings count it (NetTenderAllocator).
+        $paymentTotals = array_map(
+            fn (Money $amount): string => $amount->toApiString(),
+            $this->netCollection->forSales($saleIds->all())['totals'],
+        );
 
         $voidedSaleIds = SaleVoid::where('fiscal_day_id', $fiscalDay->id)->where('status', 'VOIDED')->pluck('sale_id');
         $voidTotal = $this->sumMoney(Sale::whereIn('id', $voidedSaleIds)->sum('grand_total'));

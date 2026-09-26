@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Domain\Money;
+use App\Services\Payments\NetCollectionService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -19,6 +20,8 @@ use Illuminate\Support\Facades\DB;
  */
 final class ReportQueryService
 {
+    public function __construct(private readonly NetCollectionService $netCollection) {}
+
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
     public function dailySalesSummary(string $storeId, ?Carbon $from, ?Carbon $to): array
     {
@@ -395,24 +398,24 @@ final class ReportQueryService
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
     public function salesByPaymentMethod(string $storeId, ?Carbon $from, ?Carbon $to): array
     {
-        $rows = DB::table('payments')
+        // "Collections per tender type" are what each method actually brought in, net of the change given back
+        // (NetCollectionService): a P200.00 note on a P107.00 cash sale is P107.00 of cash, not P200.00.
+        $collected = $this->netCollection->forQuery(DB::table('payments')
             ->join('sales', 'sales.id', '=', 'payments.sale_id')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
             ->when($from, fn ($q) => $q->where('sales.sold_at', '>=', $from))
-            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to))
-            ->selectRaw('payments.method as payment_method')
-            ->selectRaw('COUNT(DISTINCT payments.sale_id) as transaction_count')
-            ->selectRaw('SUM(payments.amount) as total_amount')
-            ->groupBy('payments.method')
-            ->orderByDesc('total_amount')
-            ->get();
+            ->when($to, fn ($q) => $q->where('sales.sold_at', '<=', $to)));
 
-        $mapped = $rows->map(fn ($row) => [
-            'payment_method' => $row->payment_method,
-            'transaction_count' => (int) $row->transaction_count,
-            'total_amount' => $this->money($row->total_amount),
-        ])->all();
+        $mapped = collect($collected['totals'])
+            ->map(fn (Money $total, string $method) => [
+                'payment_method' => $method,
+                'transaction_count' => $collected['sales'][$method],
+                'total_amount' => $total->toApiString(),
+            ])
+            ->sortByDesc(fn (array $row) => $row['total_amount'], SORT_NUMERIC)
+            ->values()
+            ->all();
 
         return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['total_amount'])];
     }

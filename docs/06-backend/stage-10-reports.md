@@ -122,3 +122,12 @@ unimplemented, as does the Electronic Journal's own CSV export
 (`journalEntryList` with `Accept: text/csv`) — both are pinned in
 `csv-export-contract.md` but belong to different tags/modules than the
 15 Reports operations this pass covers.
+
+## Correction (2026-09-26): payment-method totals are net of change
+
+`reportSalesByPaymentMethod` ("collections per tender type") used to sum the stored payment amounts, which are what the
+customer tendered. A ₱200.00 note on a ₱107.00 cash sale therefore showed ₱200.00 of cash. It now reports what each
+method collected, net of the change handed back, using the same rule as the shift and Z-readings: change comes off the
+CASH tender first, then off any over-tendered non-cash payment, last listed first. `transaction_count` is unchanged (a
+sale paid with two methods counts once under each), and so is the row ordering (largest total first). The decision and its
+scope are in `stage-9-shift-close-fiscal-day-close.md`, section 8.

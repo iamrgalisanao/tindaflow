@@ -4,11 +4,11 @@ namespace App\Services\Shift;
 
 use App\Domain\Money;
 use App\Models\CashMovement;
-use App\Models\Payment;
 use App\Models\Refund;
 use App\Models\RefundSettlement;
 use App\Models\Sale;
 use App\Models\Shift;
+use App\Services\Payments\NetCollectionService;
 
 /**
  * Produces an XReadingTotalsSnapshot (openapi.yaml) for a shift, always
@@ -20,23 +20,26 @@ use App\Models\Shift;
  */
 final class ShiftReadingAggregator
 {
+    public function __construct(private readonly NetCollectionService $netCollection) {}
+
     /** @return array<string, mixed> */
     public function aggregate(Shift $shift, ?Money $declaredCash = null): array
     {
         $saleIds = Sale::where('shift_id', $shift->id)->where('status', '!=', 'VOIDED')->pluck('id');
 
-        $paymentTotals = Payment::whereIn('sale_id', $saleIds)
-            ->selectRaw('method, SUM(amount) as total')
-            ->groupBy('method')
-            ->pluck('total', 'method');
+        // What the sales collected NET of the change handed back: the stored payments are what was tendered, and
+        // counting them as they are would put every peso of change into the drawer figure (NetTenderAllocator).
+        $collected = $this->netCollection->forSales($saleIds->all())['totals'];
 
-        $cashSales = $this->sumMoney($paymentTotals['CASH'] ?? null);
-        $nonCashSales = $paymentTotals->except('CASH')->reduce(
-            fn (Money $carry, $amount) => $carry->add($this->sumMoney($amount)),
-            Money::zero(),
-        );
+        $cashSales = $collected['CASH'] ?? Money::zero();
+        $nonCashSales = Money::zero();
+        foreach ($collected as $method => $amount) {
+            if ($method !== 'CASH') {
+                $nonCashSales = $nonCashSales->add($amount);
+            }
+        }
 
-        $paymentBreakdown = $paymentTotals->map(fn ($amount) => $this->sumMoney($amount)->toApiString())->all();
+        $paymentBreakdown = array_map(fn (Money $amount): string => $amount->toApiString(), $collected);
 
         $refundsTotal = $this->sumMoney(
             Refund::where('shift_id', $shift->id)->where('status', 'COMPLETED')->sum('refund_total'),

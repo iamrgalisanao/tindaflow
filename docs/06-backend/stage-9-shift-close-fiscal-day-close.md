@@ -62,7 +62,7 @@ Payment/Refund/RefundSettlement/CashMovement/SaleVoid) — invariant #40,
 never trusting a prior reading's own stored totals. Key formulas:
 
 - `expected_cash = opening_cash + cash_sales - cash_refunds + cash_in_total - cash_out_total`,
-  where `cash_refunds` is pulled specifically from `refund_settlements`
+  where `cash_sales` is what the sales collected **net of the change handed back** (section 8), and `cash_refunds` is pulled specifically from `refund_settlements`
   rows with `payment_method = CASH` (the shift-level `refunds_total`
   field shown to the user is a simple total across all methods; only
   the internal cash-reconciliation figure needs the cash-specific
@@ -127,3 +127,35 @@ the prior one was closed.
 Full regression: Unit 102 + Feature 1 + Database 281 (25 new tests) =
 384 passing, 0 failures. Pint clean. `scripts/validate-baselines.sh`
 14/14.
+
+## 8. Change is not collected (correction, 2026-09-26)
+
+**Defect.** A `payment` row stores what the customer *tendered* (invariant #8: `SUM(payment.amount) >= grand_total`; the
+row is immutable, and `change` is only ever derived, in the sale detail and the invoice snapshot). Sections 4 and 7 summed
+those rows as if they were what the sale brought in, so a P200.00 note on a P107.00 cash sale added P200.00 to
+`cash_sales` and to `expected_cash`. Every honest count then closed short by all the change given during the shift, and the
+Z-reading `payment_breakdown` and the sales-by-payment-method report overstated the same way. The section 7
+verification did not expose it because those sales were rung with the exact amount.
+
+**Decision.** Nothing that is stored changes (no payment row, sale or invoice snapshot is rewritten). What a sale
+*collected* is the tender less the change, and change is handed back in cash:
+
+- the change comes off the `CASH` tender first, never below zero;
+- change larger than all the cash tendered means a non-cash method was over-tendered; that remainder comes off the
+  non-cash payments, last listed first, so the payments of a sale always add up to exactly its `grand_total`;
+- it is subtraction on already-rounded `Money` only; no new rounding point is introduced.
+
+`App\Domain\Financial\NetTenderAllocator` is the rule. `App\Services\Payments\NetCollectionService` applies it to
+whole sets of sales, and is the only reader of payment rows for money totals: the shift reading (`cash_sales`,
+`non_cash_sales`, `payment_breakdown`, therefore `expected_cash`, the closing variance and the `cash-variance` report), the
+Z-reading `payment_breakdown`, and the `sales-by-payment-method` report ("collections per tender type"; a sale paid
+with two methods still counts once under each). Refunds are unchanged: `cash_refunds` still comes from the CASH refund
+settlements of the shift that executed them.
+
+**Not rewritten.** Shifts closed and readings generated before this correction keep the `expected_cash`, `variance` and
+`payment_breakdown` they were closed with (readings are immutable snapshots, invariant #40); a shift that was closed short
+only because of change given is therefore still recorded short. The payment-method report is computed live, so it now
+shows the corrected figures for any date range.
+
+**Tests.** `NetTenderAllocatorTest` (unit) and `CashChangeCollectionHttpTest` (real checkout, shift close, refund,
+Z-reading and report). Sales-by-payment-method is also described in `stage-10-reports.md`.
