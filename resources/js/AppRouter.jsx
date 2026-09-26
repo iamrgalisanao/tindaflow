@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import NotFound from './pages/NotFound';
 import Pos from './pages/Pos';
 import TerminalEnroll from './pages/TerminalEnroll';
 import StoreSetupOverview from './pages/admin/StoreSetupOverview';
@@ -304,7 +305,15 @@ export default function AppRouter() {
                         </RequireAuth>
                     }
                 />
-                <Route path="*" element={<Navigate to="/" replace />} />
+                {/* Behind RequireAuth so a signed-out visitor still lands on /login rather than a 404. */}
+                <Route
+                    path="*"
+                    element={
+                        <RequireAuth>
+                            <NotFound />
+                        </RequireAuth>
+                    }
+                />
             </Routes>
         </AuthProvider>
     );
