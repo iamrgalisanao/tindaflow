@@ -13,13 +13,14 @@ import { formatDateTime } from './reports/formatters';
  * browser is enrolled. Terminals themselves are not created here: no terminalCreate operation
  * exists in the contract, so they must already exist before they can be enrolled.
  *
- * What this screen deliberately does NOT claim: whether a terminal is revoked. Revocation writes
- * `revoked_at` and never touches `status` (module-a §14 Ruling 3/9), and TerminalSummary -- the only
- * shape terminalList and terminalGet return -- excludes `revoked_at`. So revocation is real and
- * enforced (TerminalCredentialResolver raises TERMINAL_REVOKED), but it is not readable back. Rather
- * than invent a REVOKED badge the API cannot support, a terminal revoked in THIS session is marked
- * from local state and said to be exactly that; anything revoked earlier or from another browser is
- * indistinguishable here until `revoked_at` joins the contract.
+ * Revocation is read from `revoked_at`, never from `status`: the two are independent by design
+ * (module-a §14 Ruling 9 -- revoking writes `revoked_at` and deliberately leaves the TerminalStatus
+ * enum alone, and there is no REVOKED value in it). A revoked terminal is therefore shown as revoked
+ * while still reporting whatever status it had.
+ *
+ * Revocation has no undo operation in the API, but it is not a dead end: re-enrolling the terminal
+ * with a fresh token clears `revoked_at` and issues a new credential, so the "Enrollment token"
+ * action stays available on a revoked row.
  */
 export default function TerminalsPage() {
     const signIn = useSignIn();
@@ -35,7 +36,6 @@ export default function TerminalsPage() {
     const [issued, setIssued] = useState(null); // { terminalId, token, expiresAt }
     const [pastedToken, setPastedToken] = useState('');
     const [confirmRevoke, setConfirmRevoke] = useState(null); // the terminal awaiting confirmation
-    const [revokedHere, setRevokedHere] = useState(() => new Set()); // ids revoked in this session
 
     const loadThisBrowser = useCallback(async () => {
         const response = await request('/api/v1/terminal/current');
@@ -94,7 +94,6 @@ export default function TerminalsPage() {
         setNotice(null);
         const response = await request(`/api/v1/terminals/${terminal.id}/revoke`, { method: 'POST' });
         if (response.ok) {
-            setRevokedHere((prior) => new Set(prior).add(terminal.id));
             setNotice(`${terminal.terminal_code} was revoked. Any browser still holding its credential is now locked out of the till.`);
             // Revoking the credential this browser holds invalidates it too.
             if (thisBrowser?.id === terminal.id) {
@@ -234,9 +233,9 @@ export default function TerminalsPage() {
                             <tbody className="divide-y divide-slate-800/70">
                                 {terminals.map((terminal) => {
                                     const isThisBrowser = thisBrowser?.id === terminal.id;
-                                    const justRevoked = revokedHere.has(terminal.id);
+                                    const revokedAt = terminal.revoked_at ?? null;
                                     return (
-                                        <tr key={terminal.id} className={`odd:bg-slate-950/40 hover:bg-slate-900 ${justRevoked ? 'opacity-60' : ''}`}>
+                                        <tr key={terminal.id} className={`odd:bg-slate-950/40 hover:bg-slate-900 ${revokedAt ? 'opacity-60' : ''}`}>
                                             <td className="px-3 py-2 font-mono text-[13px] text-slate-100">
                                                 {terminal.terminal_code}
                                                 {isThisBrowser && (
@@ -244,9 +243,9 @@ export default function TerminalsPage() {
                                                         THIS BROWSER
                                                     </span>
                                                 )}
-                                                {justRevoked && (
+                                                {revokedAt && (
                                                     <span className="ml-2 rounded border border-rose-700/70 px-1.5 py-0.5 font-mono text-[10px] text-rose-400">
-                                                        REVOKED JUST NOW
+                                                        REVOKED
                                                     </span>
                                                 )}
                                             </td>
@@ -257,6 +256,7 @@ export default function TerminalsPage() {
                                             </td>
                                             <td className="px-3 py-2 font-mono text-[12px] text-slate-400">
                                                 {terminal.activated_at ? formatDateTime(terminal.activated_at) : '—'}
+                                                {revokedAt && <span className="block text-[11px] text-rose-400">revoked {formatDateTime(revokedAt)}</span>}
                                             </td>
                                             <td className="px-3 py-2 text-right">
                                                 <button
@@ -269,7 +269,7 @@ export default function TerminalsPage() {
                                                 </button>
                                                 <button
                                                     type="button"
-                                                    disabled={busy || justRevoked}
+                                                    disabled={busy || Boolean(revokedAt)}
                                                     onClick={() => setConfirmRevoke(terminal)}
                                                     className="ml-2 min-h-11 rounded border border-rose-800/60 px-3 text-xs text-rose-400 hover:bg-rose-600 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-rose-400 lg:min-h-0 lg:py-1.5"
                                                 >
@@ -283,8 +283,8 @@ export default function TerminalsPage() {
                         </table>
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
-                        Revocation is recorded against the terminal but is not returned by the API, so a terminal revoked earlier or from another
-                        browser looks no different here. Only revocations made in this session are marked.
+                        A revoked terminal keeps whatever status it had — revocation is tracked separately, not as a status. To put one back into
+                        service, issue it a fresh enrollment token; enrolling again clears the revocation.
                     </p>
                 </section>
             )}
