@@ -320,3 +320,45 @@ Not done: applying this to the real store server (an owner action: it needs the 
 `..._restrict_application_role_privileges.php` migration that a Stage 5 comment cites, which never existed and lives in
 the frozen corpus.
 
+## Addendum 2026-09-27 (2) — a failed backup or a filling disk can no longer go unnoticed
+
+Chosen by the architect review as the only remaining item that could lose data silently. `deployment.md` §7 already asked
+for a disk-space check and greppable `[BACKUP]` status lines, and the manifest listed the alert as missing; the review found
+a worse problem in the shipped script.
+
+**The defect.** `backup.sh` ran `take_backup || log ...` in its loop. Bash switches `set -e` off inside a function called on
+the left of `||` (verified with a three-line reproduction), so a failed step did not stop the function: a failed `pg_dump`
+was followed by the readability check, the move and a "wrote ..." log line, a truncated dump could be kept as the newest
+backup, and the function could return success. Abandoned `.partial` files were never pruned and could fill the disk.
+
+**Now.**
+- Every step of a backup is checked explicitly. A dump that fails, or that `pg_restore --list` cannot read, is deleted and
+  never kept; a failed encryption never leaves the plaintext copy; a failed off-machine copy keeps the local one and is
+  reported. `.partial` files older than one interval are pruned.
+- The outcome is written atomically to `$BACKUP_DIR/.status` (`started`, `last_success`, `last_error`, `backup_state`,
+  `upload_ok`, disk percentages and levels).
+- `backup.sh health` is the container healthcheck: unhealthy when no backup has succeeded for 2.5 intervals (a fresh start
+  gets the same window), when the off-machine copy is failing, or when a disk is critical. `docker/compose.yaml` adds the
+  healthcheck to `backup`.
+- Every interval it checks how full the backups folder and the database volume are (the volume is mounted read-only at
+  `/pgdata` for this and nothing else): **80% warns, 90% is critical** (`DISK_WARN_PERCENT`, `DISK_CRIT_PERCENT`), the levels
+  `deployment.md` §7 proposes. A disk it cannot read counts as critical, never as 0%.
+- Log lines carry `[BACKUP]` or `[DISK]`. An optional `ALERT_COMMAND` (the message is `$1`, like `BACKUP_UPLOAD_COMMAND`) runs
+  once when backups start failing, once when a disk crosses a level, and once on recovery, never on every tick. No channel is
+  chosen or shipped.
+
+**Not done, and needs you:** without `ALERT_COMMAND`, nobody is told unless they look at `docker compose ps` or the logs, and
+an untrained shop owner will not. Choosing the channel (email, SMS or chat) and the off-machine destination is an owner
+decision that should be made before the pilot. The 80% and 90% levels are `deployment.md`'s own proposal, "pending owner
+approval"; they are configurable. Nothing in the till shows a backup problem (that would need a new endpoint, a frozen-corpus
+exception). `deployment.md` itself is frozen and was not edited.
+
+**Verification.** `scripts/test-backup.sh` (plain bash, stub `pg_dump`/`pg_restore`, no new tooling; it needs GNU date, so on a
+Mac run it in the stack's image: `docker run --rm -v "$PWD":/w postgres:17 bash /w/scripts/test-backup.sh`): 49 checks
+covering a failing dump, a truncated dump (earlier backups survive), recovery and alert-once behaviour, upload and encryption
+failure, health, the disk levels (including an unreadable disk), abandoned partials, and the retention policy as a
+regression. On a real built stack with a 1-minute interval: the first backup landed on the host folder with both disk
+readings; with PostgreSQL stopped the failure was logged every minute, exactly one alert fired through a real
+`ALERT_COMMAND`, and `backup` went unhealthy after about 4 minutes with the reason in its health output; restarting
+PostgreSQL brought it back to healthy with a recovery alert. The stack was then removed.
+

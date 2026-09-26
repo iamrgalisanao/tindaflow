@@ -61,7 +61,10 @@ The `backup` container writes a dump to `./backups` (`BACKUP_DIR`) every `BACKUP
 - **Put `BACKUP_DIR` on a different disk from the database.** A backup on the same disk dies with it.
 - **Encrypt:** set `BACKUP_PASSPHRASE`. Store the passphrase somewhere else; an encrypted backup is useless without it.
 - **Copy off the machine:** set `BACKUP_UPLOAD_COMMAND` to any command that copies `$1` (rclone, rsync, scp, a script). Until you do, a fire, theft or flood takes the backups with the server.
-- **See what happened:** `docker compose logs backup`.
+- **See what happened:** `docker compose logs backup`. Every line carries `[BACKUP]` or `[DISK]`, so `docker compose logs backup | grep -E "FAILED|WARN|CRITICAL|ALERT"` shows every problem.
+- **A failed backup is never silent.** A dump that fails, or that cannot be read back, is deleted and never kept, and it never ages out a good backup. The `backup` container turns **unhealthy** (`docker compose ps`) when no backup has succeeded for two and a half intervals, when the off-machine copy is failing, or when a disk is critically full. `docker compose exec backup bash /usr/local/bin/backup.sh health` says why.
+- **Watch the disks.** Every interval the backup container checks how full the backups folder and the database volume are: **80% logs a warning, 90% is critical** (`DISK_WARN_PERCENT`, `DISK_CRIT_PERCENT`). A full database disk stops PostgreSQL, and then every till stops selling.
+- **Get told (optional):** set `ALERT_COMMAND` to any command that takes the message as `$1` (a script that sends an email, an SMS or a chat message). It runs once when backups start failing, once when a disk crosses a level, and once when either recovers, not every hour. Without it, nobody is told unless they look, so **an unattended shop should set it before go-live**.
 
 ### Restoring, and practising it
 

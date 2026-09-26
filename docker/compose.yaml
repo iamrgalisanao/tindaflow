@@ -116,6 +116,8 @@ services:
     volumes:
       - ./backup/backup.sh:/usr/local/bin/backup.sh:ro
       - ./backup/restore.sh:/usr/local/bin/restore.sh:ro
+      # The database's own volume, read-only, ONLY so backup.sh can watch how full its disk is (it never reads the files).
+      - pgdata:/pgdata:ro
       # Put this on a different disk from the database (docker/README.md).
       - ${BACKUP_DIR:-./backups}:/backups
     depends_on:
@@ -123,6 +125,14 @@ services:
       app:
         condition: service_healthy
     networks: [backend]
+    healthcheck:
+      # Unhealthy when no backup has succeeded for 2.5 intervals, the off-machine copy is failing, or a disk is critically
+      # full: `docker compose ps` then shows it, and `docker compose logs backup` says why ([BACKUP] / [DISK] lines).
+      test: ["CMD", "bash", "/usr/local/bin/backup.sh", "health"]
+      interval: 60s
+      timeout: 10s
+      retries: 2
+      start_period: 120s
     restart: unless-stopped
 
 networks:
