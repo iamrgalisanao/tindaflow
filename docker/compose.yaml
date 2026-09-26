@@ -5,6 +5,12 @@
 #
 # web (nginx, the only published ports) -> app (PHP-FPM) -> postgres (no published port, on the backend network only).
 # backup keeps hourly dumps of the database; see docker/backup/backup.sh.
+#
+# Two database roles (docs/06-backend/stage-23-production-readiness.md, addendum 2026-09-27): the OWNER
+# (DB_OWNER_USERNAME) runs the migrations and provisions the application's role in the one-shot `migrate` service;
+# the long-running `app` connects as DB_USERNAME (tindaflow_app), which the database itself forbids from updating or
+# deleting the append-only tables (sale items, payments, invoices, audit log, journal, stock ledger, readings). The
+# running app never holds the owner's credentials.
 name: tindaflow
 
 services:
@@ -32,6 +38,23 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  # Runs once per `up`, as the database OWNER: applies pending migrations, then creates/updates the application's role
+  # and enforces the append-only privileges (php artisan tindaflow:harden-database). The app starts only after it
+  # succeeds. It runs the app image (built by the `app` service), so it has no build of its own.
+  migrate:
+    image: tindaflow-app:${TINDAFLOW_TAG:-latest}
+    env_file: .env
+    environment:
+      DB_USERNAME: ${DB_OWNER_USERNAME}
+      DB_PASSWORD: ${DB_OWNER_PASSWORD}
+      DB_APP_PASSWORD: ${DB_PASSWORD}
+    command: ["runuser", "-u", "www-data", "--", "sh", "-c", "php artisan migrate --force && php artisan tindaflow:harden-database"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+    restart: "no"
+
   app:
     build:
       context: ..
@@ -39,11 +62,18 @@ services:
       target: app
     image: tindaflow-app:${TINDAFLOW_TAG:-latest}
     env_file: .env
+    environment:
+      # The owner's credentials stay in .env for compose to hand to `migrate` and `postgres`, but this container
+      # must not see them: blank them here so PHP-FPM's environment holds only the restricted role's.
+      DB_OWNER_USERNAME: ""
+      DB_OWNER_PASSWORD: ""
     volumes:
       - app-storage:/var/www/html/storage
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks: [frontend, backend]
     healthcheck:
       # Reaches PostgreSQL with the app's own credentials (Laravel's /up never touches the database).
@@ -58,8 +88,9 @@ services:
     image: postgres:17
     environment:
       POSTGRES_DB: ${DB_DATABASE}
-      POSTGRES_USER: ${DB_USERNAME}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      # The owner (a superuser inside this container), NOT the application's role.
+      POSTGRES_USER: ${DB_OWNER_USERNAME}
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD}
       TZ: ${APP_TIMEZONE:-Asia/Manila}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -75,7 +106,12 @@ services:
   backup:
     image: postgres:17
     env_file: .env
-    entrypoint: ["/usr/local/bin/backup.sh"]
+    environment:
+      # BACKUP_DIR in .env is the HOST folder for the mount below; without this the container would write dumps to that
+      # same path inside itself (its own disk), never reaching the mounted host folder.
+      BACKUP_DIR: /backups
+    # Through bash so it starts even if the checkout lost the scripts' executable bit (Windows, some archives).
+    entrypoint: ["bash", "/usr/local/bin/backup.sh"]
     command: ["loop"]
     volumes:
       - ./backup/backup.sh:/usr/local/bin/backup.sh:ro

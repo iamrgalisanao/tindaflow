@@ -8,13 +8,13 @@ use Tests\Database\Concerns\BuildsSalesScenario;
 
 /**
  * invariants.md #48/#45/#2: the append-only rules are enforced by database/scripts/harden_append_only_privileges.sql,
- * which is run once per environment against the runtime role. Nothing else in the suite applies it, so this proves it
- * end to end: with the script applied and the connection switched to a role that has only what the script leaves it,
- * the real checkout, void and refund flows still work, and the tables the invariants call append-only refuse an
- * UPDATE or DELETE.
+ * applied by `tindaflow:harden-database`. This proves it end to end: with the command run and the connection switched to
+ * the role it provisions, the real checkout, void and refund flows still work, and the tables the invariants call
+ * append-only refuse an UPDATE or DELETE.
  *
  * Everything (the role, its grants, the script, SET LOCAL ROLE) happens inside the per-test transaction that
  * PostgresSchemaTestCase rolls back, so nothing leaks into the cluster or into other tests.
+ * tests/Database/HardenDatabaseCommandTest.php covers the command's own behaviour.
  */
 class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
 {
@@ -32,15 +32,10 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
 
         $w = $this->world();
 
-        if (DB::selectOne('select 1 as present from pg_roles where rolname = ?', [self::APP_ROLE]) === null) {
-            DB::unprepared('CREATE ROLE '.self::APP_ROLE.' NOLOGIN');
-        }
-        // What the role is given when it is provisioned, before the script narrows it.
-        DB::unprepared('GRANT USAGE ON SCHEMA public TO '.self::APP_ROLE);
-        DB::unprepared('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO '.self::APP_ROLE);
-        DB::unprepared('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO '.self::APP_ROLE);
+        // The provisioning the deployment runs as the table owner: create the role, give it the ordinary privileges,
+        // apply database/scripts/harden_append_only_privileges.sql.
+        $this->artisan('tindaflow:harden-database', ['--password' => 'test-only-password'])->assertSuccessful();
 
-        DB::unprepared((string) file_get_contents(base_path('database/scripts/harden_append_only_privileges.sql')));
         DB::unprepared('SET LOCAL ROLE '.self::APP_ROLE);
 
         return $w;

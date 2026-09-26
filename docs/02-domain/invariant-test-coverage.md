@@ -24,8 +24,8 @@ Items marked **verified** were re-checked by hand after the audit; the rest are 
 
 Ranked by consequence. Each is a real difference between what `invariants.md` promises and what the repository does.
 
-> **Update 2026-09-27.** Finding 2 is fixed. Finding 1 is fixed in the script and the code, but the script is still not
-> applied by any deployment (see the note under it). The verdict tables below show the audit as it stood before the fixes.
+> **Update 2026-09-27.** Findings 1 and 2 are fixed (see the notes under each). The verdict tables below show the audit as
+> it stood before the fixes.
 
 1. **The append-only hardening script would break void and refund (#48, #45, #23, #60, #76, #77). Verified.**
    `database/scripts/harden_append_only_privileges.sql` revokes UPDATE on `sales`, and never re-grants it, yet
@@ -46,13 +46,14 @@ Ranked by consequence. Each is a real difference between what `invariants.md` pr
    - `RefundService` also locked every `sale_items` row `FOR UPDATE`, which the same rule forbids under the hardening.
      The lock was redundant (the sale row is already locked, which serializes every void and refund of that sale, and
      lines are immutable), so it was dropped; the reversal concurrency tests still pass.
-   **Still open, and needs your decision:** nothing applies the script. The Docker stack runs one role (`POSTGRES_USER`
-   = `DB_USERNAME`, a superuser inside its own container) for migrations and for the running app, and a superuser
-   ignores privileges, so the append-only rules are still not enforced in a deployment. Enforcing them means adopting
-   the two-role setup the script describes: create `tindaflow_migrator` and `tindaflow_app`, run migrations as the first,
-   serve as the second, then apply the script. The audit-events migration's comment also still cites a
-   `..._restrict_application_role_privileges.php` migration that does not exist; it lives in the frozen Stage 5 corpus
-   and was left alone.
+   **Deployment fixed 2026-09-27.** The Docker stack ran one role (a superuser inside its container) for migrations and
+   the running app, and a superuser ignores privileges, so nothing enforced the rules. It now runs two: a one-shot
+   `migrate` service, as the owner, applies migrations and `php artisan tindaflow:harden-database`; the app then connects
+   as `tindaflow_app` and never holds the owner's credentials. Verified on a real built stack. Details, choices and the
+   upgrade path for an existing single-role stack: [stage-23-production-readiness.md](../06-backend/stage-23-production-readiness.md),
+   addendum, and `docker/README.md`. **Not done:** switching the real store server over (an owner action). The
+   audit-events migration's comment still cites a `..._restrict_application_role_privileges.php` migration that does
+   not exist; it lives in the frozen Stage 5 corpus and was left alone.
 2. **Invoice numbers can be reissued (#11, #18). Verified at the request layer.** Series creation checks only
    `starting_number >= 1`. Closing a series and creating a new one for the same installation with the same prefix and a
    low starting number appears to issue numbers that were already used. Uniqueness is per series row only. I did not run

@@ -5,7 +5,8 @@
 #
 # It refuses to write into a database that already exists, so a restore can never overwrite live data. To go live
 # with the restored copy: stop the app, point DB_DATABASE at the new database (or rename the databases), start the
-# app. Encrypted backups (.enc) need BACKUP_PASSPHRASE.
+# app. Encrypted backups (.enc) need BACKUP_PASSPHRASE. Restoring needs the database owner's login (DB_OWNER_*).
+# Going live with the copy re-provisions the application's role on the next `docker compose up` (the migrate step).
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
@@ -17,9 +18,11 @@ TARGET="$2"
 
 DB_HOST="${DB_HOST:-postgres}"
 DB_PORT="${DB_PORT:-5432}"
-DB_USERNAME="${DB_USERNAME:-tindaflow}"
-export PGPASSWORD="${DB_PASSWORD:-${PGPASSWORD:-}}"
-export PGHOST="$DB_HOST" PGPORT="$DB_PORT" PGUSER="$DB_USERNAME"
+# Creating a database and loading a dump take the database OWNER's login; the application's role (DB_USERNAME) cannot
+# create databases. With a single shared role the owner settings are simply absent.
+DB_OWNER_USERNAME="${DB_OWNER_USERNAME:-${DB_USERNAME:-tindaflow}}"
+export PGPASSWORD="${DB_OWNER_PASSWORD:-${DB_PASSWORD:-${PGPASSWORD:-}}}"
+export PGHOST="$DB_HOST" PGPORT="$DB_PORT" PGUSER="$DB_OWNER_USERNAME"
 
 [ -f "$FILE" ] || { echo "no such file: $FILE" >&2; exit 1; }
 [[ "$TARGET" =~ ^[A-Za-z0-9_]+$ ]] || { echo "the database name may only contain letters, digits and underscores" >&2; exit 2; }

@@ -264,3 +264,59 @@ not the published ports), and running the certificate command in Git Bash needs 
 The restore drill on the **real** deployment (it must be repeated there, on real data, before go-live); an
 off-machine destination (the hook exists but the store has to choose one); PostgreSQL point-in-time recovery; and
 per-store timezones.
+
+## Addendum 2026-09-27 — two database roles, so the append-only rules are enforced
+
+The invariant audit ([invariant-test-coverage.md](../02-domain/invariant-test-coverage.md), finding 1) found that
+invariants #2, #23, #41, #45 and #48 were enforced only by the application not breaking them: the hardening script
+that makes PostgreSQL enforce them was applied by nothing, and the Docker stack ran a single role (`POSTGRES_USER`, a
+superuser inside its container, which ignores privileges) for both migrations and the running app.
+
+**Decision.** The stack now has two roles, as `database-schema.md` §15 always described:
+
+- The **owner** (`DB_OWNER_USERNAME`, default `tindaflow_owner`) is the postgres container's superuser. It creates and
+  migrates the tables and is used only by the one-shot `migrate` service and by `restore.sh`.
+- The **application role** `tindaflow_app` (`DB_USERNAME`) is what the running `app` connects as. It cannot create
+  tables, cannot DELETE from anything, and cannot UPDATE the append-only tables; on `sales` it may update only `status`,
+  and on `voids`/`refunds` only their lifecycle columns.
+
+Mechanics: `docker/compose.yaml` gains a `migrate` service (the app image, run as the owner) that runs
+`php artisan migrate --force` and then `php artisan tindaflow:harden-database`; `app` starts only after it succeeds.
+The command creates or updates `tindaflow_app` (login and password from `DB_APP_PASSWORD`, which only `migrate` receives),
+grants the ordinary privileges, applies `database/scripts/harden_append_only_privileges.sql`, then reads the result back
+and rolls everything back if the database is not actually enforcing it (role not a superuser, audit/journal/stock
+ledger refuse UPDATE, `sales.grand_total` refuses UPDATE while `sales.status` allows it, nothing deletable). It runs after
+every migration, so a table a later release adds is covered. The `app` container has the owner's variables blanked, so the
+running application never holds the owner's credentials. With a single shared role (local development) the command
+refuses to run as the application role and nothing else changes.
+
+Choices worth recording:
+
+- **The application role's name is fixed** (`tindaflow_app`) because the script names it; the owner's name is free.
+- **`RUN_MIGRATIONS` is gone.** Migrating moved out of the app entrypoint into `migrate`, which is the only place the
+  owner's credentials are used at runtime. A failed `migrate` leaves the previous release running.
+- **Backups still dump as the application role** (read access is enough; `deployment.md` already specified `<app_role>`).
+  Restoring uses the owner, because only it can create a database; going live with a restored copy re-runs `migrate`,
+  which re-provisions the role on it.
+- **Existing single-role stacks upgrade in place**: keep the old login as `DB_OWNER_*` and give `tindaflow_app` a new
+  password (docker/README.md, "Upgrading from one database role").
+
+Verified against a real stack (built and run, then removed): `migrate` created the role, the app connected as
+`tindaflow_app` with no owner variables in its environment, `db:seed` and `/up` worked, the role was refused UPDATE on
+`audit_events`, the journal and the stock ledger, DELETE on `sales`, UPDATE of `sales.grand_total`, and CREATE TABLE, while
+`sales.status` stayed updatable; a backup taken as the application role restored as the owner, and going live with the
+restored copy re-locked it. Tests: `HardenDatabaseCommandTest` (6) and `AppendOnlyPrivilegesTest` (6, now driven by the command).
+
+**Two existing defects found and fixed while doing this.**
+
+- `BACKUP_DIR` in `.env` (the host folder, as the example file tells you to set it) also reached the backup container
+  through `env_file`, so `backup.sh` wrote its dumps to that path inside the container, on its own disk, and never to the
+  mounted host folder. The compose file now pins `BACKUP_DIR=/backups` inside the container.
+- `docker/backup/backup.sh` and `restore.sh` were committed without the executable bit, so the backup container could not
+  start from a git checkout (`exec ... permission denied`). They are now executable, and the container starts them
+  through `bash` so a checkout that loses the bit (Windows, some archives) still works.
+
+Not done: applying this to the real store server (an owner action: it needs the `.env` change above), and the
+`..._restrict_application_role_privileges.php` migration that a Stage 5 comment cites, which never existed and lives in
+the frozen corpus.
+

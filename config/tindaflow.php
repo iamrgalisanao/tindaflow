@@ -12,6 +12,13 @@ return [
         'decay_minutes' => env('LOGIN_THROTTLE_DECAY_MINUTES', 1),
     ],
 
+    // The password the application's own database role (`tindaflow_app`) is given by `tindaflow:harden-database`.
+    // Set only where that command runs (the deployment's one-shot migrate step, as the table owner); the running
+    // application never needs it and, connecting as `tindaflow_app`, never holds the owner's credentials.
+    'database' => [
+        'app_password' => env('DB_APP_PASSWORD'),
+    ],
+
     // Ceiling on API requests per signed-in user per minute. A technical safeguard, not a
     // business rule: a busy till makes a few requests a second at most.
     'api_throttle' => [

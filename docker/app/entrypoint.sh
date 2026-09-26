@@ -1,6 +1,7 @@
 #!/bin/sh
-# Starts the app container: waits for the database, caches the configuration, applies migrations, hands over to
-# PHP-FPM. Artisan runs as www-data so nothing it writes is root-owned.
+# Starts the app container: waits for the database, caches the configuration, hands over to PHP-FPM (or to the command
+# given, which is how the `migrate` service applies migrations as the database owner, in docker/compose.yaml).
+# Artisan runs as www-data so nothing it writes is root-owned.
 set -eu
 cd /var/www/html
 
@@ -27,9 +28,5 @@ as_app php artisan config:cache
 as_app php artisan route:cache
 as_app php artisan event:cache
 as_app php artisan view:cache
-
-if [ "${RUN_MIGRATIONS:-1}" = "1" ]; then
-    as_app php artisan migrate --force
-fi
 
 exec "$@"
