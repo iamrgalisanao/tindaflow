@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { usePrintFrame } from '../lib/usePrintFrame';
 import { ConfirmDialog } from './admin/catalog/CatalogParts';
+import NotFound from './NotFound';
 import CartPanel from './pos/CartPanel';
 import CatalogPanel from './pos/CatalogPanel';
 import PosHeader from './pos/PosHeader';
@@ -38,11 +39,26 @@ function newIdempotencyKey() {
 export default function Pos() {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const { pathname } = useLocation();
     const [step, setStep] = useState('loading'); // loading | not-enrolled | other-cashier-shift | open-shift | setup-incomplete | cart | checkout | receipt | close-shift | shift-closed | fiscal-day-closed
     const [error, setError] = useState(null);
     const [shift, setShift] = useState(null);
     const [readinessChecks, setReadinessChecks] = useState(null);
-    const [view, setView] = useState('register'); // register | lookup | shift (only while a cart is open)
+    /**
+     * The till's three destinations are addressable (sitemap.md /pos, /pos/lookup): `view` is derived
+     * from the URL rather than held in state, so the browser's Back button and a reload both land where
+     * the cashier expects. One splat route keeps ONE Pos mounted across them -- separate <Route>
+     * elements would remount it and silently discard an in-progress cart on every tab switch.
+     *
+     * The other steps are deliberately NOT addressable. `loading`, `not-enrolled`,
+     * `other-cashier-shift`, `open-shift` and `setup-incomplete` are resolved from server state on
+     * mount, so they are conditions rather than destinations; `checkout`, `close-shift` and the two
+     * closing summaries depend on state that exists only in this component, so a URL for them could
+     * never be reloaded into anything meaningful.
+     */
+    const sub = pathname.replace(/^\/pos\/?/, '');
+    const view = sub === '' ? 'register' : sub;
+    const goToView = (key) => navigate(key === 'register' ? '/pos' : `/pos/${key}`);
     const [terminalCode, setTerminalCode] = useState(null);
 
     const [openingCash, setOpeningCash] = useState('');
@@ -357,7 +373,7 @@ export default function Pos() {
         setResults(null);
         setSearch('');
         setSale(null);
-        setView('register');
+        goToView('register');
         setStep('cart');
     }
 
@@ -451,6 +467,12 @@ export default function Pos() {
         setCloseBusy(false);
     }
 
+    // The splat route means this component now receives every /pos/* path, so it owns the 404 for the
+    // ones it does not define -- otherwise the router's catch-all would never see them.
+    if (!['register', 'lookup', 'shift'].includes(view)) {
+        return <NotFound />;
+    }
+
     if (step === 'loading') {
         return <div className="min-h-screen bg-slate-950 p-8 text-sm text-slate-400">Loading…</div>;
     }
@@ -538,7 +560,7 @@ export default function Pos() {
                 showTabs={step === 'cart' || step === 'checkout'}
                 view={view}
                 paying={step === 'checkout'}
-                onView={setView}
+                onView={goToView}
                 onLeave={cart.length > 0 ? setPendingExit : undefined}
             />
 

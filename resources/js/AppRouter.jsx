@@ -80,7 +80,7 @@ export default function AppRouter() {
                     }
                 />
                 <Route
-                    path="/pos"
+                    path="/pos/*"
                     element={
                         <RequireAuth>
                             <Pos />
