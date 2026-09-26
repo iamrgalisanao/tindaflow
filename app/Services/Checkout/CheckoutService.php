@@ -37,6 +37,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * ADR-003's checkout transaction script, made callable. Orchestrates
@@ -182,6 +183,7 @@ final class CheckoutService
         }
 
         $orderLevelDiscountAmount = Money::fromApiString((string) ($payload['order_level_discount_amount'] ?? '0.00'));
+        $this->assertTheOrderDiscountHasALineToLandOn($lines, $orderLevelDiscountAmount, 'order_level_discount_amount');
         $calculation = $this->financialCalculator->calculateSale($lines, $orderLevelDiscountAmount, $taxRegistrationType);
 
         // A discount -- line or order-level -- may only be applied by a user holding DISCOUNT_OVERRIDE
@@ -238,6 +240,7 @@ final class CheckoutService
             }
 
             $orderLevelDiscountAmount = $orderLevelDiscountAmount->add($statutoryDiscountAmount);
+            $this->assertTheOrderDiscountHasALineToLandOn($lines, $orderLevelDiscountAmount, 'statutory_discount');
             $calculation = $this->financialCalculator->calculateSale($lines, $orderLevelDiscountAmount, $taxRegistrationType);
 
             // 'type' is printed verbatim by InvoiceSnapshotV2Renderer::beneficiaryBlock() ("Discount: <type>"),
@@ -530,5 +533,27 @@ final class CheckoutService
     private function sumAmounts(array $payments): string
     {
         return array_reduce($payments, fn (string $carry, array $payment) => bcadd($carry, (string) $payment['amount'], 2), '0.00');
+    }
+
+    /**
+     * An order-level discount is allocated across the lines flagged order_discount_eligible (invariants.md #66). With none
+     * flagged, DiscountAllocator cannot place it and used to throw a bare InvalidArgumentException, which surfaced as a
+     * 500. It is a bad request, answered as a validation error on the field that carried the discount.
+     *
+     * @param  array<int, SaleLineInput>  $lines
+     */
+    private function assertTheOrderDiscountHasALineToLandOn(array $lines, Money $discount, string $field): void
+    {
+        if ($discount->isZero()) {
+            return;
+        }
+
+        foreach ($lines as $line) {
+            if ($line->orderDiscountEligible) {
+                return;
+            }
+        }
+
+        throw ValidationException::withMessages([$field => 'None of the items on this sale can take an order-level discount, so there is nothing for it to apply to.']);
     }
 }

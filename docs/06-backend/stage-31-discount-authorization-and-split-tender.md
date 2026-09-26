@@ -72,3 +72,15 @@ Line-level discount entry in the UI (the API accepts it; no screen offers it). S
 unchanged from Stage 24, still referred to the business/legal owner. A discount reason/note field in the UI (the API
 has `items[].override_reason`; nothing writes it yet). A per-store discount limit or approval workflow beyond the
 existing DISCOUNT_OVERRIDE gate.
+
+## Addendum 2026-09-27 — an order discount with no eligible line is a 422, not a 500
+
+Found while writing the discount-eligibility test (invariants.md #66, see
+[invariant-test-coverage.md](../02-domain/invariant-test-coverage.md)): `items[].order_discount_eligible` is accepted by the
+API, and a request whose order-level discount had no eligible line to land on made `DiscountAllocator` throw a bare
+`InvalidArgumentException`, which surfaced as an HTTP 500. `CheckoutService` now checks this before calculating (for the
+manual `order_level_discount_amount`, and again after a statutory discount is folded in) and answers
+`422 VALIDATION_FAILED` with a field error on `order_level_discount_amount` or `statutory_discount`. No new error code (the
+catalog is frozen); nothing is recorded and the idempotency key stays reusable. The till never sends the flag today, so no
+cashier could reach this from the UI; it protects the API. Test: `ReversalMatrixTest`.
+

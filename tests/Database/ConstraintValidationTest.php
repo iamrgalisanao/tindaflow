@@ -125,15 +125,26 @@ class ConstraintValidationTest extends PostgresSchemaTestCase
         ]);
     }
 
-    /** Runs $callback in a nested transaction (SAVEPOINT) and returns whether it threw. */
-    private function attemptFails(callable $callback): bool
+    /**
+     * Runs $callback in a nested transaction (SAVEPOINT) and returns whether the database rejected it as a data or
+     * integrity violation (SQLSTATE class 22 or 23, or a trigger's P0001). Any other error -- a misspelled column, a
+     * missing table -- is rethrown, so a test cannot pass for a reason unrelated to the rule it claims to prove. Pass
+     * $constraint (an index or constraint name) to require that THAT rule rejected it: a rejection by a different
+     * constraint, such as a foreign key in the fixture, counts as not failing.
+     */
+    private function attemptFails(callable $callback, ?string $constraint = null): bool
     {
         try {
             DB::transaction($callback);
 
             return false;
-        } catch (QueryException) {
-            return true;
+        } catch (QueryException $e) {
+            $state = (string) $e->getCode();
+            if (! str_starts_with($state, '22') && ! str_starts_with($state, '23') && $state !== 'P0001') {
+                throw $e;
+            }
+
+            return $constraint === null || str_contains($e->getMessage(), $constraint);
         }
     }
 
@@ -158,22 +169,36 @@ class ConstraintValidationTest extends PostgresSchemaTestCase
                 'cashier_id' => $this->cashier2Id, 'opening_cash' => 500, 'opened_at' => now(), 'status' => 'OPEN',
                 'created_at' => now(), 'updated_at' => now(),
             ]);
-        });
+        }, 'shifts_one_open_per_terminal');
 
-        $this->assertTrue($failed, 'a second OPEN shift on the same terminal should be rejected');
+        $this->assertTrue($failed, 'a second OPEN shift on the same terminal should be rejected by shifts_one_open_per_terminal');
     }
 
     public function test_one_open_shift_per_cashier(): void
     {
-        $failed = $this->attemptFails(function () {
+        // The second terminal gets its OWN fiscal day, so the composite (terminal, fiscal day) foreign key is satisfied
+        // and the only rule left to fire is the one-open-shift-per-cashier index.
+        $fiscalDay2Id = (string) Str::uuid();
+        DB::table('fiscal_days')->insert([
+            'id' => $fiscalDay2Id, 'store_id' => $this->storeId, 'terminal_id' => $this->terminal2Id,
+            'business_date' => now()->toDateString(), 'opened_at' => now(), 'status' => 'OPEN',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $secondShift = fn (string $cashierId) => function () use ($fiscalDay2Id, $cashierId) {
             DB::table('shifts')->insert([
-                'id' => (string) Str::uuid(), 'terminal_id' => $this->terminal2Id, 'fiscal_day_id' => $this->fiscalDayId,
-                'cashier_id' => $this->cashierId, 'opening_cash' => 500, 'opened_at' => now(), 'status' => 'OPEN',
+                'id' => (string) Str::uuid(), 'terminal_id' => $this->terminal2Id, 'fiscal_day_id' => $fiscalDay2Id,
+                'cashier_id' => $cashierId, 'opening_cash' => 500, 'opened_at' => now(), 'status' => 'OPEN',
                 'created_at' => now(), 'updated_at' => now(),
             ]);
-        });
+        };
 
-        $this->assertTrue($failed, 'the same cashier opening a second OPEN shift on another terminal should be rejected');
+        $failed = $this->attemptFails($secondShift($this->cashierId), 'shifts_one_open_per_cashier');
+
+        $this->assertTrue($failed, 'the same cashier opening a second OPEN shift on another terminal should be rejected by shifts_one_open_per_cashier');
+        $this->assertFalse(
+            $this->attemptFails($secondShift($this->cashier2Id)),
+            'control: a DIFFERENT cashier can open that same shift, so the fixture is valid and only the cashier rule rejected the first attempt',
+        );
     }
 
     public function test_one_open_fiscal_day_per_terminal(): void

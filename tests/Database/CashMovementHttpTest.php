@@ -143,4 +143,24 @@ class CashMovementHttpTest extends PostgresSchemaTestCase
         $response->assertStatus(422);
         $response->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
     }
+
+    /**
+     * Pins the boundary as implemented: an amount EQUAL to the threshold already needs the CASH_OUT capability, so a cashier
+     * may take out up to one centavo below it. invariants.md #39 and openapi.yaml say "above a configurable threshold", which
+     * reads as strictly greater; the stricter behaviour is kept until the owner rules on the wording (see
+     * docs/02-domain/invariant-test-coverage.md, finding 7), and this test will fail loudly if it ever changes unnoticed.
+     */
+    public function test_the_cash_out_threshold_boundary_needs_the_capability_at_exactly_the_threshold(): void
+    {
+        config(['tindaflow.cash_movements.cash_out_authorization_threshold' => '500.00']);
+        ['cashier' => $cashier, 'terminalCredential' => $terminalCredential, 'shift' => $shift] = $this->openShift();
+        $cashOut = fn (string $amount) => $this->forwardSessionCookie($this->login($cashier))->withTerminalCredential($terminalCredential)
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson("/api/v1/shifts/{$shift['id']}/cash-movements", ['type' => 'CASH_OUT', 'amount' => $amount, 'reason' => 'Boundary']);
+
+        $cashOut('499.99')->assertStatus(201);
+        $cashOut('500.00')->assertStatus(403);
+        $cashOut('500.01')->assertStatus(403);
+        $this->assertSame(1, CashMovement::count(), 'only the amount below the threshold was recorded');
+    }
 }

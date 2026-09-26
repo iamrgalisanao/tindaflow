@@ -137,18 +137,34 @@ class SaleRefundHttpTest extends PostgresSchemaTestCase
         $sale = $this->ring($w, [[$w['product'], '3'], [$w['product2'], '1']]);
         [$one, $two] = [$sale['items'][0]['id'], $sale['items'][1]['id']];
 
+        // Each non-restocking disposition is refunded in a request of its own, so each one is really exercised.
         $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$sale['id']}/refunds", $this->body([
             [$one, '1', 'DAMAGED'], [$two, '1', 'RETURN_TO_STOCK'],
         ], [['CASH', '150.00']]), $this->key())->assertStatus(201);
-        $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$sale['id']}/refunds", $this->body([
-            [$one, '1', 'EXPIRED'], [$one, '1', 'DISPOSED'],
-        ], [['CASH', '200.00']]), $this->key())->assertStatus(422);
+        $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$sale['id']}/refunds", $this->body([[$one, '1', 'EXPIRED']], [['CASH', '100.00']]), $this->key())->assertStatus(201);
         $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$sale['id']}/refunds", $this->body([[$one, '1', 'DISPOSED']], [['CASH', '100.00']]), $this->key())->assertStatus(201);
 
-        // Product 1: sold 3, none restocked (DAMAGED, DISPOSED). Product 2: sold 1, restocked 1.
+        // Product 1: sold 3, none restocked (DAMAGED, EXPIRED, DISPOSED). Product 2: sold 1, restocked 1.
         $this->assertSame('-3.000', $this->balance($w['product']->id));
         $this->assertSame('0.000', $this->balance($w['product2']->id));
         $this->assertSame(1, StockMovement::where('movement_type', 'SALE_RETURN')->count());
+        $this->assertSame(3, RefundItem::where('sale_item_id', $one)->count());
+        $this->assertEqualsCanonicalizing(['DAMAGED', 'EXPIRED', 'DISPOSED'], RefundItem::where('sale_item_id', $one)->pluck('disposition')->all());
+    }
+
+    public function test_a_refund_naming_the_same_line_twice_is_refused_and_records_nothing(): void
+    {
+        $w = $this->world();
+        $sale = $this->ring($w, [[$w['product'], '3']]);
+        $one = $sale['items'][0]['id'];
+
+        $response = $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$sale['id']}/refunds", $this->body([
+            [$one, '1', 'EXPIRED'], [$one, '1', 'DISPOSED'],
+        ], [['CASH', '200.00']]), $this->key());
+
+        $response->assertStatus(422);
+        $this->assertSame(0, Refund::count());
+        $this->assertSame(0, RefundItem::count());
     }
 
     public function test_a_sale_from_a_closed_fiscal_day_can_still_be_refunded_in_todays_context(): void

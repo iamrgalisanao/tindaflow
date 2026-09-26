@@ -83,6 +83,10 @@ Ranked by consequence. Each is a real difference between what `invariants.md` pr
    ignoring the flag would fail nothing.
 7. **Cash-out threshold is `>=`, the text says "above" (#39). Verified.** `CashMovementService.php:70` uses
    `greaterThanOrEqual`. The boundary is also untested.
+   **Pinned 2026-09-27, not changed.** `CashMovementHttpTest` now asserts the boundary as implemented (a cashier may take out
+   499.99 but not 500.00 at a 500.00 threshold). Every frozen text says "above", but the default threshold is documented as a
+   placeholder and `>=` is the stricter control; loosening a cash control is the owner's call, so the code stays and the test
+   fails loudly if it ever changes unnoticed.
 8. **A missing tax registration may surface as a 500 (#54). Unverified.** `TaxRegistrationResolutionException` extends
    `RuntimeException`; I found no mapping to an API error code.
 9. **A frontend float on money (#55).** `Pos.jsx:429` and `:480` send `Number(x).toFixed(2)` for the cash-movement
@@ -101,6 +105,11 @@ Ranked by consequence. Each is a real difference between what `invariants.md` pr
   proves nothing about `EXPIRED` skipping stock.
 - `ConstraintValidationTest::attemptFails` accepts any `QueryException`, not SQLSTATE `23505`, so several constraint
   tests could pass for the wrong reason.
+
+**All three fixed 2026-09-27.** `attemptFails` now accepts only data or integrity violations (SQLSTATE class 22 or 23, or a
+trigger's P0001), rethrows anything else, and can require a named constraint; the cashier-index test gives the second
+terminal its own fiscal day and has a control insert proving the fixture is valid; the `EXPIRED` disposition is refunded in
+a request of its own and asserts no stock returns, with the duplicate-line 422 kept as a separate test.
 
 ## Per-invariant results
 
@@ -206,6 +215,35 @@ Format: `# title — verdict — the gap`.
 | 79 | INVSERIES-002 one fiscal installation | PARTIAL | NOT NULL and composite FK untested |
 | 80 | INVSERIES-003 one ACTIVE series | PARTIAL | Exhausted-stays-active and the HTTP error code untested |
 | 81 | INVSERIES-004 range never backwards | COVERED | HTTP validation untested; DB layer proven |
+
+## Progress on the per-invariant table (2026-09-27, "money-reversal proof")
+
+The verdict tables above still show the audit as it first stood. Since then these rows have gained tests (the new tests
+are `ReversalMatrixTest`, `JournalEventsHttpTest`, plus additions to `SaleRefundHttpTest`, `ConstraintValidationTest` and
+`CashMovementHttpTest`):
+
+- **#66 discount eligibility** is now covered: an ineligible line takes no share and keeps its full price, and an order
+  discount with no eligible line is refused. Writing it found a real defect, fixed: that request returned an HTTP 500
+  (a bare `InvalidArgumentException` from `DiscountAllocator`); it is now a 422 `VALIDATION_FAILED` with a field error on
+  `order_level_discount_amount` (or `statutory_discount`), with nothing recorded.
+- **#62, #63, #61, #77, #23, #26, #60, #17** are exercised on a three-line basket of mixed VAT classes (VATABLE, VAT_EXEMPT,
+  ZERO_RATED) with an order discount that leaves a rounding residual, paid by two methods: every line is refunded one unit at
+  a time to exactly its `net_line_amount` (the expected amounts are computed independently in the test), a price and tax-class
+  change part-way through has no effect, and `sales`, `sale_items`, `payments`, the invoice, the invoice counters and the
+  original stock movements are byte-identical afterwards. A void of the same basket reverses all three lines in full (#22).
+- **#71, #37** for a cash-plus-GCash refund: expected cash falls by the cash settlements only, `refunds_total` counts every
+  method.
+- **#6, #72** atomicity: a failure injected at the payment rows, stock ledger, invoice, audit event or journal leaves no trace
+  and no consumed invoice number, and the same key then succeeds once; the same for a refund failing at its settlements, stock
+  return or journal.
+- **#49, #50**: `CASH_IN`, `CASH_OUT`, `X_READING`, `SHIFT_CLOSED` and `Z_READING` each write exactly one journal entry
+  pointing at their record and their audit event.
+- **#39** boundary pinned (see finding 7). **#30** `EXPIRED` now proven. **#34** cashier index now proven.
+
+Still PARTIAL or open after this pass: #21 (the unique index is never exercised directly), #24 (audit metadata detail),
+#38 (post-close immutability), #42 (Z close atomicity), #43 (interim reading resets no total), #45/#41/#51 (structural
+absence not pinned), #53/#54/#76 (a registration change after a sale; the tax-registration 500), #58 (Money vs Quantity), #73
+to #75 (NON_VAT through reports), #79/#80 (series installation checks), and the HTTP error-code mappings for series exhaustion.
 
 ## What this audit did not do
 
