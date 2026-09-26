@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { usePrintFrame } from '../lib/usePrintFrame';
+import { request } from './admin/catalog/catalogApi';
 import { ConfirmDialog } from './admin/catalog/CatalogParts';
 import NotFound from './NotFound';
 import CartPanel from './pos/CartPanel';
@@ -25,6 +26,42 @@ const READINESS_LABELS = {
 
 function newIdempotencyKey() {
     return crypto.randomUUID();
+}
+
+/**
+ * One Idempotency-Key per intent, not per click. The key is tied to the exact request it was made for: pressing the
+ * button again after a dropped connection sends the SAME key with the same request, so if the server had already saved
+ * it the answer is the first result and nothing is applied twice. Change anything in the request and the key changes
+ * with it (the server refuses one key for two different requests).
+ */
+function attemptKey(attempts, scope, path, body) {
+    const fingerprint = `${path}\n${JSON.stringify(body ?? null)}`;
+    const held = attempts.current[scope];
+    if (held?.fingerprint === fingerprint) {
+        return held.key;
+    }
+    const key = newIdempotencyKey();
+    attempts.current[scope] = { fingerprint, key };
+
+    return key;
+}
+
+/** Nothing arrived (0), a gateway answered with something that is not JSON (502), or the server could not finish (5xx, 409). */
+function outcomeUnknown(result) {
+    return result.status === 0 || result.status >= 500 || result.status === 409;
+}
+
+/** A definite answer ends the attempt; an unknown outcome keeps the key so the next press is the same attempt. */
+function settleAttempt(attempts, scope, result) {
+    if (!outcomeUnknown(result)) {
+        delete attempts.current[scope];
+    }
+}
+
+const CONNECTION_DROPPED = 'The connection dropped, so this may already have been recorded. Press the button again: it will not be applied twice.';
+
+function failureText(result, fallback) {
+    return result.status === 0 || result.status === 502 ? CONNECTION_DROPPED : (result.body?.error?.message ?? fallback);
 }
 
 /**
@@ -99,6 +136,7 @@ export default function Pos() {
     const [printBusy, setPrintBusy] = useState(false);
     const [printError, setPrintError] = useState(null);
     const [copyKey, setCopyKey] = useState(newIdempotencyKey);
+    const attempts = useRef({});
 
     const [cashMovementType, setCashMovementType] = useState('CASH_IN');
     const [cashMovementAmount, setCashMovementAmount] = useState('');
@@ -198,6 +236,14 @@ export default function Pos() {
         };
     }, [receiptId, sale?.id]);
 
+    // Leaving a receipt (New sale, or navigating away) forgets the sale that was on it. Runs only when the receipt id in
+    // the address changes, so it can never clear a sale that was just completed while the URL is still catching up.
+    useEffect(() => {
+        if (receiptId === null) {
+            setSale(null);
+        }
+    }, [receiptId]);
+
     // Readings already taken on this shift (possibly on another browser). Session-only read, so it works
     // even where the terminal credential does not; a failure just leaves the list empty rather than
     // blocking the panel, since taking a new reading does not depend on it.
@@ -220,16 +266,15 @@ export default function Pos() {
         event.preventDefault();
         setOpeningBusy(true);
         setError(null);
-        const { ok, body } = await apiFetch('/api/v1/shifts/open', {
-            method: 'POST',
-            headers: { 'Idempotency-Key': newIdempotencyKey() },
-            body: { opening_cash: openingCash },
-        });
-        if (ok) {
-            setShift(body.shift);
+        const path = '/api/v1/shifts/open';
+        const payload = { opening_cash: openingCash };
+        const result = await request(path, { method: 'POST', headers: { 'Idempotency-Key': attemptKey(attempts, 'open-shift', path, payload) }, body: payload });
+        settleAttempt(attempts, 'open-shift', result);
+        if (result.ok) {
+            setShift(result.body.shift);
             await checkReadiness();
         } else {
-            setError(body?.error?.message ?? 'Could not open a shift.');
+            setError(failureText(result, 'Could not open a shift.'));
         }
         setOpeningBusy(false);
     }
@@ -332,44 +377,50 @@ export default function Pos() {
         setCheckoutBusy(true);
         setError(null);
 
-        const { ok, body } = await apiFetch('/api/v1/sales', {
-            method: 'POST',
-            headers: { 'Idempotency-Key': newIdempotencyKey() },
-            body: {
-                items: cart.map((line, index) => ({
-                    product_id: line.product.id,
-                    quantity: String(line.quantity),
-                    ...(lineDiscountCentsByLine[index] > 0n ? { line_discount_amount: moneyText(lineDiscountCentsByLine[index]) } : {}),
-                })),
-                // A blank/zero row (shown while a split payment is still being entered) is never sent.
-                payments: payments
-                    .filter((payment) => (toCents(payment.amount) ?? 0n) > 0n)
-                    .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
-                ...(orderDiscountCents > 0n ? { order_level_discount_amount: moneyText(orderDiscountCents) } : {}),
-                ...(statutoryDiscount.enabled
-                    ? {
-                          statutory_discount: {
-                              type: statutoryDiscount.type,
-                              rule: statutoryDiscount.rule,
-                              ...(statutoryDiscount.rule === 'BNPC_5' && statutoryDiscount.weeklyUsed.trim() !== ''
-                                  ? { weekly_discount_used: moneyText(toCents(statutoryDiscount.weeklyUsed) ?? 0n) }
-                                  : {}),
-                              id_number: statutoryDiscount.idNumber.trim(),
-                              name: statutoryDiscount.name.trim(),
-                          },
-                      }
-                    : {}),
-            },
-        });
+        const path = '/api/v1/sales';
+        const payload = {
+            items: cart.map((line, index) => ({
+                product_id: line.product.id,
+                quantity: String(line.quantity),
+                ...(lineDiscountCentsByLine[index] > 0n ? { line_discount_amount: moneyText(lineDiscountCentsByLine[index]) } : {}),
+            })),
+            // A blank/zero row (shown while a split payment is still being entered) is never sent.
+            payments: payments
+                .filter((payment) => (toCents(payment.amount) ?? 0n) > 0n)
+                .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
+            ...(orderDiscountCents > 0n ? { order_level_discount_amount: moneyText(orderDiscountCents) } : {}),
+            ...(statutoryDiscount.enabled
+                ? {
+                      statutory_discount: {
+                          type: statutoryDiscount.type,
+                          rule: statutoryDiscount.rule,
+                          ...(statutoryDiscount.rule === 'BNPC_5' && statutoryDiscount.weeklyUsed.trim() !== ''
+                              ? { weekly_discount_used: moneyText(toCents(statutoryDiscount.weeklyUsed) ?? 0n) }
+                              : {}),
+                          id_number: statutoryDiscount.idNumber.trim(),
+                          name: statutoryDiscount.name.trim(),
+                      },
+                  }
+                : {}),
+        };
 
-        if (ok) {
-            setSale(body);
+        // One key per sale: if the connection drops after the server has saved it, pressing the button again sends the
+        // same key and gets the first result back, never a second sale, invoice number or stock deduction.
+        const result = await request(path, { method: 'POST', headers: { 'Idempotency-Key': attemptKey(attempts, 'sale', path, payload) }, body: payload });
+        settleAttempt(attempts, 'sale', result);
+
+        if (result.ok) {
+            setSale(result.body);
             setStep('receipt');
             // `replace`, not push: Back from the receipt should return to the register the cashier
             // started from, never to a checkout step whose cart no longer exists.
-            navigate(`/pos/receipt/${body.id}`, { replace: true });
+            navigate(`/pos/receipt/${result.body.id}`, { replace: true });
         } else {
-            setError(body?.error?.message ?? 'Checkout failed.');
+            setError(
+                result.status === 0 || result.status === 502
+                    ? 'The connection dropped, so this sale may already have been recorded. Press Complete sale again: it will not be rung twice. If it keeps failing, check Lookup before ringing it up again.'
+                    : failureText(result, 'Checkout failed.'),
+            );
         }
         setCheckoutBusy(false);
     }
@@ -402,6 +453,7 @@ export default function Pos() {
     }
 
     function startNewSale() {
+        delete attempts.current.sale; // a new sale is never a retry of an earlier attempt, even if the basket is identical
         setScanNotice(null);
         setOriginalPrinted(false);
         setPrintError(null);
@@ -412,7 +464,11 @@ export default function Pos() {
         setPayments([{ method: 'CASH', amount: '' }]);
         setResults(null);
         setSearch('');
-        setSale(null);
+        // `sale` is NOT cleared here: the address changes a moment after this runs (the router applies it as a
+        // transition), and for that moment the URL still names the receipt. With `sale` already null, the receipt effect
+        // below would see "a receipt is addressed and none is loaded", switch to `loading`, and start a fetch that the
+        // URL change then cancels -- leaving the till on "Loading…" for good. The effect after it clears the sale once the
+        // URL has actually left the receipt.
         goToView('register');
         setStep('cart');
     }
@@ -423,18 +479,17 @@ export default function Pos() {
         setError(null);
         setCashMovementNotice(null);
 
-        const { ok, body } = await apiFetch(`/api/v1/shifts/${shift.id}/cash-movements`, {
-            method: 'POST',
-            headers: { 'Idempotency-Key': newIdempotencyKey() },
-            body: { type: cashMovementType, amount: Number(cashMovementAmount).toFixed(2), reason: cashMovementReason },
-        });
+        const path = `/api/v1/shifts/${shift.id}/cash-movements`;
+        const payload = { type: cashMovementType, amount: Number(cashMovementAmount).toFixed(2), reason: cashMovementReason };
+        const result = await request(path, { method: 'POST', headers: { 'Idempotency-Key': attemptKey(attempts, 'cash-movement', path, payload) }, body: payload });
+        settleAttempt(attempts, 'cash-movement', result);
 
-        if (ok) {
-            setCashMovementNotice(`Recorded ${cashMovementType === 'CASH_IN' ? 'cash in' : 'cash out'}: ₱${body.amount}`);
+        if (result.ok) {
+            setCashMovementNotice(`Recorded ${cashMovementType === 'CASH_IN' ? 'cash in' : 'cash out'}: ₱${result.body.amount}`);
             setCashMovementAmount('');
             setCashMovementReason('');
         } else {
-            setError(body?.error?.message ?? 'Could not record the cash movement.');
+            setError(failureText(result, 'Could not record the cash movement.'));
         }
         setCashMovementBusy(false);
     }
@@ -474,17 +529,16 @@ export default function Pos() {
         setCloseBusy(true);
         setError(null);
 
-        const { ok, body } = await apiFetch(`/api/v1/shifts/${shift.id}/close`, {
-            method: 'POST',
-            headers: { 'Idempotency-Key': newIdempotencyKey() },
-            body: { declared_cash: Number(declaredCash).toFixed(2) },
-        });
+        const path = `/api/v1/shifts/${shift.id}/close`;
+        const payload = { declared_cash: Number(declaredCash).toFixed(2) };
+        const result = await request(path, { method: 'POST', headers: { 'Idempotency-Key': attemptKey(attempts, 'close-shift', path, payload) }, body: payload });
+        settleAttempt(attempts, 'close-shift', result);
 
-        if (ok) {
-            setCloseResult(body);
+        if (result.ok) {
+            setCloseResult(result.body);
             setStep('shift-closed');
         } else {
-            setError(body?.error?.message ?? 'Could not close the shift.');
+            setError(failureText(result, 'Could not close the shift.'));
         }
         setCloseBusy(false);
     }
@@ -493,16 +547,15 @@ export default function Pos() {
         setCloseBusy(true);
         setError(null);
 
-        const { ok, body } = await apiFetch(`/api/v1/fiscal-days/${closeResult.shift.fiscal_day_id}/close`, {
-            method: 'POST',
-            headers: { 'Idempotency-Key': newIdempotencyKey() },
-        });
+        const path = `/api/v1/fiscal-days/${closeResult.shift.fiscal_day_id}/close`;
+        const result = await request(path, { method: 'POST', headers: { 'Idempotency-Key': attemptKey(attempts, 'close-day', path, null) } });
+        settleAttempt(attempts, 'close-day', result);
 
-        if (ok) {
-            setFiscalDayCloseResult(body);
+        if (result.ok) {
+            setFiscalDayCloseResult(result.body);
             setStep('fiscal-day-closed');
         } else {
-            setError(body?.error?.message ?? 'Could not close the business day.');
+            setError(failureText(result, 'Could not close the business day.'));
         }
         setCloseBusy(false);
     }

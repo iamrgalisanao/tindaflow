@@ -1004,6 +1004,33 @@ rather than by convention alone.
 
 ---
 
+## Development direction (architect review, 2026-09-27)
+
+**Optimise for making the till safe to put in a real shop**: money and fiscal integrity first, then operability, then one
+supervised pilot store. Stages 10-39 were almost all features; the invariant audit
+([invariant-test-coverage.md](02-domain/invariant-test-coverage.md)) found 12 invariants with no failing test, and the
+go-live prerequisites in `stage-23-production-readiness.md` §8 are still open. The cheapest way to learn what matters next
+is real-store evidence, not more features. Ranked workstreams (autonomous unless marked):
+
+1. **Checkout retry safety (frontend): done 2026-09-27**, see the revision log.
+2. **Fiscal-attribution and reading fixes**: reports filter by `fiscal_day_id` (invariant #9); the Z-reading's accumulated
+   total is derived from sales, not the prior snapshot (#40); write `SHIFT_OPENED` to the journal (#49); map
+   `TaxRegistrationResolutionException` to a catalogued error instead of a 500 (#54). Also check whether a fiscal day left
+   open keeps taking sales (inferred from a grep, not verified). Changing what an invariant says needs an owner exception.
+3. **Invariant test hardening**, alongside 2: the 3 defective tests, discount eligibility, multi-line void/refund,
+   fault injection at more finalization steps, reading reproducibility.
+4. **Frontend smoke tests** (Vitest for `api.js` and the money helpers, one browser happy path). *Adds tooling: ask first.*
+5. **Operability**: alert on a failed or stale backup (`backup.sh` only logs), the disk-space check `deployment.md` §7
+   specifies, a warning for a fiscal day left open. *The off-machine destination is an owner decision.*
+6. **Pilot preparation** *(owner)*: switch the real server to two database roles, run the restore drill, pick a backup
+   destination, then run one store for two weeks and log every friction point.
+7. **Owner-gated parking lot**: hardware matrix, Stage 29 packaging model, the 5% basic-necessities per-product flag.
+   Build only when a pilot store asks.
+
+**Not now**: BIR work (parked); browser-side offline sales (`offline-strategy.md` rules it out); more reports or POS
+features (sell-by-pack, supervisor PIN); Redis, queues or extra services (`deployment.md` §2 triggers have not fired);
+exhaustively closing every PARTIAL invariant.
+
 ## Open items
 
 ### `BIR-REVIEW-REQUIRED` (4 remaining — see [bir-reference-register.md](01-research/bir-reference-register.md))
@@ -1097,3 +1124,4 @@ rather than by convention alone.
 - **2026-09-27** — **Invariants audited against the tests** (documentation only). All 81 invariants were mapped to the tests that would fail if they were broken; the result is in [invariant-test-coverage.md](02-domain/invariant-test-coverage.md): 33 covered, 35 partial, 3 untested, 9 held only by the absence of code, 1 partly pinned. It also records drifts between the invariants and the code (the hardening script conflicts with `sales.status` updates, invoice numbers can be reissued through a new series, the Z-reading reads a prior stored total, reports select by `sold_at`, `SHIFT_OPENED` is never journaled) and three defective tests. Nothing was fixed; each needs a decision.
 - **2026-09-27** — **Invariant audit fixes 1 and 2.** (1) `database/scripts/harden_append_only_privileges.sql` revoked UPDATE on `sales` with no re-grant, so applying it would have broken every void and refund; building `tests/Database/AppendOnlyPrivilegesTest.php` (6 tests, applies the script to a scratch role in a rolled-back transaction) also found missing `updated_at` grants on `voids`/`refunds` and a redundant `FOR UPDATE` on `sale_items` in `RefundService`, now removed. (2) `InvoiceSeriesService::create` refuses a start at or below any number an earlier series of the same fiscal installation reached (422 on `starting_number`; on the old code the request succeeded and reissued numbers). Tests: 5 new in `InvoiceSeriesHttpTest`, 6 in `AppendOnlyPrivilegesTest`. Not done: applying the script in a deployment (needs the two-role setup; owner decision).
 - **2026-09-27** — **Two database roles in the Docker stack.** Closes the open half of the previous entry: a new one-shot `migrate` service runs the migrations and `php artisan tindaflow:harden-database` as the database owner, and the running `app` connects as `tindaflow_app`, which PostgreSQL refuses to UPDATE or DELETE the append-only tables (and holds no owner credentials). Verified on a real built stack (privileges, seed, `/up`, backup, restore drill, go-live with the restored copy). Also fixed two existing defects found on the way: `BACKUP_DIR` from `.env` leaked into the backup container so dumps never reached the host folder, and `backup.sh`/`restore.sh` were committed non-executable so the backup container could not start from a checkout. Tests: `HardenDatabaseCommandTest` (6); `AppendOnlyPrivilegesTest` now runs the command. Details: `stage-23-production-readiness.md`, addendum.
+- **2026-09-27** — **Checkout retry safety (direction item 1).** The till generated a new `Idempotency-Key` on every press of Complete sale (and of open shift, cash in/out, close shift and close day), and `apiFetch` had no handling for a dropped connection, so a response lost after the server saved a sale left the button stuck and the next press would ring a second sale, invoice number and stock deduction. `resources/js/pages/Pos.jsx` now ties one key to the exact request (`attemptKey`), keeps it when the outcome is unknown (network drop, non-JSON gateway error, 5xx, 409) and drops it on a definite answer, sends writes through the existing `request` wrapper (status 0 / 502 on failure, as the admin panels already do), always clears the busy flag and tells the cashier the sale may already be recorded. Verified in a real browser against a scratch database: with the response dropped after the server saved the sale, pressing Complete sale again sent the same key, landed on the original receipt, and left exactly one sale, one invoice, one stock movement and one journal entry; the next identical basket got a new key and rang normally. Also fixed an existing bug found while verifying: **New sale** after a completed sale left the till on "Loading…" until the page was reloaded (reproduced on the unchanged code), because `startNewSale` cleared the sale before the router had left the receipt URL, so the receipt-loading effect started a fetch that the URL change then cancelled; the sale is now cleared once the URL has left the receipt. There are still no automated frontend tests (direction item 4); this was verified by driving the browser.
