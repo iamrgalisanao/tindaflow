@@ -422,3 +422,42 @@ Tests: `CreateTerminalCommandTest` (6, including one that creates the till with 
 enrolls, and opens a shift on it). Not driven in a browser: the new Help steps are text-only steps of the same shape as the
 existing ones, and the empty-state text is one line.
 
+## Addendum 2026-09-27 (5) — CORRECTION: the two-role change broke the running app; fixed and re-verified end to end
+
+**What was wrong (my error, in addendum 1).** The hardening revoked DELETE on every table from `tindaflow_app` and its self-check
+required "no table may be deletable". But the stack runs `SESSION_DRIVER=database` and `CACHE_STORE=database`, and the running app
+deletes rows itself: Laravel deletes a session at login (the id is regenerated), at logout and in its sweep, and deletes an expired
+cache row whenever it reads one, which the API rate limiter does on every request once its 60-second window has passed;
+`ProductBarcodeService` and `StockCountService` delete barcode and count-line rows. PostgreSQL checks the privilege even when no
+row matches. Reproduced on the real stack: **login returned 500, every request returned 500 after about a minute, and logout
+returned 500**, with `permission denied for table cache` / `sessions` in the log. Following the owner checklist's first item would
+have taken a shop down on its first day. Nothing caught it because the test suite uses the array cache and session drivers, the
+privileges test built its world before switching role, and the earlier real-stack check only exercised `/up` and the seed, neither
+of which is rate-limited or logs in.
+
+**Fix.** `harden_append_only_privileges.sql` grants DELETE on exactly `sessions`, `cache`, `cache_locks`, `product_barcodes` and
+`stock_count_lines` (none holds money or audit data) after the blanket revoke, and `tindaflow:harden-database` now requires the
+deletable set to be **exactly** that list, so a financial or audit table becoming deletable, or the app losing one it needs, both fail
+the run. `sales`, `sale_items`, `payments`, `invoices`, the audit log, the journal, the stock ledger and the readings stay undeletable.
+`AppendOnlyPrivilegesTest` now switches to the stack's real drivers and proves the API keeps working after the rate-limit window
+expires, logout and the session sweep work, and a barcode and a count line can be removed, all as the restricted role (4 tests; they
+fail on the old script).
+
+**Verified on a real built stack, from an empty volume, as a shop would set it up** (curl cookie jars, one per browser): seed the
+admin, `tindaflow:create-terminal`, business details, tax registration, fiscal installation and terminal assignment, invoice series,
+stock location, a cashier and a manager, two products, an alternate barcode added and removed; enroll a browser; the cashier opens a
+shift and rings a sale, **waits 75 seconds** (past the rate-limit window), rings two more (one split-tender), cash in, X-reading,
+logs out and in, closes the shift; the manager opens a shift, voids one sale, refunds another, closes; the administrator closes the
+business day and reads the daily summary, audit log and journal; a backup as the app role restored as the owner (3 sales and 3
+invoices back); and as the restricted role, updates to the audit log and stock ledger and deletes from `sales` and the journal were
+still refused. 41 steps, 0 failed. Before the fix the same first steps failed as described above.
+
+**A second defect found by the same walkthrough, fixed.** The `web` container's healthcheck (`wget https://localhost/up`) failed
+every time: inside the nginx image `localhost` resolves to `::1` first and nginx listens on IPv4 only, so `web` was permanently
+"unhealthy" while serving traffic perfectly, and the README's "all healthy" check could never be true. It now checks
+`https://127.0.0.1/up`; all four services report healthy. (This matters more now that `unhealthy` on `backup` means a real problem.)
+
+**Lesson recorded:** the earlier "verified on a real stack" claim covered only what the check exercised. A walkthrough that logs in,
+waits past the rate-limit window, logs out and touches every table the app writes is the check that matters; it was a
+recommendation of the architect review and it found this.
+

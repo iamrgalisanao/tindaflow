@@ -31,7 +31,9 @@ services:
         condition: service_healthy
     networks: [frontend]
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://localhost/up || exit 1"]
+      # 127.0.0.1, not localhost: inside this container "localhost" resolves to ::1 first, nginx listens on IPv4 only, and the
+      # check was refused every time, so `web` was permanently unhealthy while serving traffic perfectly.
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://127.0.0.1/up || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

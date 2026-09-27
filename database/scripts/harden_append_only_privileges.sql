@@ -49,6 +49,19 @@
 -- schema is ever the target of an application-issued DELETE statement.
 REVOKE DELETE ON ALL TABLES IN SCHEMA public FROM tindaflow_app;
 
+-- ...except the few tables the RUNNING application must delete from, none of which holds money or audit data:
+--   sessions, cache, cache_locks  the stack's SESSION_DRIVER=database and CACHE_STORE=database (docker/.env.example):
+--                                 Laravel deletes a session at logout and sweeps expired ones (a 2% lottery on requests),
+--                                 and deletes an expired cache row whenever it reads one, which the API rate limiter
+--                                 does on every request once its 60-second window has passed. PostgreSQL checks the
+--                                 privilege even when no row matches, so without this the API answers 500 about a
+--                                 minute after the first request and logout fails.
+--   product_barcodes              removing an alternate barcode (ProductBarcodeService).
+--   stock_count_lines             removing a line from an open stock count (StockCountService).
+-- Everything else stays undeletable. tindaflow:harden-database reads the result back and refuses to finish if the set of
+-- deletable tables is anything other than exactly this one.
+GRANT DELETE ON sessions, cache, cache_locks, product_barcodes, stock_count_lines TO tindaflow_app;
+
 -- Append-only tables: additionally revoke UPDATE. Once a row exists, no
 -- application code path may change it (invariants #2/#41/#45/#48; ADR-005;
 -- ADR-006 SS"reprint never mutates"). If a legitimate future need to

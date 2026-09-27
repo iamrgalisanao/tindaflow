@@ -2,6 +2,7 @@
 
 namespace Tests\Database;
 
+use App\Models\Product;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Tests\Database\Concerns\BuildsSalesScenario;
@@ -140,5 +141,65 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
 
         DB::table('sales')->where('id', $sale['id'])->update(['status' => 'VOIDED']);
         $this->assertDatabaseHas('sales', ['id' => $sale['id'], 'status' => 'VOIDED']);
+    }
+
+    // ---------------------------------------------------------------- what the running app itself deletes
+
+    /**
+     * The stack runs SESSION_DRIVER=database and CACHE_STORE=database (docker/.env.example), and the tests normally use the
+     * array drivers, which is how the hardening once revoked a DELETE the running app depends on and no test noticed. These
+     * switch to the real drivers, so the framework's own housekeeping (rate-limit rows expiring, logout, the session sweep)
+     * runs as the restricted role too.
+     */
+    private function withTheStacksDrivers(): void
+    {
+        config(['session.driver' => 'database', 'cache.default' => 'database', 'session.lottery' => [100, 100]]);
+    }
+
+    public function test_the_api_keeps_working_after_the_rate_limit_window_has_expired(): void
+    {
+        $this->withTheStacksDrivers();
+        $w = $this->worldUnderTheHardenedRole();
+
+        $this->asUser($w['cashier'], $w['enroll1'])->getJson('/api/v1/auth/me')->assertOk();
+        $this->travel(3)->minutes(); // the throttle rows written above are now expired and get deleted on the next read
+        $this->asUser($w['cashier'], $w['enroll1'])->getJson('/api/v1/auth/me')->assertOk();
+    }
+
+    public function test_logout_and_the_session_sweep_work_as_the_restricted_role(): void
+    {
+        $this->withTheStacksDrivers(); // lottery [100, 100]: every request sweeps expired sessions
+        $w = $this->worldUnderTheHardenedRole();
+
+        $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/auth/logout')->assertStatus(204);
+    }
+
+    public function test_removing_an_alternate_barcode_and_a_count_line_work_as_the_restricted_role(): void
+    {
+        $this->withTheStacksDrivers();
+        $w = $this->worldUnderTheHardenedRole();
+        $product = Product::factory()->create(['store_id' => $w['storeId']]);
+
+        $barcode = $this->asUser($w['manager'])->postJson("/api/v1/products/{$product->id}/barcodes", ['barcode' => '4800000000024']);
+        $barcode->assertStatus(201);
+        $this->asUser($w['manager'])->deleteJson("/api/v1/products/{$product->id}/barcodes/{$barcode->json('id')}")->assertStatus(204);
+
+        $count = $this->asUser($w['manager'])->postJson('/api/v1/inventory/counts', [])->assertStatus(201);
+        $this->asUser($w['manager'])->putJson("/api/v1/inventory/counts/{$count->json('id')}/lines", ['lines' => [['product_id' => $product->id, 'counted_quantity' => '3']]])->assertOk();
+        $this->asUser($w['manager'])->deleteJson("/api/v1/inventory/counts/{$count->json('id')}/lines/{$product->id}")->assertOk();
+    }
+
+    public function test_the_tables_the_app_is_allowed_to_delete_from_are_exactly_the_ones_that_hold_no_money_or_audit_data(): void
+    {
+        $this->worldUnderTheHardenedRole();
+
+        $deletable = DB::table('information_schema.role_table_grants')
+            ->where('grantee', self::APP_ROLE)->where('privilege_type', 'DELETE')->where('table_schema', 'public')
+            ->orderBy('table_name')->pluck('table_name')->all();
+
+        $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids'] as $table) {
+            $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
+        }
     }
 }

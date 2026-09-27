@@ -23,6 +23,12 @@ class HardenDatabase extends Command
 {
     public const APP_ROLE = 'tindaflow_app';
 
+    /**
+     * The only tables the running application may DELETE from (kept in step with the GRANT in the SQL script): the
+     * framework's database session and cache stores, and two catalogue/count child tables. No money or audit data.
+     */
+    public const DELETABLE_TABLES = ['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'];
+
     protected $signature = 'tindaflow:harden-database
         {--password= : The application role\'s password (defaults to DB_APP_PASSWORD)}';
 
@@ -86,8 +92,15 @@ class HardenDatabase extends Command
             'stock_movements must refuse UPDATE' => "select not has_table_privilege('{$role}', 'stock_movements', 'UPDATE')",
             'sales must refuse UPDATE of the total' => "select not has_column_privilege('{$role}', 'sales', 'grand_total', 'UPDATE')",
             'sales must allow UPDATE of the status (void and refund)' => "select has_column_privilege('{$role}', 'sales', 'status', 'UPDATE')",
-            'no table may be deletable' => "select count(*) = 0 from information_schema.role_table_grants where grantee = '{$role}' and privilege_type = 'DELETE' and table_schema = 'public'",
         ];
+
+        // Deletable tables must be EXACTLY the allow-list: no financial or audit table, and none the app needs missing.
+        $deletable = DB::table('information_schema.role_table_grants')
+            ->where('grantee', $role)->where('privilege_type', 'DELETE')->where('table_schema', 'public')
+            ->orderBy('table_name')->pluck('table_name')->all();
+        if ($deletable !== self::DELETABLE_TABLES) {
+            throw new \RuntimeException('Database hardening did not take effect: the role may delete from ['.implode(', ', $deletable).'] but must be able to delete from exactly ['.implode(', ', self::DELETABLE_TABLES).'].');
+        }
 
         foreach ($checks as $requirement => $sql) {
             $row = (array) DB::selectOne($sql);
