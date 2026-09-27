@@ -8,12 +8,12 @@ use App\Http\Requests\EnrollTerminalRequest;
 use App\Http\Resources\TerminalEnrollmentTokenResource;
 use App\Http\Resources\TerminalSummaryResource;
 use App\Models\Terminal;
+use App\Services\Terminal\TerminalCredentialCookie;
 use App\Services\Terminal\TerminalEnrollmentService;
 use App\Services\Terminal\TerminalEnrollmentTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cookie;
 
 /**
  * openapi.yaml Terminal tag -- the enrollment lifecycle (ADR-011).
@@ -25,8 +25,6 @@ use Illuminate\Support\Facades\Cookie;
  */
 class TerminalController extends Controller
 {
-    private const CREDENTIAL_COOKIE = 'tindaflow_terminal';
-
     public function createEnrollmentToken(CreateEnrollmentTokenRequest $request, TerminalEnrollmentTokenService $service): JsonResponse
     {
         $actor = Auth::guard('web')->user();
@@ -48,7 +46,7 @@ class TerminalController extends Controller
 
         $response = (new TerminalSummaryResource($result['terminal']))->response();
 
-        $response->headers->setCookie($this->credentialCookie($result['credential']));
+        $response->headers->setCookie(TerminalCredentialCookie::make($result['credential']));
 
         return $response;
     }
@@ -128,16 +126,5 @@ class TerminalController extends Controller
         }
 
         return $terminal;
-    }
-
-    private function credentialCookie(string $plaintextCredential): \Symfony\Component\HttpFoundation\Cookie
-    {
-        return Cookie::make(
-            name: self::CREDENTIAL_COOKIE,
-            value: $plaintextCredential,
-            minutes: (int) config('tindaflow.terminal_credential.lifetime_minutes'),
-            secure: config('session.secure'),
-            sameSite: config('session.same_site'),
-        );
     }
 }

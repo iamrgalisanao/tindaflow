@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Terminal\TerminalCredentialCookie;
 use App\Services\Terminal\TerminalCredentialResolver;
 use Closure;
 use Illuminate\Http\Request;
@@ -23,10 +24,17 @@ class ResolveTerminalContext
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $terminal = app(TerminalCredentialResolver::class)->resolve($request->cookie('tindaflow_terminal'));
+        $credential = $request->cookie(TerminalCredentialCookie::NAME);
+        $terminal = app(TerminalCredentialResolver::class)->resolve($credential);
 
         $request->attributes->set('terminal', $terminal);
 
-        return $next($request);
+        $response = $next($request);
+
+        // A credential that resolved is renewed on use, so the cookie lasts from the till's last use, not from enrollment
+        // (browsers cap a cookie's lifetime; see TerminalCredentialCookie). Only a credential that resolved gets here.
+        $response->headers->setCookie(TerminalCredentialCookie::make($credential));
+
+        return $response;
     }
 }

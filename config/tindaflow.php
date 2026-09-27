@@ -30,8 +30,11 @@ return [
     // internal Stage 6 operational choice, not part of the frozen
     // contract (never added to openapi.yaml/architecture.md), so it lives
     // here rather than as a magic number in the controller/tests.
+    // 399 days, not longer, because browsers cap a cookie's lifetime (Chrome at 400 days) whatever the server asks for. The
+    // cookie is renewed on every use of the till (ResolveTerminalContext), so this is how long a till may sit UNUSED before
+    // it has to be re-enrolled, not how long after enrollment it works.
     'terminal_credential' => [
-        'lifetime_minutes' => env('TERMINAL_CREDENTIAL_LIFETIME_MINUTES', 60 * 24 * 365 * 5),
+        'lifetime_minutes' => env('TERMINAL_CREDENTIAL_LIFETIME_MINUTES', 60 * 24 * 399),
     ],
 
     // Shift-close module: openapi.yaml's shiftCashMovementCreate requires

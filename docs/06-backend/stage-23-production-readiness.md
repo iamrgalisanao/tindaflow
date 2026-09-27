@@ -461,3 +461,23 @@ every time: inside the nginx image `localhost` resolves to `::1` first and nginx
 waits past the rate-limit window, logs out and touches every table the app writes is the check that matters; it was a
 recommendation of the architect review and it found this.
 
+## Addendum 2026-09-27 (6) — a till's credential no longer expires on a fixed date
+
+Found by the architect review (an inference from Chrome's cookie cap, then checked against the code): the `tindaflow_terminal`
+credential cookie was set once at enrollment with a 5-year lifetime and never renewed. Browsers cap a cookie's lifetime (Chrome
+at 400 days) whatever the server asks for, so every till enrolled on go-live day would have stopped selling, all on the same day,
+about 13 months later ("This browser is not enrolled as any terminal"). Recoverable by re-enrolling, but a predictable, simultaneous
+outage nobody would remember to prevent.
+
+**Fix.** The cookie is built in one place (`TerminalCredentialCookie`, so its attributes cannot drift) and `ResolveTerminalContext`
+renews it on every authenticated use of the till, with the same credential and a fresh lifetime. The lifetime is measured from the
+till's last use; the default is 399 days (under the 400-day cap; `TERMINAL_CREDENTIAL_LIFETIME_MINUTES` still overrides). A till
+lapses only if it sits unused for over a year, and re-enrolling it (an enrollment token for the same terminal) fixes that. A
+credential that does not resolve (revoked, unknown, absent) is never renewed. It is a server-side change to an internal choice
+(module A left the exact duration to the implementation), with no API, contract or schema change.
+
+Tests: `TerminalCredentialRenewalTest` (4): a used till gets a renewed cookie with the same attributes and a fresh 399 days, and the
+renewed cookie works as a credential; the configured lifetime stays within 400 days; a revoked terminal and a browser with no
+credential get none. The renewal test fails on the old code. Both the original and the renewed cookie are encrypted by the web
+middleware with a fresh IV, so their raw strings differ.
+
