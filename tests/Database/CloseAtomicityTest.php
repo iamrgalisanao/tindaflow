@@ -2,12 +2,15 @@
 
 namespace Tests\Database;
 
+use App\Domain\Money;
 use App\Models\AuditEvent;
 use App\Models\ElectronicJournalEntry;
 use App\Models\FiscalDay;
+use App\Models\Sale;
 use App\Models\Shift;
 use App\Models\XReading;
 use App\Models\ZReading;
+use App\Services\Shift\ShiftReadingAggregator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Testing\TestResponse;
@@ -158,5 +161,36 @@ class CloseAtomicityTest extends PostgresSchemaTestCase
         $this->assertSame($recorded, $this->whatTheShiftRecorded($w['cashierShift']->id), 'nothing later changes what the closed shift recorded');
         $this->assertEquals($closingReading->totals_snapshot, $closingReading->fresh()->totals_snapshot, 'the closing X-reading is append-only (#41)');
         $this->assertSame(1, XReading::where('shift_id', $w['cashierShift']->id)->where('is_closing_reading', true)->count());
+    }
+
+    /**
+     * invariants.md #40 read as "as of close" (owner-delegated ruling, stage-23 addendum 8): a closed shift's reading can always be
+     * recomputed from the ledger and equals the reading stored when it closed. A sale voided AFTER the shift closed (its business
+     * day still open) belongs to the voiding shift and day; it must not rewrite the closed shift's reading.
+     */
+    public function test_a_closed_shifts_reading_is_reproducible_from_the_ledger_even_after_a_later_void(): void
+    {
+        $w = $this->world();
+        $this->ring($w);
+        $voidedLater = $this->ring($w);
+        $close = $this->closeTheShift($w, '1000.00');
+        $close->assertOk();
+        $stored = XReading::where('shift_id', $w['cashierShift']->id)->where('is_closing_reading', true)->sole()->totals_snapshot;
+        $shift = Shift::find($w['cashierShift']->id);
+        $declared = Money::fromApiString((string) $shift->declared_cash);
+
+        $this->assertEquals($stored, json_decode(json_encode(app(ShiftReadingAggregator::class)->aggregate($shift, $declared)), true), 'reproducible straight after closing');
+
+        // Later, in the manager's own shift, one of the closed shift's sales is voided (its business day is still open).
+        $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$voidedLater['id']}/void", ['reason' => 'Rung twice'], $this->key())->assertStatus(201);
+        $this->assertSame('VOIDED', Sale::find($voidedLater['id'])->status);
+
+        $again = json_decode(json_encode(app(ShiftReadingAggregator::class)->aggregate($shift->fresh(), $declared)), true);
+        $this->assertEquals($stored, $again, 'a later void does not change what the closed shift reads as of its close');
+        $this->assertSame(2, $again['transaction_count'], 'both sales were the closed shift\'s at close');
+
+        // The still-open shift that executed the void is where it shows up.
+        $manager = app(ShiftReadingAggregator::class)->aggregate($w['managerShift']->fresh());
+        $this->assertSame(0, $manager['transaction_count']);
     }
 }

@@ -248,6 +248,10 @@ way; #38 and #41 are proven for a closed shift (a second close with a "better" c
 lands in the refunding shift and leaves the closed shift's stored figures and closing X-reading unchanged, and no route edits or
 deletes a closed shift or a reading).
 
+**Shift readings (2026-09-27, `CloseAtomicityTest`):** #40 is now proven for a closed shift: its reading recomputes, from the ledger, to
+exactly what was stored at close, including after a sale of that shift was voided later (the aggregator now reads a closed shift as of its
+closing instant; see stage 9, addendum). #39's wording was corrected to "at or above" (the boundary was already pinned).
+
 Still PARTIAL or open after this pass: #21 (the unique index is never exercised directly), #24 (audit metadata detail),
 #43 (interim reading resets no total), #45/#41/#51 (structural
 absence not pinned), #53/#54/#76 (a registration change after a sale; the tax-registration 500), #58 (Money vs Quantity), #73

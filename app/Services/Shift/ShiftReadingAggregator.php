@@ -7,6 +7,7 @@ use App\Models\CashMovement;
 use App\Models\Refund;
 use App\Models\RefundSettlement;
 use App\Models\Sale;
+use App\Models\SaleVoid;
 use App\Models\Shift;
 use App\Services\Payments\NetCollectionService;
 
@@ -25,7 +26,20 @@ final class ShiftReadingAggregator
     /** @return array<string, mixed> */
     public function aggregate(Shift $shift, ?Money $declaredCash = null): array
     {
-        $saleIds = Sale::where('shift_id', $shift->id)->where('status', '!=', 'VOIDED')->pluck('id');
+        // A closed shift reads AS OF ITS CLOSE: a sale voided after the shift closed (its business day still open) was the
+        // shift's at close and stays in its reading; the void belongs to the voiding shift and day, through its own
+        // fiscal_day_id/shift_id. So the reading stored at close can always be reproduced from the ledger (invariant #40, read
+        // as "as of close": stage-23 addendum 8). An open shift has no closing instant, so any voided sale is out. Timestamps are stored
+        // to whole seconds, so a void in the very second of the close counts as after it.
+        $closedAt = $shift->status === 'CLOSED' ? $shift->closed_at : null;
+        $saleIds = Sale::where('shift_id', $shift->id)
+            ->where(function ($query) use ($closedAt) {
+                $query->where('status', '!=', 'VOIDED');
+                if ($closedAt !== null) {
+                    $query->orWhereIn('id', SaleVoid::where('status', 'VOIDED')->where('resolved_at', '>=', $closedAt)->select('sale_id'));
+                }
+            })
+            ->pluck('id');
 
         // What the sales collected NET of the change handed back: the stored payments are what was tendered, and
         // counting them as they are would put every peso of change into the drawer figure (NetTenderAllocator).

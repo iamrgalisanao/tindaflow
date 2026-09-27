@@ -89,7 +89,7 @@ never trusting a prior reading's own stored totals. Key formulas:
 
 `shiftCashMovementCreate`'s request body has no separate authorizer
 field (`{type, amount, reason}` only) — `authorized_by` is always the
-acting user's own id, server-derived. Above
+acting user's own id, server-derived. At or above (corrected from "above" 2026-09-27, see the addendum at the end)
 `tindaflow.cash_movements.cash_out_authorization_threshold` (config,
 env `CASH_OUT_AUTHORIZATION_THRESHOLD`, default `1000.00`), a `CASH_OUT`
 requires the acting user to personally hold the `CASH_OUT` capability
@@ -178,9 +178,15 @@ A day that already has a reading keeps its own `z_counter`, so aggregating a clo
 the derivation fixes future readings and does not rewrite past ones. Before the pilot it is worth a read-only comparison of
 each terminal's stored chain against the derived sums.
 
-Left open, recorded rather than decided: a shift's closing X-reading is stored "as of close", and a void executed after the
-shift closed (while its fiscal day is still open) leaves that shift's stored totals unchanged. Whether a shift reading should
-be "as of close" or recomputed now is an interpretation of #40 that needs the owner.
+**Decided 2026-09-27 (owner-delegated decision, 2026-09-27; stage-23 addendum 8): a shift's reading is "as of close".** The reading stored at close is what was printed and
+stays true: a sale voided after the shift closed (its business day still open) belongs to the voiding shift and day, matching the
+tested refund attribution and the tested rule that a closed shift's stored figures cannot change. Writing the test found that
+`ShiftReadingAggregator` dropped every sale that is *currently* voided, so a recomputation after a later void no longer matched
+what was printed; it now cuts at the shift's closing instant (a void resolved at or after the close does not remove the sale; the
+timestamps are whole seconds, so a void in the very second of the close counts as after it). Invariant #40 is clarified in
+`invariants.md` accordingly. **Cash-out threshold:** the code compares with `>=` (the stricter control) and the frozen text said
+"above"; the text is corrected to "at or above" in `invariants.md` #39, `openapi.yaml` and section 5 above, and the boundary test
+stays.
 
 **#49, `SHIFT_OPENED`.** `ShiftOpenService` now writes one audit event and one electronic-journal entry (`event_type`
 `SHIFT_OPENED`, `source_type` `shift`, `source_id` the shift, payload: shift, terminal, cashier, fiscal day, opening cash,

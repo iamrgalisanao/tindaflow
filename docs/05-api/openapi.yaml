@@ -1511,7 +1511,7 @@ paths:
       operationId: shiftCashMovementCreate
       tags: [Shifts]
       summary: Record a cash movement (CASH_IN or CASH_OUT)
-      description: 'CASH_OUT above a configurable threshold requires the CASH_OUT capability (architecture.md §16/Stage 2 invariant #39). No generic PATCH of Shift cash balances exists.'
+      description: 'CASH_OUT at or above a configurable threshold requires the CASH_OUT capability (architecture.md §16/Stage 2 invariant #39). No generic PATCH of Shift cash balances exists.'
       security:
       - cookieAuth: []
         terminalCookieAuth: []

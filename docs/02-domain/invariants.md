@@ -226,9 +226,11 @@ else is carried over unchanged from revision 1.
     declared_cash − expected_cash` is stored as-is; no operation edits
     `declared_cash` after close to zero out variance, and no operation
     edits historical `sale`/`payment` rows to "fix" a shift's numbers.
-39. **Cash-out authorization.** A `CASH_OUT` `cash_movement` above a
+39. **Cash-out authorization.** A `CASH_OUT` `cash_movement` at or above a
     configurable threshold requires `authorized_by` to hold the `CASH_OUT`
     capability.
+    *(Wording corrected 2026-09-27 from "above" to "at or above": the implementation has always compared with `>=`, which is the
+    stricter control, and a test pins it. owner-delegated decision, 2026-09-27; stage-23 addendum 8.)*
 40. **Readings are reproducible, never authoritative inputs.** **(new)**
     `x_reading.totals_snapshot` and `z_reading.totals_snapshot` are always
     fully recomputable from `sale`/`payment`/`void`/`refund`/
@@ -236,6 +238,9 @@ else is carried over unchanged from revision 1.
     other calculation in the system — a later report, a subsequent
     reading, an accumulated total — ever reads a *prior* reading's stored
     totals as an input; it always recomputes from the underlying ledger.
+    *(Clarified 2026-09-27: a shift's reading is recomputable **as of that shift's closing instant**. A sale voided after the shift
+    closed, while its business day is still open, belongs to the voiding shift and day and does not rewrite the closed shift's reading.
+    owner-delegated decision, 2026-09-27; stage-23 addendum 8; tested in `CloseAtomicityTest`.)*
 41. **Readings are append-only.** Once generated, `x_reading` and
     `z_reading` rows are never updated or deleted.
 42. **Exactly one Z-Reading per fiscal day.** **(new)** A `fiscal_day`
@@ -308,7 +313,7 @@ else is carried over unchanged from revision 1.
 52. **Capability-gated, not role-string-gated, at every sensitive
     endpoint.** **(revised)** Every sensitive operation (void request/
     approval, refund request/approval, price override, discount override,
-    stock adjustment, cash out above threshold, settings change, fiscal
+    stock adjustment, cash out at or above threshold, settings change, fiscal
     day closure) checks a named capability
     (`can($user, CAPABILITY)` — see
     [domain-model.md §2.2](domain-model.md)) server-side, independent of

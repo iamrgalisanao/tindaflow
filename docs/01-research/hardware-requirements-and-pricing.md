@@ -2,7 +2,11 @@
 
 ## Status
 
-DRAFT — research, 2026-09-25. Web research and price observation conducted
+**APPROVED as the supported floor, 2026-09-27** (an owner-delegated decision by the architect); the decision now lives in
+[ADR-013](../03-architecture/decisions/ADR-013-supported-hardware.md), which also holds the first measurements of memory and
+storage (idle stack about 78 MiB, 7.28 KB per sale). This file remains the research and price evidence behind it.
+
+DRAFT (original status) — research, 2026-09-25. Web research and price observation conducted
 **2026-09-25**; FX reference ₱62.82 = US$1 (xe.com / wise.com, same date).
 
 Two things need owner attention before any part of this is treated as settled:
@@ -400,6 +404,12 @@ onboarding.
 
 ## 9. Open items
 
+**Resolved 2026-09-27 (owner-delegated decisions, recorded in ADR-013):** item 1 (matrix approved as the supported floor; it lands in
+ADR-013, with a pointer from `deployment.md`), item 2 (working RTC battery checked at installation; no software clock check until
+pilot evidence), item 3 (storage growth measured: 7.28 KB per sale), item 4 (memory first measured: about 78 MiB idle for the stack;
+the 4 GB floor stays; the pilot re-measures), item 5 (specifications and tiers are published, not a brand-specific bill of materials).
+Item 6 stays as written. The original list follows for the record.
+
 1. **Owner approval of the §3–§5 spec matrix**, and a decision on where it
    lands permanently (`deployment.md` vs. a new ADR).
 2. **Clock-integrity risk (§5.7)** — needs a decision: RTC requirement in the
@@ -440,3 +450,4 @@ onboarding.
 | Date | Change |
 |---|---|
 | 2026-09-25 | Created. Hardware requirement matrix, PH price research, reference configurations, vendor market comparison. |
+| 2026-09-27 | Approved as the supported floor (owner-delegated decision); moved to ADR-013; first memory and storage measurements recorded there. |

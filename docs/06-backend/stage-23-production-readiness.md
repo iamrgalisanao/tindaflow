@@ -531,13 +531,14 @@ actions stay with the owner (section "Still yours").
   "bad decrypt" and created nothing). Not verified against real Backblaze or Telegram (no accounts); the README says to test both
   before trusting them.
 
-**Decided, to follow as their own slices** (each recorded here when shipped)
+**Decided, and recorded or built as their own slices** (the parking-lot rulings below were written into the affected documents on 2026-09-27)
 - **Frontend test tooling: approve Vitest, jsdom and @testing-library/react (dev-only); defer Playwright.** *(Built 2026-09-27, see the
   end of this addendum.)* The money-path logic
   (`attemptKey` retry keys, money formatting, and replacing the `Number(x).toFixed(2)` calls flagged as finding #55) is testable
   without a browser; Playwright needs a browser download and a running stack, and manual walk-throughs already work. Reconsider
   Playwright only if the pilot exposes a flow that breaks.
-- **Hardware matrix (`docs/01-research/hardware-requirements-and-pricing.md`): approved as the supported floor**, landing in a new ADR
+- **Hardware matrix (`docs/01-research/hardware-requirements-and-pricing.md`): approved as the supported floor** *(built 2026-09-27:
+  `ADR-013-supported-hardware.md`, with first measurements)*, landing in a new ADR
   with a one-line pointer from the frozen `deployment.md`; specifications and tiers, not a brand-specific bill of materials; memory
   and storage figures stay labelled estimates until the pilot measures them (`docker stats`, `df`); the real-time-clock requirement
   goes in the install checklist only.
@@ -548,7 +549,8 @@ actions stay with the owner (section "Still yours").
 - **Selling by the pack with its own price: not built.** It changes frozen checkout and no store has asked; it waits until one does.
 - **Shift X-reading: "as of close".** The stored closing reading equals what was printed; a later void appears in the voiding shift and
   day, matching the tested refund attribution and the tested rule that a closed shift's stored figures cannot change. Invariant #40 is
-  read as "recomputable from the ledger cut at the shift's `closed_at`". A clarification of frozen text (an exception recorded here).
+  read as "recomputable from the ledger cut at the shift's `closed_at`". A clarification of frozen text (an exception recorded here). *(Writing the test for it found that the shift reading dropped any sale
+  that is currently voided; `ShiftReadingAggregator` now cuts at the shift's closing instant, so the ruling is true. See stage 9, addendum.)*
 - **Cash-out threshold: keep `>=` and correct the frozen text.** "Above" becomes "at or above" (invariants.md #39 and wherever the
   phrase appears), an exception recorded here: `>=` is the stricter cash control and is already pinned by a test.
 - **Stale business day: never block sales, never auto-close.** An auto-close would create a fiscal reading nobody attested, and blocking
@@ -578,4 +580,42 @@ typed `10.005` through a float and sends `NaN` for a half-typed box. It now send
 whole centavos (`100` becomes `100.00`), and anything else is sent exactly as typed so the server refuses it with a field error
 instead of the till quietly changing the figure. The close-shift variance colour no longer converts the amount to a float either.
 The `package-lock.json` diff carries only the new packages (this machine's npm strips platform `libc` metadata, which was put back).
+
+## Addendum 2026-09-27 (9) — the pilot runbook and exit criteria
+
+One supervised store for 14 days. It exists to produce evidence, not to launch: everything not yet built (frontend flows only a real
+counter exposes, the parking-lot items, the measurements ADR-013 waits for) is decided from what it shows.
+
+**Before day 1** (each item is something a person did and can say they did): the real server is on the two database roles
+(`docker/README.md`, "Upgrading from one database role") after a backup; `docker compose ps` shows all four services healthy; a test
+alert reached the Telegram group and a test upload reached the Backblaze bucket (README, "Off-machine copy and alerts"); the restore drill
+was run from the **off-machine** copy and the counts matched; the passphrase is in the password manager and a printed copy; every till is
+created and enrolled and its printer prints a receipt; the owner and the manager have each signed in, and the cashiers had 30 minutes on
+the Help guides "Start your shift", "Ring up a sale", "Close your shift" and, for the manager, "Close the business day"; the shop's real business details, tax registration, fiscal
+installation, invoice series and stock location are entered by the owner, not by us (nothing here decides what the shop's tax registration is).
+
+**Every day:** the cashier opens and closes a shift; a manager or the owner closes the business day (Z-reading) each night; someone reads
+the Telegram group and glances at `docker compose ps`; one line goes in a friction log (date, who, what happened, what they expected,
+and a tag: *bug*, *unclear screen or Help*, *missing feature*, *hardware*). Nothing is fixed silently: every line is triaged.
+
+**After the first real week, once:** the manager exercises the paths the walkthrough skipped, as the live restricted database role (stock
+receipt, transfer and count; a CSV import; a terminal revoke and re-enrol; a user deactivate; a void request followed by its approval), and
+someone runs `docker compose logs app | grep "permission denied"` (addendum 7). **In week two:** measure with `docker stats --no-stream`,
+`df -h` on the database and backup disks, the size of the newest backup, and the server clock against a phone; write the figures into
+ADR-013, replacing the first measurements where they differ.
+
+**Stop the pilot (and only resume once explained)** if any of these happens: a sale rung twice, a sale missing after the till said it was
+saved, a cash variance nobody can explain from a logged event, a Z-reading that disagrees with the shop's own count of that day, or a
+data loss of any size.
+
+**Exit criteria, all of them:** 14 days of use with a Z-reading closed on at least 10 of them and each agreeing with the shop's own count;
+zero duplicated or missing sales; zero cash variances unexplained by a logged event; the restore drill passed and repeated once from the
+newest off-machine backup; an alert test received on a phone and a heartbeat gap noticed (switch the backup container off for two hours
+once, on purpose); zero `permission denied` lines; ADR-013's measurements replaced by real ones; the friction log fully triaged.
+
+**What the pilot decides next** (revisit only on this evidence): whether Playwright is worth adding (if a flow that unit tests cannot see
+broke); whether the 5% basic-necessities per-product flag is needed (only if a grocery store shows mis-rings, and only after an accountant
+or lawyer confirms the item mapping); selling by the pack (only if the store asks); a software clock check (only if a clock problem
+appears); and whether the privileged actions that write no audit event today (user create, role change, deactivate, terminal token,
+enroll and revoke, setup changes) need one (only if a dispute makes it matter).
 

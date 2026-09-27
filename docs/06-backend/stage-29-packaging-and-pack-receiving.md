@@ -33,7 +33,7 @@ holds one unit. New columns (migration `2026_09_21_094226_add_packaging_to_produ
 Barcode uniqueness is unchanged: per store, across `products.barcode` and `product_barcodes.barcode`, under Stage 26's
 store-wide advisory lock (`ProductBarcodeService::claim()`), and taken only when a barcode is given.
 
-### Deviation from the owner's proposed shape (for veto)
+### Deviation from the owner's proposed shape (ACCEPTED 2026-09-27)
 
 The owner's outline named `ProductPackaging` (name, units_per_base, barcode, can_receive, can_sell, is_base_unit) plus a
 `StoreProductPackaging` table for per-store `selling_enabled`. I built neither as separate things:
@@ -46,7 +46,7 @@ The owner's outline named `ProductPackaging` (name, units_per_base, barcode, can
 - **Reusing `product_barcodes`** rather than a new `product_packagings` table avoids a second table with its own barcode
   uniqueness rules and a second place the Stage 20 scan lookup must consult.
 
-**2026-09-26 — competitor research on this specific deviation (owner request), still awaiting the veto/accept decision.**
+**2026-09-26 — competitor research on this specific deviation (owner request). Decided 2026-09-27: accepted (owner-delegated decision, stage-23 addendum 8).**
 Read the actual schema of the two competitors Stage 26 §9-11 already researched for pack *mechanics*, this time for the
 *shape* question above, plus Square (the most architecturally modern multi-location POS with a public schema) and Loyverse
 (already the Philippine-relevant precedent for composite items):
@@ -64,8 +64,8 @@ separate per-store/per-company join table for packaging (matches the no-`StorePr
 system genuinely needs per-location/per-company scoping at all — Odoo (multi-company products) and Square (multi-location
 variations) — the pattern is one extra field on the *existing* row, never a second table, which is precisely what this
 stage already named as the additive step if TindaFlow's own products are ever shared across stores. This is reference
-evidence for the deviation, not a requirement in itself, and does not by itself decide the veto — that is still the
-owner's call.
+evidence for the deviation, not a requirement in itself, and does not by itself decide the veto. **Decided 2026-09-27 (owner-delegated decision, 2026-09-27; stage-23 addendum 8): accepted.** No base row and no per-store table stand; the additive
+route above stays open if products are ever shared across stores.
 
 ## 3. Contract (forward-committed)
 

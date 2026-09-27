@@ -9,6 +9,10 @@ what Stage 9 must build.
 
 ---
 
+> **Supported hardware** (server and terminal minimums, what is explicitly not supported, and the first measurements of memory
+> and storage) is decided in [ADR-013](decisions/ADR-013-supported-hardware.md). *(A pointer added 2026-09-27 as a recorded
+> exception to this file's freeze; nothing else here changed.)*
+
 ## 1. Target environments
 
 Per the governing brief, three deployment targets share this same
