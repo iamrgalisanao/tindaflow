@@ -14,6 +14,11 @@
 # the message as $1 when a backup starts failing, when a disk crosses its warning or critical level, and when either
 # recovers: once per change, not on every tick.
 #
+# Off-machine copy and alerts work out of the box from a few settings (docker/README.md): TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
+# turn on Telegram alerts, RCLONE_DEST (+ RCLONE_CONFIG_* for the remote) turns on an rclone upload, HEARTBEAT_URL pings a
+# dead-man's-switch service after every good backup. ALERT_COMMAND and BACKUP_UPLOAD_COMMAND, when set, take precedence. An
+# off-machine copy is REFUSED unless the dump is encrypted (BACKUP_PASSPHRASE), because the destination is somebody else's disk.
+#
 # Each backup is a pg_dump custom-format archive, checked readable (pg_restore --list) before it is kept, optionally
 # encrypted with AES-256, then pruned and handed to BACKUP_UPLOAD_COMMAND. Retention (by the timestamp in the name):
 #   every backup younger than BACKUP_KEEP_HOURLY_HOURS,
@@ -37,6 +42,7 @@ DISK_CRIT_PERCENT="${DISK_CRIT_PERCENT:-90}"
 # The database's own volume, mounted read-only into this container so its disk can be watched (docker/compose.yaml).
 DATA_DIR="${DATA_DIR:-/pgdata}"
 STATUS_FILE="$BACKUP_DIR/.status"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export TZ=UTC
 log() { printf '%(%Y-%m-%dT%H:%M:%SZ)T [BACKUP] %s\n' -1 "$*"; }
@@ -58,10 +64,30 @@ status_set() {
 }
 
 # Runs ALERT_COMMAND (if any) with the message as $1. An alert that cannot be delivered is logged, never fatal.
+# The command that delivers an alert: ALERT_COMMAND if set, else Telegram if its two settings are present, else none.
+alert_command() {
+    if [ -n "${ALERT_COMMAND:-}" ]; then
+        printf '%s' "$ALERT_COMMAND"
+    elif [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+        printf 'bash %q "$1"' "$SCRIPT_DIR/alert-telegram.sh"
+    fi
+}
+
+# The command that copies a backup off the machine: BACKUP_UPLOAD_COMMAND if set, else rclone if RCLONE_DEST is set, else none.
+upload_command() {
+    if [ -n "${BACKUP_UPLOAD_COMMAND:-}" ]; then
+        printf '%s' "$BACKUP_UPLOAD_COMMAND"
+    elif [ -n "${RCLONE_DEST:-}" ]; then
+        printf 'bash %q "$1"' "$SCRIPT_DIR/upload-rclone.sh"
+    fi
+}
+
 alert() {
     log "ALERT: $*" >&2
-    if [ -n "${ALERT_COMMAND:-}" ]; then
-        bash -c "$ALERT_COMMAND" alert "$*" || log "the alert command failed" >&2
+    local command
+    command="$(alert_command)"
+    if [ -n "$command" ]; then
+        bash -c "$command" alert "$*" || log "the alert command failed" >&2
     fi
 }
 
@@ -134,9 +160,18 @@ take_backup() {
     status_set last_file "$(basename "$file")"
 
     prune || log "pruning failed; old copies were left in place" >&2
-    if [ -n "${BACKUP_UPLOAD_COMMAND:-}" ]; then
+    local upload
+    upload="$(upload_command)"
+    if [ -n "$upload" ]; then
+        # The destination is somebody else's disk, so an unencrypted dump (all of the shop's sales, staff and customers'
+        # ID numbers) is never sent there unless the owner says so explicitly.
+        if [ -z "${BACKUP_PASSPHRASE:-}" ] && [ "${BACKUP_UPLOAD_UNENCRYPTED:-}" != yes ]; then
+            status_set upload_ok 0
+            backup_failed "an off-machine copy is configured but BACKUP_PASSPHRASE is not, so $(basename "$file") was NOT uploaded; set a passphrase (or BACKUP_UPLOAD_UNENCRYPTED=yes for a destination you fully control)"
+            return 1
+        fi
         # The command receives the file path as its first argument (rclone, rsync, scp, a script...).
-        if bash -c "$BACKUP_UPLOAD_COMMAND" upload "$file"; then
+        if bash -c "$upload" upload "$file"; then
             log "uploaded $(basename "$file")"
             status_set upload_ok 1
         else
@@ -149,12 +184,21 @@ take_backup() {
     fi
 
     status_set last_error ""
+    heartbeat
     if [ "$(status_get backup_state)" = failing ]; then
         status_set backup_state ok
         alert "[BACKUP] backups are working again ($(basename "$file"))"
     else
         status_set backup_state ok
     fi
+}
+
+# Dead-man's switch: after every GOOD backup, ping HEARTBEAT_URL (for example a free healthchecks.io check that alerts you when
+# the pings stop). A dead machine or a dead network sends no alert of its own, so silence is the signal. Never fatal.
+heartbeat() {
+    [ -n "${HEARTBEAT_URL:-}" ] || return 0
+    curl -fsS -m 10 --retry 2 -o /dev/null "$HEARTBEAT_URL" || log "the heartbeat ping failed" >&2
+    return 0
 }
 
 # Percentage of the filesystem holding $1 that is used; prints nothing (and fails) if it cannot be read.
@@ -280,7 +324,10 @@ main() {
         prune) prune ;;
         health) health ;;
         loop)
-            log "every ${BACKUP_INTERVAL_MINUTES} min to ${BACKUP_DIR} (encrypted: $([ -n "${BACKUP_PASSPHRASE:-}" ] && echo yes || echo NO), off-machine copy: $([ -n "${BACKUP_UPLOAD_COMMAND:-}" ] && echo yes || echo NO), alerts: $([ -n "${ALERT_COMMAND:-}" ] && echo yes || echo NO))"
+            log "every ${BACKUP_INTERVAL_MINUTES} min to ${BACKUP_DIR} (encrypted: $([ -n "${BACKUP_PASSPHRASE:-}" ] && echo yes || echo NO), off-machine copy: $([ -n "$(upload_command)" ] && echo yes || echo NO), alerts: $([ -n "$(alert_command)" ] && echo yes || echo NO), heartbeat: $([ -n "${HEARTBEAT_URL:-}" ] && echo yes || echo NO))"
+            if [ -n "$(upload_command)" ] && [ -z "${BACKUP_PASSPHRASE:-}" ] && [ "${BACKUP_UPLOAD_UNENCRYPTED:-}" != yes ]; then
+                log "WARNING: an off-machine copy is configured but BACKUP_PASSPHRASE is not, so nothing will be uploaded until it is set" >&2
+            fi
             status_set started "$(epoch_now)"
             while true; do
                 disk_check || log "the disk check itself failed" >&2

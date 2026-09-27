@@ -106,7 +106,9 @@ services:
     # No "ports:" on purpose: the database is reachable only from the app and backup containers.
 
   backup:
-    image: postgres:17
+    # postgres:17 plus curl and rclone (backup/Dockerfile): the stock image cannot send an alert or copy a backup off the machine.
+    build: ./backup
+    image: tindaflow-backup:${TINDAFLOW_TAG:-latest}
     env_file: .env
     environment:
       # BACKUP_DIR in .env is the HOST folder for the mount below; without this the container would write dumps to that
@@ -118,6 +120,8 @@ services:
     volumes:
       - ./backup/backup.sh:/usr/local/bin/backup.sh:ro
       - ./backup/restore.sh:/usr/local/bin/restore.sh:ro
+      - ./backup/alert-telegram.sh:/usr/local/bin/alert-telegram.sh:ro
+      - ./backup/upload-rclone.sh:/usr/local/bin/upload-rclone.sh:ro
       # The database's own volume, read-only, ONLY so backup.sh can watch how full its disk is (it never reads the files).
       - pgdata:/pgdata:ro
       # Put this on a different disk from the database (docker/README.md).

@@ -501,3 +501,64 @@ exactly its allow-list); a new UPDATE would still fail only at the till, so revi
 skipped, as the live restricted role: a stock receipt, transfer and count, a CSV import, a terminal revoke and re-enrol, a user
 deactivate, and a void request followed by its approval, then look for `permission denied` in `docker compose logs app`.
 
+## Addendum 2026-09-27 (8) — the owner checklist, decided by the architect at the owner's request
+
+The owner asked the architect to decide the owner-checklist items ("let the software architect decide on the checklist"). These are
+therefore the **owner's delegated decisions**, recorded as such; any edit to frozen text below cites this delegation. Physical
+actions stay with the owner (section "Still yours").
+
+**Decided and built**
+- **Alert channel: a Telegram bot in a group chat that includes the owner and the manager.** Free, needs no server of the shop's own,
+  reaches a phone with one `curl`; SMS gateways cost money and e-mail needs a mail server the shop does not have. `TELEGRAM_BOT_TOKEN`
+  and `TELEGRAM_CHAT_ID` turn it on (`ALERT_COMMAND`, if set, wins). The token is passed to curl on stdin, never on its command line.
+- **Off-machine backup: Backblaze B2 through rclone, with a bucket-scoped application key that has no delete permission.** About $6
+  per terabyte-month after 10 GB free, and the key can be limited to one bucket; Google Drive tokens expire and are wrong for
+  unattended use. `RCLONE_DEST` plus `RCLONE_CONFIG_*` variables turn it on (no config file; `BACKUP_UPLOAD_COMMAND`, if set, wins).
+  The copy is `--immutable` (existing remote files are never overwritten), so with a no-delete key a compromised server cannot erase
+  or replace its own off-machine backups. **An off-machine copy is refused unless the dump is encrypted** (`BACKUP_PASSPHRASE`, kept in
+  the owner's password manager and a printed copy, never only on the server); `BACKUP_UPLOAD_UNENCRYPTED=yes` overrides it for a
+  destination the owner fully controls. Fallback if B2 proves unsuitable: Cloudflare R2.
+- **A dead-man's switch:** `HEARTBEAT_URL` is pinged after every good backup (a free healthchecks.io check alerts when the pings stop),
+  because a dead machine sends no alert of its own.
+- **Found while doing it:** the `backup` container was the stock `postgres:17`, which has no `curl`, no `rclone` and no `wget`, so
+  the `ALERT_COMMAND` and `BACKUP_UPLOAD_COMMAND` hooks (and the `rclone copy` example in `.env.example`) could never have worked.
+  It is now built from `docker/backup/Dockerfile` (`postgres:17` + `curl`, `ca-certificates`, `rclone`).
+- **Verification.** `scripts/test-backup.sh` now has 74 checks (stub curl/rclone: the encryption guard, rclone arguments, Telegram
+  on stdin and not in argv, alert-once, ALERT_COMMAND precedence, heartbeat on success only). And on real containers (built image, a
+  real PostgreSQL and `pg_dump`, real `rclone` to a local destination standing in for B2, a stub Telegram server): a good backup was
+  encrypted, copied and heartbeat-pinged; with the database stopped one failure alert was sent and no heartbeat; with it back a
+  recovery alert; and the off-machine copy decrypted with the passphrase and restored with all rows (a wrong passphrase failed with
+  "bad decrypt" and created nothing). Not verified against real Backblaze or Telegram (no accounts); the README says to test both
+  before trusting them.
+
+**Decided, to follow as their own slices** (each recorded here when shipped)
+- **Frontend test tooling: approve Vitest, jsdom and @testing-library/react (dev-only); defer Playwright.** The money-path logic
+  (`attemptKey` retry keys, money formatting, and replacing the `Number(x).toFixed(2)` calls flagged as finding #55) is testable
+  without a browser; Playwright needs a browser download and a running stack, and manual walk-throughs already work. Reconsider
+  Playwright only if the pilot exposes a flow that breaks.
+- **Hardware matrix (`docs/01-research/hardware-requirements-and-pricing.md`): approved as the supported floor**, landing in a new ADR
+  with a one-line pointer from the frozen `deployment.md`; specifications and tiers, not a brand-specific bill of materials; memory
+  and storage figures stay labelled estimates until the pilot measures them (`docker stats`, `df`); the real-time-clock requirement
+  goes in the install checklist only.
+- **Stage 29 packaging model (no base row, no per-store table): accepted.** Comparable systems use neither; the additive route stays open.
+- **5% basic-necessities discount per-product flag: not built.** Which products are on the JAO list is a legal reading, and an
+  auto-applied flag could discount or deny wrongly; the safe default stays (cashier judgment, beneficiary recorded). Revisit if a
+  grocery pilot shows mis-rings, and get the accountant's or legal confirmation of the item mapping first.
+- **Selling by the pack with its own price: not built.** It changes frozen checkout and no store has asked; it waits until one does.
+- **Shift X-reading: "as of close".** The stored closing reading equals what was printed; a later void appears in the voiding shift and
+  day, matching the tested refund attribution and the tested rule that a closed shift's stored figures cannot change. Invariant #40 is
+  read as "recomputable from the ledger cut at the shift's `closed_at`". A clarification of frozen text (an exception recorded here).
+- **Cash-out threshold: keep `>=` and correct the frozen text.** "Above" becomes "at or above" (invariants.md #39 and wherever the
+  phrase appears), an exception recorded here: `>=` is the stricter cash control and is already pinned by a test.
+- **Stale business day: never block sales, never auto-close.** An auto-close would create a fiscal reading nobody attested, and blocking
+  would stop a working shop. The amber notice and the Fiscal Days marker stay.
+
+**Still yours (nobody else can do these)**
+1. Create the Telegram bot and group and note the token and chat id (about 15 minutes), following `docker/README.md`.
+2. Create the Backblaze account, bucket and no-delete key; choose the passphrase and keep it in two places (about 45 minutes).
+3. Put the values in `docker/.env`, rebuild, and fire a test alert and a test upload (about 20 minutes).
+4. Take a backup and switch the real server to the two database roles (about 30 minutes).
+5. `tindaflow:create-terminal`, finish Store Setup, enroll each till (about 30 minutes, plus 10 per extra till).
+6. Restore drill from the Backblaze copy (about an hour).
+7. Run the pilot for 14 days: a nightly Z-close, a daily one-line friction log, and the pilot-week check in addendum 7.
+

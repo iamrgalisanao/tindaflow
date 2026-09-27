@@ -33,6 +33,7 @@ new_case() {
     export PATH="$BIN:$ORIGINAL_PATH"
     export ALERT_COMMAND='printf "%s\n" "$1" >> "$ALERTS"'
     export BACKUP_INTERVAL_MINUTES=60 BACKUP_PASSPHRASE='' BACKUP_UPLOAD_COMMAND='' DF_CMD=''
+    unset TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID RCLONE_DEST HEARTBEAT_URL BACKUP_UPLOAD_UNENCRYPTED ALERT_SITE_NAME TELEGRAM_API_BASE
     unset BACKUP_NOW
     stub pg_dump 'printf "PGDMP-data" > "${@: -2:1}" 2>/dev/null || true; exit 0' # writes to the -f argument
     stub pg_restore 'exit 0'
@@ -91,10 +92,11 @@ echo "== upload failure"
 new_case
 dump_stub 0
 BACKUP_UPLOAD_COMMAND='false'
+BACKUP_PASSPHRASE='secret'
 take_backup > /dev/null 2>&1 || RESULT=$?
 check "take_backup reports the failed upload" equals "${RESULT:-0}" 1
 check "upload_ok is 0" equals "$(status_get upload_ok)" 0
-check "the local copy is kept" test "$(ls "$BACKUP_DIR"/tindaflow-*.dump | wc -l)" -eq 1
+check "the local copy is kept" test "$(ls "$BACKUP_DIR"/tindaflow-*.dump* | grep -vc partial)" -eq 1
 check "health is unhealthy" bash -c '! ( source "'"$SCRIPT"'"; BACKUP_DIR="'"$BACKUP_DIR"'"; STATUS_FILE="'"$BACKUP_DIR"'/.status"; health )'
 rm -rf "$WORK"
 
@@ -159,6 +161,83 @@ touch "$BACKUP_DIR/tindaflow-29990101-000000.dump.partial"
 prune > /dev/null 2>&1
 check "a partial older than one interval is removed" missing "$BACKUP_DIR/tindaflow-20200101-000000.dump.partial"
 check "a fresh partial (a dump in progress) is kept" present "$BACKUP_DIR/tindaflow-29990101-000000.dump.partial"
+rm -rf "$WORK"
+
+echo "== an off-machine copy is refused unless the dump is encrypted"
+new_case
+dump_stub 0
+BACKUP_UPLOAD_COMMAND='printf "%s\n" "$1" >> "$WORK/uploaded.log"'
+export WORK
+take_backup > /dev/null 2>&1 || RESULT=$?
+check "the backup itself succeeds locally but the upload is refused (non-zero)" equals "${RESULT:-0}" 1
+check "nothing was handed to the upload command" missing "$WORK/uploaded.log"
+check "the reason names BACKUP_PASSPHRASE" grep -q "BACKUP_PASSPHRASE" "$BACKUP_DIR/.status"
+check "upload_ok is 0, so health is unhealthy" equals "$(status_get upload_ok)" 0
+check "the local dump is kept" test "$(ls "$BACKUP_DIR"/tindaflow-*.dump | wc -l)" -eq 1
+rm -f "$BACKUP_DIR"/tindaflow-*.dump
+BACKUP_UPLOAD_UNENCRYPTED=yes take_backup > /dev/null 2>&1
+check "BACKUP_UPLOAD_UNENCRYPTED=yes lets an unencrypted dump go to a destination the owner controls" present "$WORK/uploaded.log"
+rm -f "$WORK/uploaded.log"
+BACKUP_PASSPHRASE='secret' take_backup > /dev/null 2>&1
+check "with a passphrase the .enc file is what is uploaded" grep -q "\.dump\.enc$" "$WORK/uploaded.log"
+check "and it is really encrypted, not the plaintext dump" bash -c '! grep -q PGDMP-data "$(cat "'"$WORK"'/uploaded.log")"'
+rm -rf "$WORK"
+
+echo "== rclone is the default off-machine copy when RCLONE_DEST is set"
+new_case
+dump_stub 0
+BACKUP_PASSPHRASE='secret'
+export WORK
+stub rclone 'printf "%s\n" "$*" >> "$WORK/rclone.args"; exit 0'
+RCLONE_DEST='b2:shop-bucket/till1' take_backup > /dev/null 2>&1
+check "rclone was called once" equals "$(count_lines "$WORK/rclone.args")" 1
+check "with copyto, the .enc file and the destination path" grep -q "^copyto .*tindaflow-.*\.dump\.enc b2:shop-bucket/till1/tindaflow-.*\.dump\.enc " "$WORK/rclone.args"
+check "and --immutable, so the remote is only ever added to" grep -q -- "--immutable" "$WORK/rclone.args"
+check "upload_ok is 1" equals "$(status_get upload_ok)" 1
+stub rclone 'exit 1'
+RCLONE_DEST='b2:shop-bucket/till1' take_backup > /dev/null 2>&1 || RESULT=$?
+check "a failing rclone is a failed backup" equals "${RESULT:-0}" 1
+upload_command_wins() { [ "$(BACKUP_UPLOAD_COMMAND=true RCLONE_DEST=x upload_command)" = true ]; }
+check "BACKUP_UPLOAD_COMMAND wins over RCLONE_DEST" upload_command_wins
+rm -rf "$WORK"
+
+echo "== Telegram is the default alert when its two settings are present"
+new_case
+dump_stub 1
+export WORK
+unset ALERT_COMMAND
+stub curl 'printf "%s\n" "$*" > "$WORK/curl.args"; cat > "$WORK/curl.stdin"; exit 0'
+export TELEGRAM_BOT_TOKEN='123456:SECRET-TOKEN' TELEGRAM_CHAT_ID='-100999' ALERT_SITE_NAME='Aling Nena'
+take_backup > /dev/null 2>&1 || true
+check "curl was called once for the failure alert" test -f "$WORK/curl.args"
+check "the bot token is NOT on curl's command line" bash -c '! grep -q SECRET-TOKEN "'"$WORK"'/curl.args"'
+check "the bot token and chat id reach curl on stdin" bash -c 'grep -q "bot123456:SECRET-TOKEN/sendMessage" "'"$WORK"'/curl.stdin" && grep -q "chat_id=-100999" "'"$WORK"'/curl.stdin"'
+check "the message names the shop and the problem" bash -c 'grep -q "Aling Nena" "'"$WORK"'/curl.stdin" && grep -q "backup failed" "'"$WORK"'/curl.stdin"'
+rm -f "$WORK/curl.args" "$WORK/curl.stdin"
+take_backup > /dev/null 2>&1 || true
+check "a second identical failure does not send a second message" missing "$WORK/curl.args"
+export ALERT_COMMAND='printf "%s\n" "$1" >> "$WORK/custom.log"'
+rm -f "$BACKUP_DIR/.status"
+take_backup > /dev/null 2>&1 || true
+check "ALERT_COMMAND takes precedence over Telegram" present "$WORK/custom.log"
+check "and Telegram was not used then" missing "$WORK/curl.args"
+rm -rf "$WORK"
+
+echo "== heartbeat (dead-man's switch)"
+new_case
+export WORK
+stub curl 'printf "%s\n" "$*" >> "$WORK/curl.args"; exit 0'
+export HEARTBEAT_URL='https://hc.example/ping/abc'
+dump_stub 1
+take_backup > /dev/null 2>&1 || true
+check "a failed backup sends no heartbeat" missing "$WORK/curl.args"
+dump_stub 0
+take_backup > /dev/null 2>&1
+check "a good backup pings the URL once" equals "$(count_lines "$WORK/curl.args")" 1
+check "and it is the configured URL" grep -q "https://hc.example/ping/abc" "$WORK/curl.args"
+stub curl 'exit 22'
+take_backup > /dev/null 2>&1
+check "a failing ping never fails the backup" equals "$(status_get backup_state)" ok
 rm -rf "$WORK"
 
 echo "== retention still works (regression)"

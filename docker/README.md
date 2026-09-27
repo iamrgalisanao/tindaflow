@@ -71,11 +71,43 @@ The `backup` container writes a dump to `./backups` (`BACKUP_DIR`) every `BACKUP
 
 - **Put `BACKUP_DIR` on a different disk from the database.** A backup on the same disk dies with it.
 - **Encrypt:** set `BACKUP_PASSPHRASE`. Store the passphrase somewhere else; an encrypted backup is useless without it.
-- **Copy off the machine:** set `BACKUP_UPLOAD_COMMAND` to any command that copies `$1` (rclone, rsync, scp, a script). Until you do, a fire, theft or flood takes the backups with the server.
+- **Copy off the machine:** see "Off-machine copy and alerts" below. Until you do, a fire, theft or flood takes the backups with the server.
 - **See what happened:** `docker compose logs backup`. Every line carries `[BACKUP]` or `[DISK]`, so `docker compose logs backup | grep -E "FAILED|WARN|CRITICAL|ALERT"` shows every problem.
 - **A failed backup is never silent.** A dump that fails, or that cannot be read back, is deleted and never kept, and it never ages out a good backup. The `backup` container turns **unhealthy** (`docker compose ps`) when no backup has succeeded for two and a half intervals, when the off-machine copy is failing, or when a disk is critically full. `docker compose exec backup bash /usr/local/bin/backup.sh health` says why.
 - **Watch the disks.** Every interval the backup container checks how full the backups folder and the database volume are: **80% logs a warning, 90% is critical** (`DISK_WARN_PERCENT`, `DISK_CRIT_PERCENT`). A full database disk stops PostgreSQL, and then every till stops selling.
-- **Get told (optional):** set `ALERT_COMMAND` to any command that takes the message as `$1` (a script that sends an email, an SMS or a chat message). It runs once when backups start failing, once when a disk crosses a level, and once when either recovers, not every hour. Without it, nobody is told unless they look, so **an unattended shop should set it before go-live**.
+- **Get told:** see "Off-machine copy and alerts" below. Without it, nobody is told unless they look, so **an unattended shop should set it up before go-live**.
+
+### Off-machine copy and alerts (set up once, about an hour)
+
+The `backup` container is `postgres:17` plus `curl` and `rclone` (`docker/backup/Dockerfile`; `docker compose up -d --build` builds it). Four settings in `docker/.env` turn on everything below; each step says how to test it.
+
+**1. A passphrase (required before anything leaves the machine).** Set `BACKUP_PASSPHRASE` to a long random phrase (`openssl rand -base64 24`). Put it in your password manager **and** on a printed copy in a safe place, never only on the server: a backup you cannot decrypt is useless. An off-machine copy is refused without it.
+
+**2. A Backblaze B2 bucket (the off-machine copy).** About $6 per terabyte-month (the first 10 GB are free); a shop's backups are far smaller.
+1. Create a Backblaze account, then a **private** bucket (for example `tindaflow-backups-nena`).
+2. Under *Application Keys*, add a key **limited to that bucket** with **List, Read and Write** but **not Delete**. A key that cannot delete means even a hacked server cannot erase its own off-machine backups (the upload only ever adds files).
+3. On the bucket, set a lifecycle rule (*Keep only the last version*, or delete files after about 400 days) so it does not grow forever.
+4. In `docker/.env` set `RCLONE_DEST=b2:<bucket>/<shop>`, `RCLONE_CONFIG_B2_TYPE=b2`, `RCLONE_CONFIG_B2_ACCOUNT=<keyID>`, `RCLONE_CONFIG_B2_KEY=<application key>`.
+5. `docker compose up -d --build backup`, then `docker compose exec backup bash /usr/local/bin/backup.sh once`. The last log line must say `uploaded ...`; the file is in your bucket. **Test this before you trust it.**
+
+**3. A Telegram bot (the alert).** Free, no server of your own, and it reaches a phone.
+1. In Telegram, message **@BotFather**, send `/newbot`, follow the prompts, and copy the **token** it gives you.
+2. Create a Telegram group with the owner and the manager, add your new bot to it, and send any message in the group.
+3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser and find `"chat":{"id":-100...` : that number (with the minus sign) is the **chat id**.
+4. In `docker/.env` set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` and `ALERT_SITE_NAME` (so a message says which shop it is from).
+5. `docker compose up -d --build backup`, then send a test: `docker compose exec backup bash /usr/local/bin/alert-telegram.sh "Test alert from the shop server"`. It must appear in the group. **Test this before you trust it.**
+
+**4. A dead-man's switch (recommended).** A dead machine sends no alert. Make a free check at healthchecks.io with a **1 hour** period and **2 hour** grace, and put its ping URL in `HEARTBEAT_URL`. The backup container pings it after every good backup; healthchecks.io messages you when the pings stop.
+
+**Restore drill from the off-machine copy** (do this before go-live, and again after big changes; a backup never restored is a hope):
+
+```bash
+docker compose exec backup rclone ls "$RCLONE_DEST"                                      # find a file name
+docker compose exec backup rclone copyto "$RCLONE_DEST/<file>.dump.enc" /backups/drill.dump.enc
+docker compose exec backup restore.sh /backups/drill.dump.enc tindaflow_drill            # uses BACKUP_PASSPHRASE
+```
+
+It prints the table, index and migration counts, the number of sales and invoices, and the last invoice number; check them against the shop. Drop the practice database afterwards.
 
 ### Restoring, and practising it
 
