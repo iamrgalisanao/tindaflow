@@ -59,6 +59,17 @@ export function moneyText(cents) {
     return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
 }
 
+/**
+ * An amount typed by the cashier, as the text the API takes: "1300.00". Never through floating point (Number(x).toFixed(2)
+ * silently rounds "10.005" and turns a half-typed box into "NaN"). Text that is not a money amount is sent exactly as typed, so
+ * the server refuses it with a field error instead of the till quietly changing the figure.
+ */
+export function apiMoney(text) {
+    const cents = toCents(text);
+
+    return cents === null ? String(text ?? '').trim() : moneyText(cents);
+}
+
 /** A discount amount, parsed and clamped to [0, maxCents] -- a blank/invalid box or a negative amount previews as no
  * discount at all; a discount typed larger than what it is discounting from previews as the whole amount instead of
  * a negative total. A display convenience only: the server recomputes and validates the real figure. */

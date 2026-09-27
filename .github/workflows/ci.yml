@@ -59,6 +59,13 @@ jobs:
           npm ci
           npm run build
 
+      - name: Frontend tests
+        run: npm test
+
+      - name: Backup script tests
+        # needs GNU date and bash 4.2+, which the postgres image (the one the backup container is built from) has
+        run: docker run --rm -v "$PWD":/w postgres:17 bash /w/scripts/test-backup.sh
+
       - name: Code style
         run: vendor/bin/pint --test
 
@@ -97,3 +104,9 @@ jobs:
           target: web
           push: false
           cache-from: type=gha,scope=app
+      - name: Build the backup image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/backup
+          file: docker/backup/Dockerfile
+          push: false

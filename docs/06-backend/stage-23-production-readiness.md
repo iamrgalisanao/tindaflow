@@ -532,7 +532,8 @@ actions stay with the owner (section "Still yours").
   before trusting them.
 
 **Decided, to follow as their own slices** (each recorded here when shipped)
-- **Frontend test tooling: approve Vitest, jsdom and @testing-library/react (dev-only); defer Playwright.** The money-path logic
+- **Frontend test tooling: approve Vitest, jsdom and @testing-library/react (dev-only); defer Playwright.** *(Built 2026-09-27, see the
+  end of this addendum.)* The money-path logic
   (`attemptKey` retry keys, money formatting, and replacing the `Number(x).toFixed(2)` calls flagged as finding #55) is testable
   without a browser; Playwright needs a browser download and a running stack, and manual walk-throughs already work. Reconsider
   Playwright only if the pilot exposes a flow that breaks.
@@ -561,4 +562,20 @@ actions stay with the owner (section "Still yours").
 5. `tindaflow:create-terminal`, finish Store Setup, enroll each till (about 30 minutes, plus 10 per extra till).
 6. Restore drill from the Backblaze copy (about an hour).
 7. Run the pilot for 14 days: a nightly Z-close, a daily one-line friction log, and the pilot-week check in addendum 7.
+
+**Built: frontend tests and the money-formatting fix (2026-09-27).** `npm test` runs Vitest with jsdom (dev dependencies `vitest`,
+`jsdom`, `@testing-library/react`, `@testing-library/dom`; `vitest.config.js`, separate from the build config; the CI job runs it).
+54 tests over: the till's money arithmetic in whole centavos (`posMoney.js`, including that `3 x 0.10` is exactly 30 centavos); the
+retry-safety rules (`pos/attempts.js`, extracted from `Pos.jsx` so they can be tested: the same request keeps its Idempotency-Key, any
+change gets a new one, an unknown outcome keeps it, a definite answer or a 401 drops it); `apiFetch` (a 401 outside `/auth/*` signals
+session-expired, a deadlock is retried once with the same key, and what a dropped connection or an HTML 502 looks like to a screen);
+the business-day dates; and `SessionExpiredDialog` (prefilled email, wrong password, unreachable server, throttling, same user
+stays put, different user goes to the dashboard). Two mutations (ignoring status 0 as an unknown outcome, and bringing the float
+rounding back) each made tests fail. Playwright stays deferred.
+
+**Finding #55 fixed.** `Pos.jsx` sent the cash-in/out amount and the declared cash as `Number(x).toFixed(2)`, which silently rounds a
+typed `10.005` through a float and sends `NaN` for a half-typed box. It now sends `apiMoney(x)`: a valid amount is normalised in
+whole centavos (`100` becomes `100.00`), and anything else is sent exactly as typed so the server refuses it with a field error
+instead of the till quietly changing the figure. The close-shift variance colour no longer converts the amount to a float either.
+The `package-lock.json` diff carries only the new packages (this machine's npm strips platform `libc` metadata, which was put back).
 

@@ -14,7 +14,8 @@ import PosLookupPanel from './pos/PosLookupPanel';
 import ShiftPanel from './pos/ShiftPanel';
 import TenderPanel from './pos/TenderPanel';
 import XReadingPanel from './pos/XReadingPanel';
-import { clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
+import { attemptKey, failureText, newIdempotencyKey, settleAttempt } from './pos/attempts';
+import { apiMoney, clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 
 const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'];
 
@@ -24,52 +25,6 @@ const READINESS_LABELS = {
     inventory_location: 'No default inventory location is set for this store.',
     tax_registration: 'No current tax registration is set for this store.',
 };
-
-function newIdempotencyKey() {
-    return crypto.randomUUID();
-}
-
-/**
- * One Idempotency-Key per intent, not per click. The key is tied to the exact request it was made for: pressing the
- * button again after a dropped connection sends the SAME key with the same request, so if the server had already saved
- * it the answer is the first result and nothing is applied twice. Change anything in the request and the key changes
- * with it (the server refuses one key for two different requests).
- */
-function attemptKey(attempts, scope, path, body) {
-    const fingerprint = `${path}\n${JSON.stringify(body ?? null)}`;
-    const held = attempts.current[scope];
-    if (held?.fingerprint === fingerprint) {
-        return held.key;
-    }
-    const key = newIdempotencyKey();
-    attempts.current[scope] = { fingerprint, key };
-
-    return key;
-}
-
-/** Nothing arrived (0), a gateway answered with something that is not JSON (502), or the server could not finish (5xx, 409). */
-function outcomeUnknown(result) {
-    return result.status === 0 || result.status >= 500 || result.status === 409;
-}
-
-/** A definite answer ends the attempt; an unknown outcome keeps the key so the next press is the same attempt. */
-function settleAttempt(attempts, scope, result) {
-    if (!outcomeUnknown(result)) {
-        delete attempts.current[scope];
-    }
-}
-
-const CONNECTION_DROPPED = 'The connection dropped, so this may already have been recorded. Press the button again: it will not be applied twice.';
-
-const SESSION_EXPIRED = 'Your session expired. Sign in again, then press the button again: nothing on this screen is lost.';
-
-function failureText(result, fallback) {
-    if (result.status === 401) {
-        return SESSION_EXPIRED;
-    }
-
-    return result.status === 0 || result.status === 502 ? CONNECTION_DROPPED : (result.body?.error?.message ?? fallback);
-}
 
 /**
  * The POS checkout screen (docs/06-ui/sitemap.md /pos, /pos/checkout).
@@ -491,7 +446,7 @@ export default function Pos() {
         setCashMovementNotice(null);
 
         const path = `/api/v1/shifts/${shift.id}/cash-movements`;
-        const payload = { type: cashMovementType, amount: Number(cashMovementAmount).toFixed(2), reason: cashMovementReason };
+        const payload = { type: cashMovementType, amount: apiMoney(cashMovementAmount), reason: cashMovementReason };
         const result = await request(path, { method: 'POST', headers: { 'Idempotency-Key': attemptKey(attempts, 'cash-movement', path, payload) }, body: payload });
         settleAttempt(attempts, 'cash-movement', result);
 
@@ -541,7 +496,7 @@ export default function Pos() {
         setError(null);
 
         const path = `/api/v1/shifts/${shift.id}/close`;
-        const payload = { declared_cash: Number(declaredCash).toFixed(2) };
+        const payload = { declared_cash: apiMoney(declaredCash) };
         const result = await request(path, { method: 'POST', headers: { 'Idempotency-Key': attemptKey(attempts, 'close-shift', path, payload) }, body: payload });
         settleAttempt(attempts, 'close-shift', result);
 
@@ -913,7 +868,7 @@ export default function Pos() {
                         </div>
                         <div className="flex justify-between">
                             <dt className="text-slate-400">Variance</dt>
-                            <dd className={`font-mono font-semibold ${Number(closeResult.shift.variance) < 0 ? 'text-red-400' : 'text-slate-100'}`}>
+                            <dd className={`font-mono font-semibold ${String(closeResult.shift.variance).startsWith('-') ? 'text-red-400' : 'text-slate-100'}`}>
                                 ₱{closeResult.shift.variance}
                             </dd>
                         </div>

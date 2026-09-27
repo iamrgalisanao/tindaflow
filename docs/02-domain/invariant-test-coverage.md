@@ -92,6 +92,7 @@ Ranked by consequence. Each is a real difference between what `invariants.md` pr
 9. **A frontend float on money (#55).** `Pos.jsx:429` and `:480` send `Number(x).toFixed(2)` for the cash-movement
    amount and declared cash. The server re-validates the format, so this is low risk, but it is the one place a float
    touches a monetary input.
+   **Fixed 2026-09-27**: the two sends now use string-based `apiMoney`, and the frontend has 54 automated tests (Vitest); see stage-23 addendum 8.
 10. **Smaller drift.** #67 says `APPROVED` is persisted; code goes straight from `REQUESTED` to `VOIDED`/`COMPLETED`.
     #43 says X-readings while the shift is open; the code also allows them on a closed shift. #37 does not mention that
     cash sales are now net of change. #52 does not mention that statutory discounts bypass `DISCOUNT_OVERRIDE`. #2's
@@ -256,6 +257,6 @@ to #75 (NON_VAT through reports), #79/#80 (series installation checks), and the 
 
 - It did not run the tests. Verdicts come from reading them, so a test that reads well but is broken would be missed.
 - It did not measure line or branch coverage.
-- It did not audit the frontend, which has no automated tests.
+- It did not audit the frontend. (It had no automated tests then; since 2026-09-27 it has 54 Vitest tests on the money arithmetic, retry keys, API wrapper and session dialog.)
 - Nothing here changes the frozen Stage 2 baseline. Suggested wording changes to `invariants.md` (findings 7 and 10)
   need the owner's approval before the corpus is edited.
