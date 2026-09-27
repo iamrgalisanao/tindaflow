@@ -481,3 +481,23 @@ renewed cookie works as a credential; the configured lifetime stays within 400 d
 credential get none. The renewal test fails on the old code. Both the original and the renewed cookie are encrypted by the web
 middleware with a fresh IV, so their raw strings differ.
 
+## Addendum 2026-09-27 (7) — keeping the restricted role and the code in step (process, from the final architect pass)
+
+The DELETE regression (addendum 5) passed the whole suite because the suite runs as a PostgreSQL superuser. The set of statements
+the application can issue against a table the restricted role may not change has now been enumerated and checked by grep: the app
+DELETEs from exactly `product_barcodes` (`ProductBarcodeService`), `stock_count_lines` (`StockCountService`) and, through the
+framework, `sessions`, `cache` and `cache_locks`, all on the allow-list; and it UPDATEs a revoked table only for `sales.status`
+(`VoidService`, `RefundService`) and the void and refund lifecycle columns, all granted. There is no raw `UPDATE` or `DELETE` SQL
+against those tables. Running the whole 753-test suite as the restricted role was judged not worth doing: it would mostly report
+fixtures that write append-only tables directly, and the app-side risk is now small and enumerated.
+
+**The rule that keeps it true.** Any feature or migration that adds an application `DELETE`, or a new `UPDATE` on a table the
+hardening revokes (sales, sale items, payments, invoices, the audit log, the journal, the stock ledger, the readings, refund items
+and settlements), must in the same change update `database/scripts/harden_append_only_privileges.sql` and
+`AppendOnlyPrivilegesTest`. A new DELETE fails loudly at deploy (`tindaflow:harden-database` requires the deletable set to be
+exactly its allow-list); a new UPDATE would still fail only at the till, so review for it.
+
+**One check the suite cannot give, for the pilot.** After the first real week, have the manager exercise the paths the walkthrough
+skipped, as the live restricted role: a stock receipt, transfer and count, a CSV import, a terminal revoke and re-enrol, a user
+deactivate, and a void request followed by its approval, then look for `permission denied` in `docker compose logs app`.
+
