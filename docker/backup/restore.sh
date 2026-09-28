@@ -47,7 +47,11 @@ createdb "$TARGET"
 pg_restore -d "$TARGET" --no-owner --exit-on-error "$WORK"
 
 echo "restored into '${TARGET}'. What came back:"
+# The deployment fingerprint (App\Support\DeploymentId): the same short code the admin footer shows, derived from the
+# earliest store's own id. Printed first, so a backup file found elsewhere identifies which sale it came from before
+# anything else is read. NULL only on a database with no store yet (should never happen for a real backup).
 psql -d "$TARGET" -At <<'SQL'
+select 'deployment: ' || coalesce(upper(right(replace(id::text, '-', ''), 8)), '(no store)') from stores order by created_at limit 1;
 select 'tables: ' || count(*) from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE';
 select 'indexes: ' || count(*) from pg_indexes where schemaname = 'public';
 select 'migrations recorded: ' || count(*) from migrations;

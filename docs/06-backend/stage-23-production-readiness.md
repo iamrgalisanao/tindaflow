@@ -619,3 +619,37 @@ or lawyer confirms the item mapping); selling by the pack (only if the store ask
 appears); and whether the privileged actions that write no audit event today (user create, role change, deactivate, terminal token,
 enroll and revoke, setup changes) need one (only if a dispute makes it matter).
 
+## Addendum 2026-09-28 (10) — a deployment watermark, for anti-redistribution forensics
+
+Requested by the owner directly, following a conversation about protecting TindaFlow against unauthorized redistribution.
+The honest limit, stated to the owner before building anything: TindaFlow is unobfuscated PHP and a React SPA, handed to a
+client's own machine, with no internet requirement by design (ADR-002). Nothing makes that literally uncopyable. What this
+adds is not a lock — it is a way to trace a copy that turns up somewhere it shouldn't, back to the sale it came from,
+supporting the actual enforceable remedy (a license agreement and RA 8293/IP Code copyright claim, both outside code).
+
+**Design.** `App\Support\DeploymentId::current()` derives an 8-character uppercase code from the earliest-created `store`
+row's own UUID (dashes stripped, last 8 hex characters, uppercased). No schema change, no migration, no new column: a
+store's `id` already exists, is unique per installation (one store per server -- ADR-001, architecture.md §22), and is
+already a foreign key on nearly every table (sales, users, terminals, audit_events, ...), so it survives a copied backup or
+a copied Docker volume without being a separate thing that could be deleted from one place. Cached for a day
+(`Cache::remember`) so it costs nothing on repeat page loads.
+
+**Where it shows.** A `<meta name="tindaflow-deployment">` tag in `app.blade.php`, present on every page (till and back
+office alike, so removing it from one screen does not remove it from the app); a quiet one-line footer in the back office
+only (`AdminLayout.jsx`, "TindaFlow · <code>", muted, not shown on the till since a cashier mid-sale has no reason to see
+it); and the same code printed first in `docker/backup/restore.sh`'s summary (the SQL derivation is written out
+independently and a test cross-checks it matches the PHP one), so a backup file found elsewhere identifies its owner before
+anything else is read.
+
+**Never a gate.** It does not block, degrade, or check anything -- purely informational. `DeploymentId::current()` returns
+null and never throws, deliberately, including when the database has no `stores` table at all (a fresh, unmigrated
+checkout): a first pass broke exactly that guarantee (`ExampleTest`/`HelpRoutesTest` failed, because the SPA shell is
+documented to render before any migration has run) and was caught by the existing test suite before it shipped; the method
+now catches every `Throwable` and answers null rather than ever breaking a page.
+
+Tests: `DeploymentWatermarkTest` (5: absent pre-seed, present and stable once a store exists, identifies the *earliest*
+store when more than one exists, matches restore.sh's SQL exactly, case-insensitive) and `deployment.test.js` (3, the
+frontend reader). Verified in a real browser against the dev database: the meta tag and the footer showed the identical
+code. Not built, and not needed for this: any change to invoice rendering (frozen, BIR-sensitive formatting) or the API
+contract -- the watermark never appears on a customer-facing document.
+

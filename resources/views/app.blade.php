@@ -5,6 +5,13 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>{{ config('app.name', 'TindaFlow') }}</title>
 
+        {{-- A per-installation fingerprint, for anti-redistribution forensics only -- see App\Support\DeploymentId.
+             Absent before the first store exists. Present on every page, not just the back office, so it survives
+             even if someone strips the admin footer that reads it. --}}
+        @if ($deploymentId = \App\Support\DeploymentId::current())
+            <meta name="tindaflow-deployment" content="{{ $deploymentId }}">
+        @endif
+
         {{-- No pre-built manifest or Vite dev server is required for this
              route to return 200 and set the XSRF-TOKEN cookie (Laravel's
              `web` middleware group does that regardless) -- tests/Database's

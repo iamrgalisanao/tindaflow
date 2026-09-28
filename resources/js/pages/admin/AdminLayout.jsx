@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { deploymentId } from '../../lib/deployment';
 import { REPORT_CATEGORIES, REPORTS } from './reports/reportsRegistry';
 
 export const STORE_SETUP_NAV = [
@@ -513,7 +514,21 @@ export default function AdminLayout({
                         )
                     )}
                 </main>
+                <DeploymentFooter />
             </div>
         </div>
+    );
+}
+
+/** A quiet, one-line footer: product name and this installation's fingerprint (deployment.js), for support and
+ * anti-redistribution forensics. Never shown on the till (Pos.jsx has its own header, no room for it and no need --
+ * a cashier mid-sale has no reason to see it). */
+function DeploymentFooter() {
+    const id = deploymentId();
+
+    return (
+        <footer className="mx-auto w-full max-w-7xl px-4 py-3 text-center font-mono text-[10px] text-slate-700">
+            TindaFlow{id ? ` · ${id}` : ''}
+        </footer>
     );
 }
