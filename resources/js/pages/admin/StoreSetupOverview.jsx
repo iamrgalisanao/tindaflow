@@ -5,50 +5,40 @@ import AdminLayout from './AdminLayout';
 import { useCanConfigureFiscal } from './FiscalLockNotice';
 
 /**
- * Store-level completeness summary, derived client-side from the four
- * list endpoints rather than the terminal-scoped GET /store-setup/
- * readiness -- an admin browsing this page may not have any terminal
- * enrolled on this browser at all, so that endpoint (which 403s without
- * one) isn't the right fit here. The POS screen uses the terminal-scoped
- * endpoint instead, where a terminal credential is always already
- * present.
+ * Store-level readiness, asked of the server (GET /store-setup/overview) with the very checks the till runs, so this page
+ * can never say READY about a store whose till is blocked. It used to guess in the browser ("any installation has a
+ * terminal", "any series is active"), which is how the two came to disagree. The terminal-scoped GET /store-setup/readiness
+ * stays the till's own; this one needs only a session, because an admin may have no terminal enrolled on this browser.
  */
 const CHECKS = [
-    { key: 'fiscal_installation', label: 'Fiscal Installation', to: '/admin/store-setup/fiscal-installations', hint: 'At least one fiscal installation recorded, with a terminal assigned to it.' },
-    { key: 'invoice_series', label: 'Invoice Series', to: '/admin/store-setup/invoice-series', hint: 'At least one ACTIVE invoice series for an installation.' },
+    { key: 'fiscal_installation', label: 'Fiscal Installation', to: '/admin/store-setup/fiscal-installations', hint: 'Every till is assigned to a fiscal installation that is in effect now.' },
+    { key: 'invoice_series', label: 'Invoice Series', to: '/admin/store-setup/invoice-series', hint: 'Each till’s fiscal installation has an ACTIVE invoice series.' },
     { key: 'inventory_location', label: 'Inventory Location', to: '/admin/store-setup/inventory-locations', hint: 'A default selling location is set.' },
-    { key: 'tax_registration', label: 'Tax Registration', to: '/admin/store-setup/tax-registrations', hint: 'A current (not-yet-closed) tax registration exists.' },
+    { key: 'tax_registration', label: 'Tax Registration', to: '/admin/store-setup/tax-registrations', hint: 'A tax registration covers today.' },
 ];
 
+const PER_TERMINAL = ['fiscal_installation', 'invoice_series'];
+
 export default function StoreSetupOverview() {
-    const [checks, setChecks] = useState(null);
+    const [overview, setOverview] = useState(null);
     const [error, setError] = useState(null);
     const canConfigure = useCanConfigureFiscal();
 
     useEffect(() => {
         (async () => {
-            const [installations, series, locations, registrations] = await Promise.all([
-                apiFetch('/api/v1/fiscal-installations'),
-                apiFetch('/api/v1/invoice-series?per_page=100'),
-                apiFetch('/api/v1/inventory-locations?per_page=100'),
-                apiFetch('/api/v1/tax-registrations'),
-            ]);
+            const response = await apiFetch('/api/v1/store-setup/overview');
 
-            if (![installations, series, locations, registrations].every((r) => r.ok)) {
+            if (!response.ok) {
                 setError('Could not load store-setup status.');
                 return;
             }
 
-            const installationsWithTerminal = installations.body.filter((fi) => fi.terminals.length > 0);
-
-            setChecks({
-                fiscal_installation: installationsWithTerminal.length > 0,
-                invoice_series: series.body.data.some((s) => s.status === 'ACTIVE'),
-                inventory_location: locations.body.data.some((l) => l.is_default),
-                tax_registration: registrations.body.some((r) => r.effective_to === null),
-            });
+            setOverview(response.body);
         })();
     }, []);
+
+    const checks = overview?.checks ?? null;
+    const terminals = overview?.terminals ?? [];
 
     return (
         <AdminLayout>
@@ -80,6 +70,16 @@ export default function StoreSetupOverview() {
                                 <div>
                                     <p className="text-sm font-medium text-slate-100">{check.label}</p>
                                     <p className="text-xs text-slate-500">{check.hint}</p>
+                                    {!ready && PER_TERMINAL.includes(check.key) && terminals.length === 0 && (
+                                        <p className="mt-1 text-xs text-amber-400">
+                                            No till can sell yet. <Link to="/admin/terminals" className="underline">Add and enroll a terminal</Link> first.
+                                        </p>
+                                    )}
+                                    {!ready && PER_TERMINAL.includes(check.key) && terminals.some((terminal) => !terminal.checks[check.key]) && (
+                                        <p className="mt-1 text-xs text-amber-400">
+                                            Not ready for: {terminals.filter((terminal) => !terminal.checks[check.key]).map((terminal) => terminal.terminal_code).join(', ')}
+                                        </p>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <span

@@ -2372,6 +2372,21 @@ paths:
               schema: {$ref: '#/components/schemas/StoreSetupReadiness'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /store-setup/overview:
+    get:
+      operationId: storeSetupOverviewGet
+      tags: [StoreSetup]
+      x-capability: STORE_SETTINGS_MANAGE
+      summary: Store-setup readiness for the whole store
+      description: 'Session only (an administrator may have no terminal enrolled on the browser they use). Asks the same four questions the till asks (storeSetupReadinessGet), for every terminal that can sell (ACTIVE and not revoked): the store is ready only when each of them is. `terminals` carries each one''s own checks so a failure can be pinned to a till; with no terminal that can sell, fiscal_installation and invoice_series are false.'
+      responses:
+        '200':
+          description: Store readiness
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StoreSetupOverview'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   # --------------------------------------------------------------- Audit
   /audit-events:
     get:
@@ -3837,6 +3852,21 @@ components:
             invoice_series: {type: boolean}
             inventory_location: {type: boolean}
             tax_registration: {type: boolean}
+    StoreSetupOverview:
+      description: Store-wide readiness from the same checks the till runs, per terminal that can sell.
+      type: object
+      properties:
+        ready: {type: boolean}
+        checks: {$ref: '#/components/schemas/StoreSetupReadiness/properties/checks'}
+        terminals:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: string, format: uuid}
+              terminal_code: {type: string}
+              ready: {type: boolean}
+              checks: {$ref: '#/components/schemas/StoreSetupReadiness/properties/checks'}
     AuditEvent:
       type: object
       properties:

@@ -400,6 +400,7 @@ Read-only, non-authoritative aggregate across the four checkout-time resolver pr
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
 |---|---|---|---|---|---|---|---|---|---|
 | GET | /store-setup/readiness | storeSetupReadinessGet | session+terminal | true | — | no | — | 200 StoreSetupReadiness | 401, 403 |
+| GET | /store-setup/overview | storeSetupOverviewGet | session | false | `STORE_SETTINGS_MANAGE` | no | — | 200 StoreSetupOverview | 401, 403 |
 
 ## Audit (2) — read-only
 

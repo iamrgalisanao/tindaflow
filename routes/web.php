@@ -303,6 +303,10 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // Terminal-scoped like shiftCurrentGet -- no x-capability, since a
     // cashier on an enrolled terminal needs this readiness check too, not
     // just an admin.
+    // The store-wide view of the same checks (storeSetupOverviewGet), for the Store Setup overview: session only, since
+    // an admin may have no terminal enrolled on the browser they are using.
+    Route::get('/store-setup/overview', [StoreSetupController::class, 'overview'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
     Route::get('/store-setup/readiness', [StoreSetupController::class, 'readiness'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
 
