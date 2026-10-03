@@ -66,6 +66,9 @@ jobs:
         # needs GNU date and bash 4.2+, which the postgres image (the one the backup container is built from) has
         run: docker run --rm -v "$PWD":/w postgres:17 bash /w/scripts/test-backup.sh
 
+      - name: Certificate renewal script tests
+        run: bash scripts/test-tls.sh
+
       - name: Code style
         run: vendor/bin/pint --test
 

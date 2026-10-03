@@ -8,6 +8,8 @@
 docker/.env
 docker/certs
 docker/backups
+docker/letsencrypt
+docker/acme
 node_modules
 vendor
 public/build

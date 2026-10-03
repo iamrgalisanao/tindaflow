@@ -26,6 +26,8 @@ services:
     volumes:
       # fullchain.pem and privkey.pem (docker/README.md explains how to make them)
       - ${TLS_CERT_DIR:-./certs}:/etc/nginx/certs:ro
+      # Let's Encrypt challenge files, written by docker/tls/letsencrypt.sh (a public host name only; empty on a shop LAN)
+      - ./acme:/var/www/acme:ro
     depends_on:
       app:
         condition: service_healthy

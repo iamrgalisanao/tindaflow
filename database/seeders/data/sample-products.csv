@@ -1,0 +1,29 @@
+sku,name,category,unit_of_measure,cost,selling_price,tax_class,track_inventory,reorder_level
+SAMPLE-001,Bottled Water 500ml,Beverages,pc,9.00,15.00,VATABLE,true,24
+SAMPLE-002,Cola 290ml,Beverages,pc,14.00,20.00,VATABLE,true,24
+SAMPLE-003,Orange Juice Drink 250ml,Beverages,pc,11.00,16.00,VATABLE,true,12
+SAMPLE-004,Instant Coffee 3-in-1 Sachet,Beverages,pc,8.00,12.00,VATABLE,true,30
+SAMPLE-005,Chocolate Malt Drink Sachet,Beverages,pc,9.50,14.00,VATABLE,true,20
+SAMPLE-006,Powdered Milk Sachet 33g,Beverages,pc,12.00,17.00,VATABLE,true,20
+SAMPLE-007,Instant Noodles Chicken,Noodles and Canned Goods,pc,9.00,13.00,VATABLE,true,30
+SAMPLE-008,Instant Pancit Canton,Noodles and Canned Goods,pc,13.00,18.00,VATABLE,true,30
+SAMPLE-009,Canned Sardines in Tomato Sauce 155g,Noodles and Canned Goods,pc,21.00,28.00,VATABLE,true,12
+SAMPLE-010,Corned Beef 150g,Noodles and Canned Goods,pc,33.00,42.00,VATABLE,true,12
+SAMPLE-011,Canned Tuna Flakes 155g,Noodles and Canned Goods,pc,29.00,38.00,VATABLE,true,12
+SAMPLE-012,Potato Chips 60g,Snacks,pack,24.00,32.00,VATABLE,true,10
+SAMPLE-013,Corn Snack 55g,Snacks,pack,12.00,17.00,VATABLE,true,10
+SAMPLE-014,Chocolate Wafer Bar,Snacks,pc,7.00,10.00,VATABLE,true,20
+SAMPLE-015,Butter Crackers 10s,Snacks,pack,38.00,48.00,VATABLE,true,8
+SAMPLE-016,Roasted Peanuts 100g,Snacks,pack,11.00,18.00,VATABLE,true,10
+SAMPLE-017,Soy Sauce 350ml,Cooking Needs,pc,19.00,26.00,VATABLE,true,6
+SAMPLE-018,Vinegar 350ml,Cooking Needs,pc,15.00,21.00,VATABLE,true,6
+SAMPLE-019,Cooking Oil 1L,Cooking Needs,pc,82.00,98.00,VATABLE,true,6
+SAMPLE-020,Tomato Sauce 250g,Cooking Needs,pc,20.00,27.00,VATABLE,true,6
+SAMPLE-021,Seasoning Granules Sachet 8g,Cooking Needs,pc,4.50,7.00,VATABLE,true,30
+SAMPLE-022,Laundry Detergent Powder Sachet,Household,pc,7.00,10.00,VATABLE,true,30
+SAMPLE-023,Dishwashing Liquid 250ml,Household,pc,21.00,32.00,VATABLE,true,6
+SAMPLE-024,Bath Soap 90g,Household,pc,24.00,33.00,VATABLE,true,12
+SAMPLE-025,Shampoo Sachet 12ml,Household,pc,6.00,8.00,VATABLE,true,30
+SAMPLE-026,Toothpaste Sachet 20g,Household,pc,9.00,13.00,VATABLE,true,20
+SAMPLE-027,Bathroom Tissue 2-ply Roll,Household,pc,13.00,18.00,VATABLE,true,12
+SAMPLE-028,AA Battery (pair),Household,pack,32.00,45.00,VATABLE,true,6

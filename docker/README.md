@@ -23,7 +23,7 @@ Needs Docker with the Compose plugin. Run everything from this `docker/` folder.
    - `DB_OWNER_PASSWORD` and `DB_PASSWORD`: two different long random passwords (`openssl rand -base64 24` twice). The first belongs to the owner, the second to the application's `tindaflow_app` role, which `migrate` creates. Leave `DB_USERNAME=tindaflow_app` as it is: the database rules are written for that exact name.
    - `APP_URL`: the HTTPS address terminals will use. `APP_TIMEZONE`: the store's zone (default `Asia/Manila`).
 2. **A certificate** in `certs/`, named `fullchain.pem` and `privkey.pem`. Cookies are `Secure`, so nobody can sign in over plain HTTP.
-   - A public host name: use Let's Encrypt (any ACME client) and copy the two files here.
+   - A public host name (a VPS): `tls/letsencrypt.sh issue <host-name> <your e-mail>` gets a free Let's Encrypt certificate and puts the two files here. See "A public host name" below for the renewal.
    - A store LAN with no public name: make a certificate for the server's name or IP, and install it on each till's browser as trusted:
      ```bash
      openssl req -x509 -newkey rsa:4096 -nodes -keyout certs/privkey.pem -out certs/fullchain.pem -days 825 \
@@ -35,6 +35,22 @@ Needs Docker with the Compose plugin. Run everything from this `docker/` folder.
 5. **Create each till, once.** The API has no "add a till" operation, so a till is created from the server: `docker compose exec app php artisan tindaflow:create-terminal TILL-1` (one command per till; `--store="<name>"` only if the server has more than one store). Then sign in as the administrator, finish **Store Setup** (business details, tax registration, fiscal installation and its invoice series, a stock location), open **Terminals**, click **Enrollment token** on the till, and enter the token on the till computer. Nothing sells until that is done.
 
 Check it: `docker compose ps` (all `healthy`) and `curl -k https://<server>/up`.
+
+## A public host name (a rented server)
+
+For a server on the internet with its own name, such as `beta.example.com`. A shop LAN does not need any of this.
+
+1. **Point the name at the server** (an `A` record in your DNS) and open ports 80 and 443 in the firewall, nothing else besides SSH. Set `APP_URL=https://<host-name>` in `.env`.
+2. **Get the certificate, before the first `docker compose up`:** `tls/letsencrypt.sh issue <host-name> <your e-mail>`. It runs certbot in a throwaway container (nothing is installed), accepts the Let's Encrypt Subscriber Agreement for you, and writes `certs/fullchain.pem` and `certs/privkey.pem`. The e-mail is where Let's Encrypt sends expiry warnings. Then continue the first deploy from step 3.
+3. **Renew automatically.** A Let's Encrypt certificate lasts 90 days. Add one line to the server's crontab (`crontab -e`), with the real path:
+   ```
+   17 3 * * * /opt/tindaflow/docker/tls/letsencrypt.sh renew >> /var/log/tindaflow-tls.log 2>&1
+   ```
+   Every night it asks certbot whether a renewal is due (under 30 days left); when one happens it installs the new certificate and reloads nginx without dropping a connection. If the installed certificate ever has fewer than 14 days left, it sends the same alert the backups use (Telegram, below). Run it once by hand to see it work: it should print nothing alarming and exit quietly.
+
+Keep `docker/letsencrypt/` (certbot's account and keys; git ignores it) and never publish it. Renewal needs port 80 reachable from the internet.
+
+**Sample products for beta testers.** A production server starts with an empty catalog (the demo data is never loaded there). To give testers something to sell: `docker compose exec app php artisan tindaflow:load-sample-data`. It asks before changing anything, then adds five categories and 28 products whose SKUs start with `SAMPLE-`, through the same import the catalog screen uses (so each is in the audit log). It creates no user, till, tax registration, stock or barcode. Running it again puts the sample products back to their original values and touches nothing else. Do not run it on a shop that is really trading.
 
 ## Upgrading
 

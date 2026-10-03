@@ -33,3 +33,5 @@ Thumbs.db
 /docker/certs/*
 !/docker/certs/.gitkeep
 /docker/backups/
+/docker/letsencrypt/
+/docker/acme/

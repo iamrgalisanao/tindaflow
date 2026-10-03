@@ -653,3 +653,35 @@ frontend reader). Verified in a real browser against the dev database: the meta 
 code. Not built, and not needed for this: any change to invoice rendering (frozen, BIR-sensitive formatting) or the API
 contract -- the watermark never appears on a customer-facing document.
 
+## Addendum 2026-10-03 (11) — a hosted beta: automatic certificate renewal and an opt-in sample catalog
+
+The owner will host a beta for outside testers on a rented server under his own domain (Target B in `deployment.md`), all testers
+sharing one store. Two gaps stood in the way, both requested by the owner.
+
+**Certificate renewal (`docker/tls/letsencrypt.sh`).** The README told a public host to "use Let's Encrypt (any ACME client) and copy
+the two files here", which means a manual step every 90 days and an outage when it is forgotten. The script runs certbot in a
+throwaway container on the host: `issue` gets the first certificate (on port 80 itself when the stack has never started, since nginx
+cannot start without a certificate; through nginx otherwise), `renew` is a nightly cron line. nginx's port-80 server now serves
+`/.well-known/acme-challenge/` from `docker/acme` (mounted read-only) and still redirects everything else; a LAN shop is unaffected
+(the folder is empty). The certificate is copied into `docker/certs` key first, each file moved into place whole, and nginx is
+reloaded only when the certificate changed. A failed renewal exits non-zero; when the installed certificate has fewer than 14 days
+left (`TLS_ALERT_DAYS`) it alerts through `backup.sh`'s own `alert()`, so `ALERT_COMMAND` and Telegram behave as they do for a failed
+backup. Rejected: a certbot service inside the compose stack (it could not reload nginx without the Docker socket, and it would run
+on every LAN shop for nothing).
+
+**Sample catalog (`php artisan tindaflow:load-sample-data`).** `DemoDataSeeder` rightly refuses production: it creates a cashier with a
+known password and an activated till, both unacceptable on the internet. The new command is a different thing: catalog rows only (five
+categories, 28 products in `database/seeders/data/sample-products.csv`, every SKU prefixed `SAMPLE-`), imported through
+`ProductImportService` so they are validated and audited like any CSV import, plus one `SAMPLE_DATA_LOADED` audit event that says it
+came from the console. No user, till, tax registration, fiscal installation, stock or barcode (an invented barcode could collide with
+a real product's). All sample products are packaged goods marked `VATABLE`; nothing whose VAT treatment needs a legal reading (rice,
+fresh produce) is included. It is never run automatically, asks for confirmation in production (`--force` skips it), and running it
+again restores the sample rows and touches nothing else. `CreateTerminal`'s store lookup moved to a shared `ResolvesStore` trait.
+
+**Verification.** `LoadSampleDataCommandTest` (6) and the existing `CreateTerminalCommandTest` (6) pass. `scripts/test-tls.sh` (42
+checks, a stub `docker`, real short-lived certificates for the expiry rule) passes and runs in CI. **Not verified:** the script against
+the real Let's Encrypt service and the changed nginx configuration in a running container (no Docker daemon and no public host name
+were available); run `tls/letsencrypt.sh issue` and one `renew` by hand on the beta server and confirm both before relying on the cron line.
+
+**Beta receipts are not official receipts.** BIR accreditation remains parked (owner decision, 2026-09-25); testers ring up test sales only.
+
