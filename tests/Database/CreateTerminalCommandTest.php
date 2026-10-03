@@ -12,8 +12,8 @@ use Illuminate\Support\Str;
 use Tests\Database\Concerns\BuildsSalesScenario;
 
 /**
- * `tindaflow:create-terminal`: the only way a production shop gets its first till (the API has no terminalCreate, and the
- * demo seeder refuses to run in production).
+ * `tindaflow:create-terminal`: the server-console way to create a till (the Terminals screen's "Add terminal" is the
+ * browser way; the demo seeder refuses to run in production).
  */
 class CreateTerminalCommandTest extends PostgresSchemaTestCase
 {

@@ -38,6 +38,7 @@ class ModuleAHttpIntegrationTest extends PostgresSchemaTestCase
         $protectedRoutes = [
             ['POST', '/api/v1/auth/logout'],
             ['GET', '/api/v1/auth/me'],
+            ['POST', '/api/v1/terminals'],
             ['POST', '/api/v1/terminal-enrollment-tokens'],
             ['POST', '/api/v1/terminal/enroll'],
             ['GET', '/api/v1/terminal/current'],

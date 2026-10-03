@@ -149,6 +149,32 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
   /terminals:
+    post:
+      operationId: terminalCreate
+      tags: [Terminal]
+      x-capability: TERMINAL_MANAGE
+      summary: Create a terminal (a till) for the store
+      description: 'Requires TERMINAL_MANAGE. Creates an ACTIVE terminal that is not yet enrolled; enroll a browser as it with terminalCreateEnrollmentToken then terminalEnroll. terminal_code is unique per store, compared case-insensitively; a duplicate is a 422 VALIDATION_FAILED field error.'
+      security:
+      - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [terminal_code]
+              properties:
+                terminal_code: {type: string, minLength: 1, maxLength: 40}
+      responses:
+        '201':
+          description: Terminal created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TerminalSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
     get:
       operationId: terminalList
       tags: [Terminal]

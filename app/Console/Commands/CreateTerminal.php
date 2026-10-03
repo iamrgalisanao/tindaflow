@@ -10,11 +10,10 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Creates a till (a terminal) for a store. The API has no terminalCreate operation, and the only other writer of the
- * `terminals` table is DemoDataSeeder, which refuses to run in production, so without this a real shop could never get its
- * first till: nothing sells until a browser is enrolled as a terminal, and enrolling needs a terminal that already exists.
- * Run by whoever administers the server (`docker compose exec app php artisan tindaflow:create-terminal TILL-1`); the
- * enrollment itself (a one-time token, entered on the till computer) is still done from the Terminals screen.
+ * Creates a till (a terminal) for a store from the server console. The Terminals screen's "Add terminal" button
+ * (terminalCreate) does the same from the browser; this remains for scripted or headless setup
+ * (`docker compose exec app php artisan tindaflow:create-terminal TILL-1`). The enrollment itself (a one-time token,
+ * entered on the till computer) is done from the Terminals screen.
  */
 class CreateTerminal extends Command
 {

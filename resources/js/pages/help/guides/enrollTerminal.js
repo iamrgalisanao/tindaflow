@@ -9,7 +9,7 @@ export default {
     before: [
         'You are signed in as an **Admin**.',
         'You are at the computer or tablet that will be the till, or you can copy a short code to it.',
-        'The terminal already exists (for example **DEMO-01**). You do not create it on this screen: whoever looks after the server creates each till once, with `tindaflow:create-terminal TILL-1`. If the list below is empty, ask them.',
+        'You know what to call the till (for example **TILL-1**). If it is not in the list yet, you add it in the first step.',
     ],
     steps: [
         {
@@ -22,8 +22,8 @@ export default {
             },
         },
         {
-            title: 'Open Terminals and issue a token',
-            body: 'Click **Terminals** in the menu. Under **Store terminals**, find your till and click **Enrollment token** on its row.',
+            title: 'Open Terminals, add the till and issue a token',
+            body: 'Click **Terminals** in the menu. If your till is not listed, type its name under **Add terminal** and click **Add terminal**. Then, under **Store terminals**, find your till and click **Enrollment token** on its row.',
             figure: {
                 shot: 'terminals-before',
                 alt: 'The Terminals page showing this browser is not enrolled and one terminal in the list.',

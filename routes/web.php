@@ -56,6 +56,8 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // the human session + TERMINAL_MANAGE (back-office, no terminal
     // credential needed yet -- that's what these operations establish/
     // manage).
+    Route::post('/terminals', [TerminalController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
     Route::post('/terminal-enrollment-tokens', [TerminalController::class, 'createEnrollmentToken'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
     Route::post('/terminal/enroll', [TerminalController::class, 'enroll'])

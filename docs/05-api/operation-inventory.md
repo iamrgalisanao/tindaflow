@@ -48,6 +48,7 @@ admin operations that make sense from any authenticated browser, and
 | POST | /terminal-enrollment-tokens | terminalCreateEnrollmentToken | session | false | `TERMINAL_MANAGE` | no | terminal_id | 201 Token | 403, 404 |
 | POST | /terminal/enroll | terminalEnroll | session (admin on this workstation) | false (this is what establishes it) | `TERMINAL_MANAGE` | no | token | 200 TerminalSummary | 409 (token used/expired/revoked) |
 | GET | /terminal/current | terminalCurrent | session | true | — | no | — | 200 TerminalSummary | `TERMINAL_NOT_ENROLLED` |
+| POST | /terminals | terminalCreate | session | false | `TERMINAL_MANAGE` | no | — | 201 | 403, 422 |
 | GET | /terminals | terminalList | session | false | `TERMINAL_MANAGE` | no | — | 200 paginated | 403 |
 | GET | /terminals/{terminalId} | terminalGet | session | false | `TERMINAL_MANAGE` | no | — | 200 TerminalSummary | 403, 404 |
 | POST | /terminals/{terminalId}/revoke | terminalRevoke | session | false | `TERMINAL_MANAGE` | no | — | 200 TerminalSummary | 403, 404 |

@@ -10,9 +10,8 @@ import { formatDateTime } from './reports/formatters';
  *
  * Every POS_TERMINAL-classified operation (shiftOpen, saleFinalize, shifts/current) needs the
  * `tindaflow_terminal` credential ADR-011 establishes here, so nothing at the till works until a
- * browser is enrolled. Terminals themselves are not created here: no terminalCreate operation
- * exists in the contract, so they must already exist before they can be enrolled. The server operator creates
- * them from the console (`php artisan tindaflow:create-terminal TILL-1`), which is what the empty state points to.
+ * browser is enrolled. A terminal must exist before it can be enrolled: "Add terminal" creates one
+ * (terminalCreate), so a shop never needs the server console for its first till.
  *
  * Revocation is read from `revoked_at`, never from `status`: the two are independent by design
  * (module-a §14 Ruling 9 -- revoking writes `revoked_at` and deliberately leaves the TerminalStatus
@@ -37,6 +36,8 @@ export default function TerminalsPage() {
     const [issued, setIssued] = useState(null); // { terminalId, token, expiresAt }
     const [pastedToken, setPastedToken] = useState('');
     const [confirmRevoke, setConfirmRevoke] = useState(null); // the terminal awaiting confirmation
+    const [newCode, setNewCode] = useState('');
+    const [codeError, setCodeError] = useState(null);
 
     const loadThisBrowser = useCallback(async () => {
         const response = await request('/api/v1/terminal/current');
@@ -57,6 +58,26 @@ export default function TerminalsPage() {
     useEffect(() => {
         loadThisBrowser();
     }, [loadThisBrowser]);
+
+    async function addTerminal(event) {
+        event.preventDefault();
+        const code = newCode.trim();
+        setBusy(true);
+        setActionError(null);
+        setCodeError(null);
+        setNotice(null);
+        const response = await request('/api/v1/terminals', { method: 'POST', body: { terminal_code: code } });
+        if (response.ok) {
+            setNewCode('');
+            setNotice(`${response.body.terminal_code} was added. Click “Enrollment token” on its row to enroll a browser as it.`);
+            reload();
+        } else if (response.status === 422 && response.body?.error?.details?.terminal_code) {
+            setCodeError([].concat(response.body.error.details.terminal_code)[0]);
+        } else {
+            setActionError(failureMessage(response, 'The terminal could not be added.'));
+        }
+        setBusy(false);
+    }
 
     async function generateToken(terminal) {
         setBusy(true);
@@ -115,8 +136,8 @@ export default function TerminalsPage() {
             <div className="mb-4">
                 <h2 className="text-xl font-semibold text-slate-100">Terminals</h2>
                 <p className="mt-1 max-w-2xl text-sm text-slate-400">
-                    A till can only sell from a browser that holds a terminal credential. Generate a one-time enrollment token for a terminal, then
-                    enter it on the machine that will run the till.
+                    A till can only sell from a browser that holds a terminal credential. Add a terminal, generate a one-time enrollment token for
+                    it, then enter that token on the machine that will run the till.
                 </p>
             </div>
 
@@ -208,13 +229,44 @@ export default function TerminalsPage() {
                 </div>
             )}
 
+            <form onSubmit={addTerminal} className="mb-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <h3 className="text-sm font-semibold text-slate-100">Add terminal</h3>
+                <div className="mt-3 flex flex-wrap items-end gap-2">
+                    <div className="min-w-0 flex-1">
+                        <label htmlFor="terminal_code" className="mb-1 block text-xs text-slate-500">
+                            Till name
+                        </label>
+                        <input
+                            id="terminal_code"
+                            type="text"
+                            maxLength={40}
+                            value={newCode}
+                            onChange={(event) => setNewCode(event.target.value)}
+                            placeholder="For example TILL-1"
+                            aria-invalid={codeError ? 'true' : undefined}
+                            aria-describedby={codeError ? 'terminal_code_error' : undefined}
+                            className={`${fieldClass} font-mono`}
+                        />
+                    </div>
+                    <button
+                        type="submit"
+                        disabled={busy || newCode.trim() === ''}
+                        className="min-h-11 rounded-md bg-emerald-500 px-4 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 lg:min-h-0 lg:py-2"
+                    >
+                        Add terminal
+                    </button>
+                </div>
+                {codeError && (
+                    <p id="terminal_code_error" role="alert" className="mt-2 text-xs text-rose-400">
+                        {codeError}
+                    </p>
+                )}
+            </form>
+
             {result && terminals.length === 0 && (
                 <div className="rounded-lg border border-dashed border-slate-800 p-8 text-center">
                     <p className="text-sm text-slate-200">No terminals exist for this store yet.</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                        A till is created once by whoever looks after the server, not from this screen. Ask them to run{' '}
-                        <code className="font-mono text-slate-400">php artisan tindaflow:create-terminal TILL-1</code>, then reload this page and enroll it.
-                    </p>
+                    <p className="mt-1 text-xs text-slate-500">Name your first till above (for example TILL-1), then enroll a browser as it.</p>
                 </div>
             )}
 
