@@ -10,6 +10,13 @@ await shot(page, 'till-not-enrolled', { clip: { x: 300, y: 40, w: 600, h: 260 },
 
 // ---------------------------------------------------------------- terminals: issue a token, enrol this browser
 await go(page, '/admin/terminals');
+await (await page.$('#terminal_code')).type('TILL-1');
+await shot(page, 'terminals-add', {
+    targets: { name: { sel: '#terminal_code' }, add: { text: 'Add terminal', tag: 'button' } },
+    padBy: { name: 4 },
+});
+await click(page, 'Add terminal', { tag: 'button' });
+await sleep(900);
 await shot(page, 'terminals-before', {
     targets: { 'this-browser': { sel: 'section' }, token: { text: 'Enrollment token', tag: 'button' } },
 });

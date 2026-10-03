@@ -22,11 +22,23 @@ export default {
             },
         },
         {
-            title: 'Open Terminals, add the till and issue a token',
-            body: 'Click **Terminals** in the menu. If your till is not listed, type its name under **Add terminal** and click **Add terminal**. Then, under **Store terminals**, find your till and click **Enrollment token** on its row.',
+            title: 'Open Terminals and add the till',
+            body: 'Click **Terminals** in the menu. If your till is not in the list, type its name under **Add terminal** (for example **TILL-1**) and click **Add terminal**. Each till needs its own name, and two tills cannot share one.',
+            figure: {
+                shot: 'terminals-add',
+                alt: 'The Add terminal form with the till name TILL-1 typed in.',
+                marks: [
+                    { type: 'type', target: 'name', label: 'Till name', detail: 'Till name, for example:', text: 'TILL-1' },
+                    { type: 'click', target: 'add', label: 'Click Add terminal', detail: 'Click Add terminal. The till appears under Store terminals.' },
+                ],
+            },
+        },
+        {
+            title: 'Issue a token',
+            body: 'Under **Store terminals**, find your till and click **Enrollment token** on its row.',
             figure: {
                 shot: 'terminals-before',
-                alt: 'The Terminals page showing this browser is not enrolled and one terminal in the list.',
+                alt: 'The Terminals page showing this browser is not enrolled and the terminals in the list.',
                 marks: [
                     { type: 'look', target: 'this-browser', label: 'Not enrolled yet', detail: 'The box at the top says whether this browser is enrolled.' },
                     { type: 'click', target: 'token', label: 'Click Enrollment token', detail: 'Click Enrollment token on the till’s row.' },
