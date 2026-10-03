@@ -2,8 +2,10 @@
 
 namespace Tests\Database;
 
+use App\Models\AuditEvent;
 use App\Models\TaxRegistration;
 use App\Models\User;
+use App\Services\StoreSetup\StoreSetupReadinessService;
 use Illuminate\Testing\TestResponse;
 
 /** openapi.yaml StoreSettings tag's tax-registrations paths -- already-frozen contract, implemented here for the first time. */
@@ -104,5 +106,99 @@ class TaxRegistrationHttpTest extends PostgresSchemaTestCase
 
         $response->assertOk();
         $this->assertCount(1, $response->json());
+    }
+
+    private function register(TestResponse $login, string $from, string $type = 'VAT'): TestResponse
+    {
+        return $this->forwardSessionCookie($login)->postJson('/api/v1/tax-registrations', ['registration_type' => $type, 'effective_from' => $from]);
+    }
+
+    public function test_a_registration_that_has_not_started_is_corrected_in_place_instead_of_stranding_the_shop(): void
+    {
+        $admin = $this->fiscalAdmin();
+        $login = $this->login($admin);
+        $mistaken = $this->register($login, now()->addDays(7)->toDateString());
+        $mistaken->assertStatus(201);
+
+        $fixed = $this->register($login, now()->toDateString());
+
+        $fixed->assertStatus(201);
+        $this->assertSame($mistaken->json('id'), $fixed->json('id'), 'the same row, corrected');
+        $this->assertSame(1, TaxRegistration::where('store_id', $admin->store_id)->count());
+        $row = TaxRegistration::sole();
+        $this->assertSame(now()->toDateString(), $row->effective_from->toDateString());
+        $this->assertNull($row->effective_to);
+        $event = AuditEvent::where('event_type', 'TAX_REGISTRATION_CORRECTED')->sole();
+        $this->assertSame($admin->id, $event->actor_user_id);
+        $this->assertSame(now()->addDays(7)->toDateString(), $event->before_metadata['effective_from']);
+        $this->assertSame(now()->toDateString(), $event->after_metadata['effective_from']);
+    }
+
+    public function test_correcting_the_type_and_a_later_date_also_works(): void
+    {
+        $admin = $this->fiscalAdmin();
+        $login = $this->login($admin);
+        $this->register($login, now()->addDays(7)->toDateString(), 'VAT')->assertStatus(201);
+
+        $this->register($login, now()->addDays(14)->toDateString(), 'NON_VAT')->assertStatus(201);
+
+        $row = TaxRegistration::sole();
+        $this->assertSame('NON_VAT', $row->registration_type);
+        $this->assertSame(now()->addDays(14)->toDateString(), $row->effective_from->toDateString());
+    }
+
+    public function test_correcting_a_registration_that_has_not_started_moves_the_end_of_the_one_before_it(): void
+    {
+        $admin = $this->fiscalAdmin();
+        $login = $this->login($admin);
+        $this->register($login, '2026-01-01')->assertStatus(201);
+        $this->register($login, now()->addDays(7)->toDateString())->assertStatus(201);
+        $this->assertSame(now()->addDays(6)->toDateString(), TaxRegistration::where('effective_from', '2026-01-01')->sole()->effective_to->toDateString());
+
+        $this->register($login, now()->addDays(2)->toDateString())->assertStatus(201);
+
+        $this->assertSame(2, TaxRegistration::count());
+        $this->assertSame(now()->addDay()->toDateString(), TaxRegistration::where('effective_from', '2026-01-01')->sole()->effective_to->toDateString(), 'no gap and no overlap');
+        $this->assertSame(1, TaxRegistration::whereNull('effective_to')->count());
+    }
+
+    public function test_a_correction_must_still_leave_the_previous_registration_a_day_of_its_own(): void
+    {
+        $admin = $this->fiscalAdmin();
+        $login = $this->login($admin);
+        $this->register($login, '2026-01-01')->assertStatus(201);
+        $this->register($login, now()->addDays(7)->toDateString())->assertStatus(201);
+
+        $this->register($login, '2026-01-01')->assertStatus(422)->assertJson(['error' => ['code' => 'VALIDATION_FAILED']]);
+
+        $this->assertSame(now()->addDays(7)->toDateString(), TaxRegistration::whereNull('effective_to')->sole()->effective_from->toDateString(), 'nothing changed');
+        $this->assertSame(0, AuditEvent::where('event_type', 'TAX_REGISTRATION_CORRECTED')->count());
+    }
+
+    public function test_a_registration_that_has_started_is_never_edited(): void
+    {
+        $admin = $this->fiscalAdmin();
+        $login = $this->login($admin);
+        $started = $this->register($login, now()->subDays(10)->toDateString());
+
+        $this->register($login, now()->subDays(20)->toDateString())->assertStatus(422);
+        $next = $this->register($login, now()->addDay()->toDateString());
+
+        $next->assertStatus(201);
+        $this->assertNotSame($started->json('id'), $next->json('id'), 'a new row, the started one is closed, not rewritten');
+        $this->assertSame(now()->toDateString(), TaxRegistration::find($started->json('id'))->effective_to->toDateString());
+        $this->assertSame(0, AuditEvent::where('event_type', 'TAX_REGISTRATION_CORRECTED')->count());
+    }
+
+    public function test_once_corrected_to_today_the_till_has_a_current_registration(): void
+    {
+        $admin = $this->fiscalAdmin();
+        $login = $this->login($admin);
+        $this->register($login, now()->addDays(7)->toDateString());
+        $this->register($login, now()->toDateString());
+
+        $ready = app(StoreSetupReadinessService::class)->forStore($admin->store_id);
+
+        $this->assertTrue($ready['checks']['tax_registration']);
     }
 }

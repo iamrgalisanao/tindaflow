@@ -32,6 +32,7 @@ class TaxRegistrationController extends Controller
             $actor->store_id,
             $request->validated('registration_type'),
             $request->validated('effective_from'),
+            $actor,
         );
 
         return (new TaxRegistrationResource($registration))->response()->setStatusCode(201);

@@ -2089,6 +2089,7 @@ paths:
       operationId: taxRegistrationCreate
       tags: [StoreSettings]
       x-capability: FISCAL_CONFIGURATION_MANAGE
+      description: 'A registration that has not started yet (its effective_from is still in the future) has never applied to a sale, so registering again CORRECTS it in place (new type and start date, the end of the registration before it moved to match, the old values audited as TAX_REGISTRATION_CORRECTED); the new date then only has to be after the previous registration started. A registration that has started is never edited: a new one must start after it.'
       summary: Register a new effective-dated tax registration (never overwrites history — Stage 2 invariant
       requestBody:
         required: true
