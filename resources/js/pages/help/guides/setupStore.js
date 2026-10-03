@@ -8,6 +8,7 @@ export default {
     minutes: 12,
     before: [
         'You are signed in as an **Admin**. Managers and cashiers do not see these screens.',
+        'Your TindaFlow provider has **unlocked the fiscal setup** for you (tax registration, fiscal installation and invoice series). It is locked the rest of the time, to protect your invoice numbering. Business details and stock locations are always yours to change.',
         'You have your business papers to hand: the registered name, the **TIN**, the address, and whether the business is VAT-registered.',
         'If you are unsure what to type in a tax or invoice box, ask the owner or your accountant first. These details print on every invoice.',
     ],

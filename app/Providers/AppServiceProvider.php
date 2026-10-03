@@ -43,7 +43,7 @@ class AppServiceProvider extends ServiceProvider
         // UserSummaryResource reads -- never a second, independently
         // maintained mapping.
         foreach (RoleCapabilityCatalog::CAPABILITIES as $capability) {
-            Gate::define($capability, fn (User $user): bool => RoleCapabilityCatalog::has($user->role, $capability));
+            Gate::define($capability, fn (User $user): bool => RoleCapabilityCatalog::hasForUser($user, $capability));
         }
     }
 }

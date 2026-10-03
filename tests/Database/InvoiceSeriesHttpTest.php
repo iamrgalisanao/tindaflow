@@ -31,7 +31,7 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
 
     public function test_creating_a_series_bootstraps_current_number_one_below_starting_number(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $login = $this->login($admin);
 
@@ -48,7 +48,7 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
 
     public function test_a_second_active_series_for_the_same_installation_is_rejected(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $login = $this->login($admin);
 
@@ -70,7 +70,7 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
 
     public function test_closing_a_series_allows_a_new_one_to_be_activated(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $login = $this->login($admin);
 
@@ -111,7 +111,7 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
 
     public function test_a_replacement_series_cannot_start_at_or_below_a_number_already_issued(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $login = $this->login($admin);
         $this->closedSeriesThatIssued($login, $installation, 1, 250);
@@ -135,7 +135,7 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
 
     public function test_the_refusal_names_the_starting_number_field(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $login = $this->login($admin);
         $this->closedSeriesThatIssued($login, $installation, 1, 250);
@@ -153,7 +153,7 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
 
     public function test_an_earlier_series_that_never_issued_a_number_does_not_block_a_lower_start(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $login = $this->login($admin);
         $this->closedSeriesThatIssued($login, $installation, 1000, 0);
@@ -167,7 +167,7 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
 
     public function test_a_series_of_another_fiscal_installation_does_not_reserve_numbers(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $used = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $other = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $login = $this->login($admin);
@@ -182,7 +182,7 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
 
     public function test_an_active_series_still_answers_already_active_not_a_number_error(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $login = $this->login($admin);
         $first = $this->forwardSessionCookie($login)->postJson('/api/v1/invoice-series', [
@@ -201,7 +201,7 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
 
     public function test_closing_an_already_closed_series_is_rejected(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $series = InvoiceSeries::factory()->closed()->create(['store_id' => $admin->store_id, 'fiscal_installation_id' => $installation->id]);
         $login = $this->login($admin);
@@ -214,7 +214,7 @@ class InvoiceSeriesHttpTest extends PostgresSchemaTestCase
 
     public function test_closing_a_series_from_another_store_is_not_found(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $foreignSeries = InvoiceSeries::factory()->create();
         $login = $this->login($admin);
 

@@ -26,7 +26,7 @@ class TaxRegistrationHttpTest extends PostgresSchemaTestCase
 
     public function test_an_admin_can_create_a_tax_registration(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $login = $this->login($admin);
 
         $response = $this->forwardSessionCookie($login)->postJson('/api/v1/tax-registrations', [
@@ -40,7 +40,7 @@ class TaxRegistrationHttpTest extends PostgresSchemaTestCase
 
     public function test_creating_a_new_registration_closes_the_prior_current_one(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $login = $this->login($admin);
 
         $first = $this->forwardSessionCookie($login)->postJson('/api/v1/tax-registrations', [
@@ -62,7 +62,7 @@ class TaxRegistrationHttpTest extends PostgresSchemaTestCase
 
     public function test_a_new_registration_effective_before_the_current_one_is_rejected(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $login = $this->login($admin);
 
         $this->forwardSessionCookie($login)->postJson('/api/v1/tax-registrations', [

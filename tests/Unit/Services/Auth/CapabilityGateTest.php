@@ -9,7 +9,7 @@ use Tests\TestCase;
 
 /**
  * A2: one Gate ability per fixed capability (AppServiceProvider::boot()),
- * each backed by RoleCapabilityCatalog::has(). Uses plain, unsaved User
+ * each backed by RoleCapabilityCatalog::hasForUser(). Uses plain, unsaved User
  * instances -- the Gate closure only reads $user->role, so no database
  * is needed to exercise the full allow/deny matrix.
  */
@@ -23,12 +23,13 @@ class CapabilityGateTest extends TestCase
         return $user;
     }
 
-    public function test_gate_allows_admin_for_every_capability(): void
+    public function test_gate_allows_admin_for_every_capability_except_the_one_held_back_until_an_unlock(): void
     {
         $admin = $this->userWithRole('ADMIN');
 
         foreach (RoleCapabilityCatalog::CAPABILITIES as $capability) {
-            $this->assertTrue(Gate::forUser($admin)->allows($capability), "ADMIN should be allowed $capability");
+            $expected = $capability !== RoleCapabilityCatalog::UNLOCK_ONLY_CAPABILITY;
+            $this->assertSame($expected, Gate::forUser($admin)->allows($capability), "ADMIN x $capability");
         }
     }
 

@@ -3,6 +3,7 @@
 namespace App\Services\Terminal;
 
 use App\Domain\Exceptions\EnrollmentTokenInvalidException;
+use App\Models\Store;
 use App\Models\Terminal;
 use App\Models\TerminalEnrollmentToken;
 use Illuminate\Support\Facades\DB;
@@ -76,6 +77,13 @@ final class TerminalEnrollmentService
     {
         return DB::transaction(function () use ($terminalId): array {
             $terminal = Terminal::lockForUpdate()->findOrFail($terminalId);
+
+            // ADR-014: re-enrolling a revoked terminal takes a licensed seat back (backstop to the check made
+            // when the token was issued -- a license can change in between).
+            if ($terminal->revoked_at !== null) {
+                Store::whereKey($terminal->store_id)->lockForUpdate()->first();
+                app(TerminalSeats::class)->assertRoomForOneMore($terminal->id);
+            }
 
             $plaintextCredential = Str::random(64);
 

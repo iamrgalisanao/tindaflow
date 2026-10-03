@@ -47,4 +47,14 @@ return [
         'cash_out_authorization_threshold' => env('CASH_OUT_AUTHORIZATION_THRESHOLD', '1000.00'),
     ],
 
+    // ADR-014: the vendor-signed license that caps how many tills this installation may run. `public_key` is a
+    // constant in code on purpose (base64 of the 32-byte Ed25519 public key from `tindaflow:license-keygen`), never an
+    // environment variable: a shop that could swap it could sign its own license. Empty = the cap is not enforced.
+    // The signed license itself is a file (default storage/app/license.key) or TINDAFLOW_LICENSE.
+    'license' => [
+        'public_key' => '',
+        'path' => env('TINDAFLOW_LICENSE_FILE', storage_path('app/license.key')),
+        'token' => env('TINDAFLOW_LICENSE'),
+    ],
+
 ];

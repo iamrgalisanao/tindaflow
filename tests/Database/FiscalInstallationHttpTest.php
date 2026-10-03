@@ -36,7 +36,7 @@ class FiscalInstallationHttpTest extends PostgresSchemaTestCase
 
     public function test_an_admin_can_create_a_fiscal_installation(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $login = $this->login($admin);
 
         $response = $this->forwardSessionCookie($login)->postJson('/api/v1/fiscal-installations', [
@@ -75,7 +75,7 @@ class FiscalInstallationHttpTest extends PostgresSchemaTestCase
 
     public function test_list_only_returns_the_actors_own_store_installations(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $own = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $other = FiscalInstallation::factory()->create();
         $login = $this->login($admin);
@@ -90,7 +90,7 @@ class FiscalInstallationHttpTest extends PostgresSchemaTestCase
 
     public function test_assigning_a_terminal_creates_the_mapping(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $terminal = Terminal::factory()->create(['store_id' => $admin->store_id]);
         $login = $this->login($admin);
@@ -109,7 +109,7 @@ class FiscalInstallationHttpTest extends PostgresSchemaTestCase
 
     public function test_reassigning_a_terminal_closes_the_prior_mapping(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $firstInstallation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $secondInstallation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $terminal = Terminal::factory()->create(['store_id' => $admin->store_id]);
@@ -130,7 +130,7 @@ class FiscalInstallationHttpTest extends PostgresSchemaTestCase
 
     public function test_reassigned_terminal_no_longer_appears_on_the_prior_installation(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $firstInstallation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $secondInstallation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $terminal = Terminal::factory()->create(['store_id' => $admin->store_id]);
@@ -153,7 +153,7 @@ class FiscalInstallationHttpTest extends PostgresSchemaTestCase
 
     public function test_assigning_a_terminal_from_another_store_is_rejected(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $installation = FiscalInstallation::factory()->create(['store_id' => $admin->store_id]);
         $foreignTerminal = Terminal::factory()->create();
         $login = $this->login($admin);
@@ -167,7 +167,7 @@ class FiscalInstallationHttpTest extends PostgresSchemaTestCase
 
     public function test_assigning_to_a_fiscal_installation_from_another_store_is_rejected(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = $this->fiscalAdmin();
         $foreignInstallation = FiscalInstallation::factory()->create();
         $terminal = Terminal::factory()->create(['store_id' => $admin->store_id]);
         $login = $this->login($admin);

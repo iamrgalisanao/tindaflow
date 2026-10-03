@@ -8,15 +8,15 @@ use Tests\TestCase;
 /** api-design.md's "Stage 6 default role->capability mapping" table, projected. */
 class RoleCapabilityCatalogTest extends TestCase
 {
-    public function test_admin_has_every_capability(): void
+    public function test_admin_has_every_capability_except_the_one_held_back_until_an_unlock(): void
     {
         $capabilities = RoleCapabilityCatalog::forRole('ADMIN');
 
-        $this->assertCount(17, $capabilities);
+        $this->assertCount(16, $capabilities);
         $this->assertContains('USER_MANAGE', $capabilities);
         $this->assertContains('TERMINAL_MANAGE', $capabilities);
-        $this->assertContains('FISCAL_CONFIGURATION_MANAGE', $capabilities);
         $this->assertContains('STORE_SETTINGS_MANAGE', $capabilities);
+        $this->assertNotContains('FISCAL_CONFIGURATION_MANAGE', $capabilities, 'ADR-014: only while the server operator has unlocked it');
     }
 
     public function test_manager_lacks_admin_only_capabilities(): void
@@ -48,9 +48,12 @@ class RoleCapabilityCatalogTest extends TestCase
         $this->assertCount(17, array_unique(RoleCapabilityCatalog::CAPABILITIES));
     }
 
-    public function test_admin_is_defined_as_literally_every_capability(): void
+    public function test_admin_is_defined_as_every_capability_but_the_unlock_only_one(): void
     {
-        $this->assertSame(RoleCapabilityCatalog::CAPABILITIES, RoleCapabilityCatalog::forRole('ADMIN'));
+        $this->assertSame(
+            array_values(array_diff(RoleCapabilityCatalog::CAPABILITIES, [RoleCapabilityCatalog::UNLOCK_ONLY_CAPABILITY])),
+            RoleCapabilityCatalog::forRole('ADMIN'),
+        );
     }
 
     public function test_has_matches_for_role_for_every_role_and_capability(): void

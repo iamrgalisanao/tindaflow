@@ -14,6 +14,8 @@
 #   scripts/help-shots/run.sh 09 10        # only the scripts whose names start with these numbers (the database
 #                                          # must already be in the state the earlier scripts leave it in)
 #
+# The scratch store's fiscal setup is unlocked for 8 hours (ADR-014), as it would be during an installation.
+#
 # Note: the steps are slow (about 30 minutes in all) and each one changes the scratch database. If a browser refuses to close and a
 # step stalls, stop the run (Ctrl-C) and start it again from the top; a partial run is never safe to resume.
 #
@@ -42,7 +44,8 @@ if [ "$#" -eq 0 ]; then
   psql -q -d postgres -c "DROP DATABASE IF EXISTS $DB WITH (FORCE)" -c "CREATE DATABASE $DB OWNER ${DB_USERNAME:-tindaflow}"
   stop_browsers
   rm -rf "$PROFILE"
-  (cd "$ROOT" && php artisan migrate --force --no-interaction >/dev/null && php artisan db:seed --force --no-interaction >/dev/null)
+  (cd "$ROOT" && php artisan migrate --force --no-interaction >/dev/null && php artisan db:seed --force --no-interaction >/dev/null \
+    && php artisan tindaflow:fiscal-setup unlock --minutes=480 >/dev/null)
   echo '{}' > "$ROOT/resources/js/pages/help/shots/annotations.json"
   rm -f "$ROOT"/resources/js/pages/help/shots/*.webp
 fi

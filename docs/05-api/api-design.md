@@ -206,7 +206,7 @@ change, since call sites ask `can($user, CAPABILITY)`, never `if role ==
 | `STORE_SETTINGS_MANAGE` | ✓ | — | — |
 | `USER_MANAGE` | ✓ | — | — |
 | `TERMINAL_MANAGE` | ✓ | — | — |
-| `FISCAL_CONFIGURATION_MANAGE` | ✓ | — | — |
+| `FISCAL_CONFIGURATION_MANAGE` | only while unlocked (ADR-014) | — | — |
 
 This matches the governing brief's own role sketch (Manager: "POS,
 products, inventory, reports, shifts, approve void/refund, limited

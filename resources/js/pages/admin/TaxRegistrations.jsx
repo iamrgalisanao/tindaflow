@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../../api';
 import AdminLayout from './AdminLayout';
+import FiscalLockNotice, { useCanConfigureFiscal } from './FiscalLockNotice';
 
 export default function TaxRegistrations() {
     const [registrations, setRegistrations] = useState(null);
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
+    const canConfigure = useCanConfigureFiscal();
 
     const [registrationType, setRegistrationType] = useState('VAT');
     const [effectiveFrom, setEffectiveFrom] = useState('');
@@ -49,30 +51,34 @@ export default function TaxRegistrations() {
 
             {error && <p className="mb-4 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-300">{error}</p>}
 
-            <form onSubmit={createRegistration} className="mb-6 flex flex-wrap gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <select
-                    value={registrationType}
-                    onChange={(event) => setRegistrationType(event.target.value)}
-                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                >
-                    <option value="VAT">VAT</option>
-                    <option value="NON_VAT">NON_VAT</option>
-                </select>
-                <input
-                    type="date"
-                    required
-                    value={effectiveFrom}
-                    onChange={(event) => setEffectiveFrom(event.target.value)}
-                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                />
-                <button
-                    type="submit"
-                    disabled={busy}
-                    className="rounded-md bg-emerald-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
-                >
-                    Register
-                </button>
-            </form>
+            {canConfigure ? (
+                <form onSubmit={createRegistration} className="mb-6 flex flex-wrap gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4">
+                    <select
+                        value={registrationType}
+                        onChange={(event) => setRegistrationType(event.target.value)}
+                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                    >
+                        <option value="VAT">VAT</option>
+                        <option value="NON_VAT">NON_VAT</option>
+                    </select>
+                    <input
+                        type="date"
+                        required
+                        value={effectiveFrom}
+                        onChange={(event) => setEffectiveFrom(event.target.value)}
+                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                    />
+                    <button
+                        type="submit"
+                        disabled={busy}
+                        className="rounded-md bg-emerald-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+                    >
+                        Register
+                    </button>
+                </form>
+            ) : (
+                <FiscalLockNotice />
+            )}
 
             {registrations === null && <p className="text-sm text-slate-500">Loading…</p>}
             {registrations?.length === 0 && <p className="text-sm text-slate-500">No tax registrations yet.</p>}

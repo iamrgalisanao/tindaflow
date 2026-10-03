@@ -137,7 +137,7 @@ export default function TransfersPage() {
     const tracked = lookups.products.filter((product) => product.track_inventory);
     const hasTwoLocations = lookups.locations.length >= 2;
     const canManageTerminals = user.capabilities.includes('TERMINAL_MANAGE');
-    const canCreateLocations = user.capabilities.includes('FISCAL_CONFIGURATION_MANAGE');
+    const canCreateLocations = user.capabilities.includes('STORE_SETTINGS_MANAGE');
     const canMove = !lookups.loading && hasTwoLocations && terminal.state !== 'not-enrolled';
 
     return (

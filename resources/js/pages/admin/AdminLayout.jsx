@@ -231,7 +231,7 @@ const SECTIONS = [
         label: 'Store Setup',
         to: '/admin/store-setup',
         icon: 'store',
-        capability: 'FISCAL_CONFIGURATION_MANAGE',
+        capability: 'STORE_SETTINGS_MANAGE',
         matches: (path) => path.startsWith('/admin/store-setup'),
         links: STORE_SETUP_NAV,
     },
@@ -393,7 +393,7 @@ function SidebarBody({ expanded, user, sections, pathname, onNavigate, onSignOut
 export default function AdminLayout({
     children,
     title = 'Store Setup & Fiscal Configuration',
-    requiredCapability = 'FISCAL_CONFIGURATION_MANAGE',
+    requiredCapability = 'STORE_SETTINGS_MANAGE',
     deniedView = null,
     wide = false,
 }) {

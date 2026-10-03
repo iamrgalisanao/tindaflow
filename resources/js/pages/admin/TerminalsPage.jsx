@@ -130,6 +130,9 @@ export default function TerminalsPage() {
     }
 
     const terminals = result?.data ?? [];
+    // ADR-014: null when this installation has no licensed till limit.
+    const license = result?.meta?.license ?? null;
+    const atLimit = license !== null && license.in_use >= license.max_terminals;
 
     return (
         <AdminLayout title="Terminals" requiredCapability="TERMINAL_MANAGE" wide>
@@ -231,6 +234,12 @@ export default function TerminalsPage() {
 
             <form onSubmit={addTerminal} className="mb-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
                 <h3 className="text-sm font-semibold text-slate-100">Add terminal</h3>
+                {license && (
+                    <p className="mt-1 text-xs text-slate-500">
+                        {license.in_use} of {license.max_terminals} licensed till{license.max_terminals === 1 ? '' : 's'} in use.
+                        {atLimit && ' To add another, revoke one you no longer use, or ask your TindaFlow provider to raise the limit.'}
+                    </p>
+                )}
                 <div className="mt-3 flex flex-wrap items-end gap-2">
                     <div className="min-w-0 flex-1">
                         <label htmlFor="terminal_code" className="mb-1 block text-xs text-slate-500">
@@ -250,7 +259,7 @@ export default function TerminalsPage() {
                     </div>
                     <button
                         type="submit"
-                        disabled={busy || newCode.trim() === ''}
+                        disabled={busy || atLimit || newCode.trim() === ''}
                         className="min-h-11 rounded-md bg-emerald-500 px-4 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 lg:min-h-0 lg:py-2"
                     >
                         Add terminal

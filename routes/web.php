@@ -268,8 +268,10 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // Store setup (docs/06-ui/stage-8-store-setup.md). Admin CRUD is
     // FISCAL_CONFIGURATION_MANAGE-gated, store-scoped, no terminal
     // credential needed -- same shape as Terminal management above.
+    // ADR-014: the fiscal configuration is read-only for a store's administrators until the server operator unlocks it
+    // (FISCAL_CONFIGURATION_MANAGE), so the lists below need only a session -- a shop can always see what is configured.
     Route::get('/fiscal-installations', [FiscalInstallationController::class, 'list'])
-        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+        ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/fiscal-installations', [FiscalInstallationController::class, 'create'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
     Route::post('/fiscal-installations/{fiscalInstallationId}/terminals', [FiscalInstallationController::class, 'assignTerminal'])
@@ -281,21 +283,22 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
 
     Route::get('/invoice-series', [InvoiceSeriesController::class, 'list'])
-        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+        ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/invoice-series', [InvoiceSeriesController::class, 'create'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
     Route::post('/invoice-series/{invoiceSeriesId}/close', [InvoiceSeriesController::class, 'close'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
 
     // Listing is session-only (like the tax-registration list): a location is just a name, and the stock,
-    // count and transfer screens of a MANAGER (STOCK_ADJUST without FISCAL_CONFIGURATION_MANAGE) need it to show
-    // where stock is. Creating and editing stay FISCAL_CONFIGURATION_MANAGE. Loosened in stage 25.
+    // count and transfer screens of a MANAGER (STOCK_ADJUST without STORE_SETTINGS_MANAGE) need it to show
+    // where stock is. Creating and editing need STORE_SETTINGS_MANAGE (ADR-014: stock locations are the shop's own,
+    // not part of the locked fiscal configuration).
     Route::get('/inventory-locations', [InventoryLocationController::class, 'list'])
         ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/inventory-locations', [InventoryLocationController::class, 'create'])
-        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
     Route::patch('/inventory-locations/{inventoryLocationId}', [InventoryLocationController::class, 'update'])
-        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
 
     // Terminal-scoped like shiftCurrentGet -- no x-capability, since a
     // cashier on an enrolled terminal needs this readiness check too, not

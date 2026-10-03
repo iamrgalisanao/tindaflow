@@ -154,7 +154,7 @@ paths:
       tags: [Terminal]
       x-capability: TERMINAL_MANAGE
       summary: Create a terminal (a till) for the store
-      description: 'Requires TERMINAL_MANAGE. Creates an ACTIVE terminal that is not yet enrolled; enroll a browser as it with terminalCreateEnrollmentToken then terminalEnroll. terminal_code is unique per store, compared case-insensitively; a duplicate is a 422 VALIDATION_FAILED field error.'
+      description: 'Requires TERMINAL_MANAGE. Creates an ACTIVE terminal that is not yet enrolled; enroll a browser as it with terminalCreateEnrollmentToken then terminalEnroll. terminal_code is unique per store, compared case-insensitively; a duplicate is a 422 VALIDATION_FAILED field error. When the installation carries a signed license (ADR-014) and every licensed till is in use, the answer is 409 TERMINAL_LIMIT_REACHED.'
       security:
       - cookieAuth: []
       requestBody:
@@ -174,12 +174,18 @@ paths:
               schema: {$ref: '#/components/schemas/TerminalSummary'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: The installation's license allows no more active tills (TERMINAL_LIMIT_REACHED)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
     get:
       operationId: terminalList
       tags: [Terminal]
       x-capability: TERMINAL_MANAGE
       summary: List terminals for the store
+      description: 'meta.license is null when no till limit is enforced on this installation, otherwise {max_terminals, in_use} (ADR-014).'
       security:
       - cookieAuth: []
       parameters:
@@ -2108,9 +2114,8 @@ paths:
     get:
       operationId: fiscalInstallationList
       tags: [FiscalInstallation]
-      x-capability: FISCAL_CONFIGURATION_MANAGE
       summary: List fiscal installations
-      description: 'Administrative surface only. Entering values here does not itself constitute BIR accreditation — TindaFlow V1 is not accredited (architecture.md §12/ADR-009).'
+      description: 'Session only, so a store can always see what is configured (ADR-014: changing it needs FISCAL_CONFIGURATION_MANAGE, held only while the server operator has unlocked it). Administrative surface only. Entering values here does not itself constitute BIR accreditation — TindaFlow V1 is not accredited (architecture.md §12/ADR-009).'
       responses:
         '200':
           description: Fiscal installations
@@ -2202,8 +2207,8 @@ paths:
     get:
       operationId: invoiceSeriesList
       tags: [InvoiceSeries]
-      x-capability: FISCAL_CONFIGURATION_MANAGE
       summary: List invoice series for the store
+      description: 'Session only (ADR-014): reading is open to the store, changing is not.'
       parameters:
       - {$ref: '#/components/parameters/PageParam'}
       - {$ref: '#/components/parameters/PerPageParam'}
@@ -2299,7 +2304,7 @@ paths:
     post:
       operationId: inventoryLocationCreate
       tags: [Inventory]
-      x-capability: FISCAL_CONFIGURATION_MANAGE
+      x-capability: STORE_SETTINGS_MANAGE
       summary: Create an inventory location
       description: A store's first location is made the default automatically, regardless of the submitted `is_default` value -- otherwise a fresh store could never pass the checkout-time default-location check without a second, separate call.
       requestBody:
@@ -2320,7 +2325,7 @@ paths:
     patch:
       operationId: inventoryLocationUpdate
       tags: [Inventory]
-      x-capability: FISCAL_CONFIGURATION_MANAGE
+      x-capability: STORE_SETTINGS_MANAGE
       summary: Rename an inventory location, or promote it to the store's default
       description: '`is_default` may only be submitted as `true` -- a location is promoted to default (which transactionally demotes the current one), never explicitly demoted on its own, so this endpoint can never leave a store with zero default locations.'
       parameters:

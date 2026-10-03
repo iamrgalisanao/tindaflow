@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../../api';
 import AdminLayout from './AdminLayout';
+import FiscalLockNotice, { useCanConfigureFiscal } from './FiscalLockNotice';
 
 const DEPLOYMENT_MODELS = ['STANDALONE', 'SERVER_CONNECTED'];
 
@@ -9,6 +10,7 @@ export default function FiscalInstallations() {
     const [terminals, setTerminals] = useState([]);
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
+    const canConfigure = useCanConfigureFiscal();
 
     const [deploymentModel, setDeploymentModel] = useState('STANDALONE');
     const [softwareVersion, setSoftwareVersion] = useState('');
@@ -87,41 +89,45 @@ export default function FiscalInstallations() {
 
             {error && <p className="mb-4 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-300">{error}</p>}
 
-            <form onSubmit={createInstallation} className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4 sm:grid-cols-4">
-                <select
-                    value={deploymentModel}
-                    onChange={(event) => setDeploymentModel(event.target.value)}
-                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                >
-                    {DEPLOYMENT_MODELS.map((model) => (
-                        <option key={model} value={model}>
-                            {model}
-                        </option>
-                    ))}
-                </select>
-                <input
-                    type="text"
-                    required
-                    placeholder="Software version"
-                    value={softwareVersion}
-                    onChange={(event) => setSoftwareVersion(event.target.value)}
-                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
-                />
-                <input
-                    type="text"
-                    placeholder="Machine serial number (optional)"
-                    value={machineSerialNumber}
-                    onChange={(event) => setMachineSerialNumber(event.target.value)}
-                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
-                />
-                <button
-                    type="submit"
-                    disabled={busy}
-                    className="rounded-md bg-emerald-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
-                >
-                    Add installation
-                </button>
-            </form>
+            {canConfigure ? (
+                <form onSubmit={createInstallation} className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4 sm:grid-cols-4">
+                    <select
+                        value={deploymentModel}
+                        onChange={(event) => setDeploymentModel(event.target.value)}
+                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                    >
+                        {DEPLOYMENT_MODELS.map((model) => (
+                            <option key={model} value={model}>
+                                {model}
+                            </option>
+                        ))}
+                    </select>
+                    <input
+                        type="text"
+                        required
+                        placeholder="Software version"
+                        value={softwareVersion}
+                        onChange={(event) => setSoftwareVersion(event.target.value)}
+                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
+                    />
+                    <input
+                        type="text"
+                        placeholder="Machine serial number (optional)"
+                        value={machineSerialNumber}
+                        onChange={(event) => setMachineSerialNumber(event.target.value)}
+                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
+                    />
+                    <button
+                        type="submit"
+                        disabled={busy}
+                        className="rounded-md bg-emerald-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+                    >
+                        Add installation
+                    </button>
+                </form>
+            ) : (
+                <FiscalLockNotice />
+            )}
 
             {installations === null && <p className="text-sm text-slate-500">Loading…</p>}
             {installations?.length === 0 && <p className="text-sm text-slate-500">No fiscal installations yet.</p>}
@@ -142,6 +148,7 @@ export default function FiscalInstallations() {
                             </span>
                         </div>
 
+                        {canConfigure && (
                         <div className="mt-3 flex gap-2 border-t border-slate-800 pt-3">
                             <select
                                 value={assignTerminalId[installation.id] ?? ''}
@@ -166,6 +173,7 @@ export default function FiscalInstallations() {
                                 Assign
                             </button>
                         </div>
+                        )}
                     </li>
                 ))}
             </ul>

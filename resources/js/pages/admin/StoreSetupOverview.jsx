@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiFetch } from '../../api';
 import AdminLayout from './AdminLayout';
+import { useCanConfigureFiscal } from './FiscalLockNotice';
 
 /**
  * Store-level completeness summary, derived client-side from the four
@@ -22,6 +23,7 @@ const CHECKS = [
 export default function StoreSetupOverview() {
     const [checks, setChecks] = useState(null);
     const [error, setError] = useState(null);
+    const canConfigure = useCanConfigureFiscal();
 
     useEffect(() => {
         (async () => {
@@ -59,6 +61,13 @@ export default function StoreSetupOverview() {
 
             {checks === null && !error && <p className="text-sm text-slate-500">Loading…</p>}
 
+            {checks && !canConfigure && Object.entries(checks).some(([key, ready]) => !ready && key !== 'inventory_location') && (
+                <p role="note" className="mb-4 rounded-md border border-amber-800/60 bg-amber-950/30 px-3 py-2 text-sm text-amber-300">
+                    The tax and invoice items below are locked and set during installation. If one is incomplete, ask your TindaFlow provider to finish it.
+                    Your stock locations and business details you can change yourself.
+                </p>
+            )}
+
             {checks && (
                 <ul className="space-y-2">
                     {CHECKS.map((check) => {
@@ -83,7 +92,7 @@ export default function StoreSetupOverview() {
                                         {ready ? 'Ready' : 'Incomplete'}
                                     </span>
                                     <Link to={check.to} className="text-xs text-slate-400 underline hover:text-slate-200">
-                                        Manage
+                                        {check.key === 'inventory_location' || canConfigure ? 'Manage' : 'View'}
                                     </Link>
                                 </div>
                             </li>

@@ -9,10 +9,12 @@ use App\Http\Requests\EnrollTerminalRequest;
 use App\Http\Resources\TerminalEnrollmentTokenResource;
 use App\Http\Resources\TerminalSummaryResource;
 use App\Models\AuditEvent;
+use App\Models\Store;
 use App\Models\Terminal;
 use App\Services\Terminal\TerminalCredentialCookie;
 use App\Services\Terminal\TerminalEnrollmentService;
 use App\Services\Terminal\TerminalEnrollmentTokenService;
+use App\Services\Terminal\TerminalSeats;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -32,12 +34,17 @@ class TerminalController extends Controller
      * terminalCreate: ACTIVE and never enrolled -- activated_at and the credential are set when a browser enrolls
      * (TerminalEnrollmentService). Mirrors `tindaflow:create-terminal`, which stays for the first till on a fresh server.
      */
-    public function create(CreateTerminalRequest $request): JsonResponse
+    public function create(CreateTerminalRequest $request, TerminalSeats $seats): JsonResponse
     {
         $actor = Auth::guard('web')->user();
         $code = $request->validated('terminal_code');
 
-        $terminal = DB::transaction(function () use ($actor, $code) {
+        $terminal = DB::transaction(function () use ($actor, $code, $seats) {
+            // ADR-014: the licensed till count is checked under a lock on the store row, so two simultaneous
+            // requests cannot both take the last seat.
+            Store::whereKey($actor->store_id)->lockForUpdate()->first();
+            $seats->assertRoomForOneMore();
+
             $terminal = Terminal::create(['store_id' => $actor->store_id, 'terminal_code' => $code, 'status' => 'ACTIVE']);
 
             AuditEvent::create([
@@ -56,11 +63,17 @@ class TerminalController extends Controller
         return (new TerminalSummaryResource($terminal->refresh()))->response()->setStatusCode(201);
     }
 
-    public function createEnrollmentToken(CreateEnrollmentTokenRequest $request, TerminalEnrollmentTokenService $service): JsonResponse
+    public function createEnrollmentToken(CreateEnrollmentTokenRequest $request, TerminalEnrollmentTokenService $service, TerminalSeats $seats): JsonResponse
     {
         $actor = Auth::guard('web')->user();
 
         $terminal = $this->findInActorsStore($request->validated('terminal_id'), $actor->store_id);
+
+        // Enrolling again clears a revocation (TerminalEnrollmentService), which takes a seat back (ADR-014): refuse
+        // before a token is issued rather than after it has been spent.
+        if ($terminal->revoked_at !== null) {
+            $seats->assertRoomForOneMore($terminal->id);
+        }
 
         $issued = $service->issue($terminal, $actor);
 
@@ -87,7 +100,7 @@ class TerminalController extends Controller
         return (new TerminalSummaryResource($request->attributes->get('terminal')))->response();
     }
 
-    public function list(Request $request): JsonResponse
+    public function list(Request $request, TerminalSeats $seats): JsonResponse
     {
         $actor = Auth::guard('web')->user();
 
@@ -109,6 +122,8 @@ class TerminalController extends Controller
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),
                 'last_page' => $paginator->lastPage(),
+                // ADR-014: null when no licensed cap is enforced on this installation.
+                'license' => $seats->maximum() === null ? null : ['max_terminals' => $seats->maximum(), 'in_use' => $seats->inUse()],
             ],
         ]);
     }

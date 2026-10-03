@@ -2,6 +2,8 @@
 
 namespace Tests\Database;
 
+use App\Models\User;
+use App\Services\StoreSetup\FiscalConfigurationLock;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -39,6 +41,15 @@ abstract class PostgresSchemaTestCase extends TestCase
         }
 
         DB::beginTransaction();
+    }
+
+    /** An ADMIN in a store whose fiscal configuration is unlocked (ADR-014), as during installation. */
+    protected function fiscalAdmin(): User
+    {
+        $admin = User::factory()->admin()->create();
+        app(FiscalConfigurationLock::class)->unlock($admin->store_id, 60);
+
+        return $admin;
     }
 
     protected function tearDown(): void

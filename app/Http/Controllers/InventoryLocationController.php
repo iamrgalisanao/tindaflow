@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Auth;
 
 /**
  * New forward-committed admin surface (no prior openapi.yaml draft --
- * see docs/06-ui/stage-8-store-setup.md). FISCAL_CONFIGURATION_MANAGE.
+ * see docs/06-ui/stage-8-store-setup.md). STORE_SETTINGS_MANAGE (ADR-014).
  */
 class InventoryLocationController extends Controller
 {

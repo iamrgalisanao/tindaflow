@@ -3,9 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Console\Commands\Concerns\ResolvesStore;
+use App\Domain\Exceptions\TerminalLimitReachedException;
 use App\Models\AuditEvent;
 use App\Models\Store;
 use App\Models\Terminal;
+use App\Services\Terminal\TerminalSeats;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -46,7 +48,27 @@ class CreateTerminal extends Command
             return self::FAILURE;
         }
 
-        $terminal = DB::transaction(function () use ($store, $code) {
+        try {
+            $terminal = $this->createTerminal($store, $code);
+        } catch (TerminalLimitReachedException $limit) {
+            $this->error($limit->getMessage().' Nothing was created.');
+
+            return self::FAILURE;
+        }
+        $this->info("Created till '{$terminal->terminal_code}' for '{$store->name}'.");
+        $this->line('Next: sign in as an administrator, open Terminals, click "Enrollment token" on that till, and enter the token on the till computer.');
+
+        return self::SUCCESS;
+    }
+
+    /** @throws TerminalLimitReachedException */
+    private function createTerminal(Store $store, string $code): Terminal
+    {
+        return DB::transaction(function () use ($store, $code) {
+            // ADR-014: the licensed till count is checked under a lock on the store row.
+            Store::whereKey($store->id)->lockForUpdate()->first();
+            app(TerminalSeats::class)->assertRoomForOneMore();
+
             // ACTIVE and never enrolled: activated_at and the credential are set when a browser enrolls (TerminalEnrollmentService).
             $terminal = Terminal::create(['store_id' => $store->id, 'terminal_code' => $code, 'status' => 'ACTIVE']);
 
@@ -62,10 +84,5 @@ class CreateTerminal extends Command
 
             return $terminal;
         });
-
-        $this->info("Created till '{$terminal->terminal_code}' for '{$store->name}'.");
-        $this->line('Next: sign in as an administrator, open Terminals, click "Enrollment token" on that till, and enter the token on the till computer.');
-
-        return self::SUCCESS;
     }
 }

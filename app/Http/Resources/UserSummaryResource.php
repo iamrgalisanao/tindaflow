@@ -29,7 +29,7 @@ class UserSummaryResource extends JsonResource
             'name' => $this->resource->name,
             'email' => $this->resource->email,
             'role' => $this->resource->role,
-            'capabilities' => RoleCapabilityCatalog::forRole($this->resource->role),
+            'capabilities' => RoleCapabilityCatalog::forUser($this->resource),
             'active' => $this->resource->active,
         ];
     }
