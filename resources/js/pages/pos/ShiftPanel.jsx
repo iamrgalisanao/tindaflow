@@ -1,4 +1,5 @@
 import { pesos, toCents } from './posMoney';
+import MoneyInput from '../../components/MoneyInput';
 
 /**
  * Everything about the open shift that is not selling: the cash drawer (paid in and paid out, each with a reason) and
@@ -36,13 +37,11 @@ export default function ShiftPanel({ shift, type, amount, reason, notice, busy, 
                     <label htmlFor="cash_movement_amount" className="mb-1 block text-xs text-slate-400">
                         Amount (₱)
                     </label>
-                    <input
+                    <MoneyInput
                         id="cash_movement_amount"
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="0.00"
+                        placeholder="₱0.00"
                         value={amount}
-                        onChange={(event) => onAmount(event.target.value)}
+                        onChange={onAmount}
                         className="min-h-12 w-full rounded border border-slate-700 bg-slate-950 px-3 text-right font-mono text-base tabular-nums text-slate-100"
                     />
                 </div>

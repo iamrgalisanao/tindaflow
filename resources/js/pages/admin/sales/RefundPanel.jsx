@@ -4,6 +4,7 @@ import { fieldErrors, request } from '../catalog/catalogApi';
 import { formatMoney } from '../reports/formatters';
 import { QUANTITY_PATTERN, fromCents, fromThousandths, refundEventCents, toCents, toThousandths, trimQuantity } from './refundMath';
 import { DISPOSITIONS, PAYMENT_METHODS, reversalMessage } from './salesParts';
+import MoneyInput from '../../../components/MoneyInput';
 
 const inputClass = (error) =>
     `min-h-11 w-full rounded-md border bg-slate-950 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-1 lg:min-h-0 ${
@@ -316,15 +317,13 @@ export default function RefundPanel({ sale, executesImmediately, onDone, onClose
                                         </option>
                                     ))}
                                 </select>
-                                <input
+                                <MoneyInput
                                     aria-label="Amount"
-                                    type="text"
-                                    inputMode="decimal"
-                                    autoComplete="off"
+                                    symbol={false}
                                     placeholder="0.00"
                                     value={row.amount}
                                     aria-invalid={Boolean(errors[`settlement_${index}`])}
-                                    onChange={(event) => setSettlement(index, { amount: event.target.value })}
+                                    onChange={(value) => setSettlement(index, { amount: value })}
                                     className={`${inputClass(errors[`settlement_${index}`])} font-mono`}
                                 />
                                 <input

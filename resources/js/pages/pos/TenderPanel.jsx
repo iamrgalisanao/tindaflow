@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { clampedDiscountCents, lineCents, moneyText, pesos, toCents } from './posMoney';
+import MoneyInput from '../../components/MoneyInput';
 
 const METHOD_LABELS = { CASH: 'Cash', GCASH: 'GCash', MAYA: 'Maya', CARD: 'Card', OTHER: 'Other' };
 const QUICK_CASH = [20, 50, 100, 200, 500, 1000];
@@ -171,15 +172,13 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
                     </label>
                     <div className="flex items-center rounded border-2 border-slate-700 bg-slate-950 px-3 focus-within:border-emerald-500">
                         <span className="font-mono text-2xl text-slate-400">₱</span>
-                        <input
+                        <MoneyInput
                             id="payment_amount"
-                            type="text"
-                            inputMode="decimal"
+                            symbol={false}
                             autoFocus
-                            autoComplete="off"
                             value={active?.amount ?? ''}
                             onFocus={(event) => event.target.select()}
-                            onChange={(event) => setActiveAmount(event.target.value)}
+                            onChange={setActiveAmount}
                             aria-invalid={rowCents(active ?? { amount: '' }) === null}
                             className="min-h-16 min-w-0 flex-1 bg-transparent px-2 text-right font-mono text-3xl font-bold tabular-nums focus:outline-none"
                         />

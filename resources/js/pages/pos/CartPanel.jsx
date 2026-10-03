@@ -1,4 +1,5 @@
 import { clampedDiscountCents, fromThousandths, lineCents, pesos, toThousandths } from './posMoney';
+import MoneyInput from '../../components/MoneyInput';
 
 const STEP = 1000n; // one whole unit
 
@@ -77,14 +78,13 @@ export default function CartPanel({
                                         <label htmlFor={`line_discount_${line.product.id}`} className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-400">
                                             -₱
                                         </label>
-                                        <input
+                                        <MoneyInput
                                             id={`line_discount_${line.product.id}`}
-                                            type="text"
-                                            inputMode="decimal"
+                                            symbol={false}
                                             placeholder="0.00"
                                             value={line.discount ?? ''}
                                             onFocus={(event) => event.target.select()}
-                                            onChange={(event) => onLineDiscountChange(line.product.id, event.target.value)}
+                                            onChange={(value) => onLineDiscountChange(line.product.id, value)}
                                             aria-label={`Discount on ${line.product.name}`}
                                             className="min-h-7 w-16 rounded border border-slate-700 bg-slate-950 px-1 text-right font-mono text-xs tabular-nums text-amber-300 focus:border-amber-500 focus:outline-none"
                                         />
@@ -153,14 +153,13 @@ export default function CartPanel({
                         </label>
                         <div className="flex items-center gap-1">
                             <span className="font-mono text-sm text-slate-400">-₱</span>
-                            <input
+                            <MoneyInput
                                 id="order_discount"
-                                type="text"
-                                inputMode="decimal"
+                                symbol={false}
                                 placeholder="0.00"
                                 value={discount}
                                 onFocus={(event) => event.target.select()}
-                                onChange={(event) => onDiscountChange(event.target.value)}
+                                onChange={onDiscountChange}
                                 aria-label="Order discount amount"
                                 className="min-h-10 w-24 rounded border border-slate-700 bg-slate-900 px-2 text-right font-mono text-sm tabular-nums text-amber-300 focus:border-amber-500 focus:outline-none"
                             />
@@ -236,12 +235,11 @@ export default function CartPanel({
                             {statutoryDiscount.rule === 'BNPC_5' && (
                                 <label className="flex items-center justify-between gap-2 text-xs text-slate-300">
                                     Already discounted this week (from the booklet)
-                                    <input
-                                        type="text"
-                                        inputMode="decimal"
+                                    <MoneyInput
+                                        symbol={false}
                                         placeholder="0.00"
                                         value={statutoryDiscount.weeklyUsed}
-                                        onChange={(event) => onStatutoryDiscountChange({ ...statutoryDiscount, weeklyUsed: event.target.value })}
+                                        onChange={(value) => onStatutoryDiscountChange({ ...statutoryDiscount, weeklyUsed: value })}
                                         aria-label="Discount already taken this week"
                                         className="min-h-9 w-24 rounded border border-slate-700 bg-slate-900 px-2 text-right font-mono text-sm tabular-nums text-slate-100 focus:border-sky-500 focus:outline-none"
                                     />

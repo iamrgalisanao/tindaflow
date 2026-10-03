@@ -16,6 +16,7 @@ import TenderPanel from './pos/TenderPanel';
 import XReadingPanel from './pos/XReadingPanel';
 import { attemptKey, failureText, newIdempotencyKey, settleAttempt } from './pos/attempts';
 import { apiMoney, clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
+import MoneyInput from '../components/MoneyInput';
 
 const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'];
 
@@ -654,13 +655,11 @@ export default function Pos() {
                     <label htmlFor="opening_cash" className="block text-sm text-slate-400">
                         Opening cash
                     </label>
-                    <input
+                    <MoneyInput
                         id="opening_cash"
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="0.00"
+                        placeholder="₱0.00"
                         value={openingCash}
-                        onChange={(event) => setOpeningCash(event.target.value)}
+                        onChange={setOpeningCash}
                         className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                     />
                     <button
@@ -826,13 +825,11 @@ export default function Pos() {
                     <label htmlFor="declared_cash" className="block text-sm text-slate-400">
                         Counted cash
                     </label>
-                    <input
+                    <MoneyInput
                         id="declared_cash"
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="0.00"
+                        placeholder="₱0.00"
                         value={declaredCash}
-                        onChange={(event) => setDeclaredCash(event.target.value)}
+                        onChange={setDeclaredCash}
                         className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                     />
                     <div className="flex gap-2">

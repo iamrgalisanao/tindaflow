@@ -2,6 +2,7 @@ import { useState } from 'react';
 import SlideOver from '../SlideOver';
 import AlternateBarcodes from './AlternateBarcodes';
 import { TAX_CLASSES, failureMessage, fieldErrors, normalizeMoney, request } from './catalogApi';
+import MoneyInput from '../../../components/MoneyInput';
 
 const UNIT_SUGGESTIONS = ['pc', 'kg', 'g', 'L', 'pack', 'box'];
 
@@ -394,13 +395,12 @@ export default function ProductFormPanel({
                         <Field id="product_cost" label="Cost" hint="Optional." error={errors.cost}>
                             <div className="relative">
                                 <span aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm text-slate-500">₱</span>
-                                <input
+                                <MoneyInput
                                     id="product_cost"
-                                    type="text"
-                                    inputMode="decimal"
+                                    symbol={false}
                                     value={values.cost}
                                     aria-invalid={Boolean(errors.cost)}
-                                    onChange={(event) => set('cost', event.target.value)}
+                                    onChange={(value) => set('cost', value)}
                                     onBlur={() => tidyMoney('cost')}
                                     className={`${inputClass(errors.cost, true)} pl-7 text-right`}
                                 />
@@ -409,13 +409,12 @@ export default function ProductFormPanel({
                         <Field id="product_price" label="Selling price" required hint="Two decimals, e.g. 55.00" error={errors.selling_price}>
                             <div className="relative">
                                 <span aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm text-slate-500">₱</span>
-                                <input
+                                <MoneyInput
                                     id="product_price"
-                                    type="text"
-                                    inputMode="decimal"
+                                    symbol={false}
                                     value={values.selling_price}
                                     aria-invalid={Boolean(errors.selling_price)}
-                                    onChange={(event) => set('selling_price', event.target.value)}
+                                    onChange={(value) => set('selling_price', value)}
                                     onBlur={() => tidyMoney('selling_price')}
                                     className={`${inputClass(errors.selling_price, true)} pl-7 text-right`}
                                 />
