@@ -67,7 +67,7 @@ await click(page, 'Add installation');
 await sleep(1000);
 {
     const sel = (await page.$$('main li select'))[0];
-    const optionValue = await sel.evaluate((s) => [...s.options].find((o) => o.value)?.value);
+    const optionValue = await sel.evaluate((s) => [...s.options].find((o) => o.textContent.trim() === 'DEMO-01')?.value);
     await setValue(page, sel, optionValue);
 }
 await shot(page, 'setup-fiscal-assign', {

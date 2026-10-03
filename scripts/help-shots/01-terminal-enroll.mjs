@@ -33,6 +33,18 @@ await click(page, 'Enroll this browser with it');
 await sleep(900);
 await shot(page, 'terminals-enrolled', { targets: { 'this-browser': { sel: 'section' } } });
 
+// The picture of adding a till made TILL-1; the guides' store has the one till, DEMO-01, so retire the extra one. A revoked
+// terminal does not count towards store readiness (store-setup overview), unlike an enrolled-or-not active one.
+{
+    const revoke = await page.evaluateHandle(() => [...document.querySelectorAll('tbody tr')].find((tr) => tr.innerText.includes('TILL-1'))?.querySelector('button:last-of-type'));
+    if (revoke.asElement()) {
+        await revoke.asElement().click();
+        await sleep(500);
+        await click(page, 'Revoke terminal', { tag: 'button' });
+        await sleep(900);
+    }
+}
+
 // ---------------------------------------------------------------- open a shift before setup is done: the till says what is missing
 await go(page, '/pos');
 await shot(page, 'till-open-shift-admin', { targets: {} });
