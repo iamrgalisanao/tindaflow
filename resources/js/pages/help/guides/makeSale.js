@@ -13,7 +13,7 @@ export default {
             body: 'Tap a product’s tile to put one in the cart. Tap it again for another. The category tabs above the tiles (**All**, **Beverages**, **Groceries**…) help you find things faster.',
             figure: {
                 shot: 'till-register-empty',
-                alt: 'The register with product tiles on the right.',
+                alt: 'The register with product tiles on the left.',
                 marks: [{ type: 'click', target: 'products', label: 'Tap a product', detail: 'Tap the tile of a product to add one to the cart.' }],
             },
         },

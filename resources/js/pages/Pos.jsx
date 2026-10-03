@@ -701,8 +701,8 @@ export default function Pos() {
             )}
 
             {step === 'cart' && view === 'register' && (
-                <div className="mx-auto grid w-full max-w-[1600px] grid-cols-1 gap-4 p-4 lg:h-[calc(100dvh-4.5rem)] lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:grid-rows-[minmax(0,1fr)]">
-                    <div className="flex min-h-0 flex-col lg:order-2">
+                <div className="mx-auto grid w-full max-w-[1600px] grid-cols-1 gap-4 p-4 lg:h-[calc(100dvh-4.5rem)] lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:grid-rows-[minmax(0,1fr)]">
+                    <div className="flex min-h-0 flex-col lg:order-1">
                         <CatalogPanel
                             search={search}
                             onSearchChange={setSearch}
@@ -718,7 +718,7 @@ export default function Pos() {
                             onAdd={addToCart}
                         />
                     </div>
-                    <div className="flex min-h-0 flex-col lg:order-1">
+                    <div className="flex min-h-0 flex-col lg:order-2">
                         <CartPanel
                             cart={cart}
                             subtotalCents={subtotalCents}

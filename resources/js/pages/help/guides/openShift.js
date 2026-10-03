@@ -37,10 +37,10 @@ export default {
         },
         {
             title: 'Meet the register',
-            body: 'This is where you sell. The **cart** is on the left. The **products** are on the right, with a search box above them. The four buttons at the top switch between **Register**, **Payment**, **Lookup** and **Shift**.',
+            body: 'This is where you sell. The **products** are on the left, with a search box above them. The **cart** is on the right. The four buttons at the top switch between **Register**, **Payment**, **Lookup** and **Shift**.',
             figure: {
                 shot: 'till-register-empty',
-                alt: 'The register screen with an empty cart on the left and product tiles and a search box on the right.',
+                alt: 'The register screen with product tiles and a search box on the left and an empty cart on the right.',
                 marks: [
                     { type: 'look', target: 'header', label: 'Your till and shift', detail: 'The top bar shows which till this is, who is selling and when the shift started.' },
                     { type: 'look', target: 'cart', label: 'The cart', detail: 'Everything for the current customer goes here, with the total at the bottom.' },
