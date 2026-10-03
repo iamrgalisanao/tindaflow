@@ -131,7 +131,7 @@ export default function CartPanel({
                                 type="button"
                                 onClick={() => onRemove(line.product.id)}
                                 aria-label={`Remove ${line.product.name}`}
-                                className="min-h-11 min-w-11 shrink-0 rounded text-lg text-slate-400 hover:bg-rose-500/10 hover:text-rose-400"
+                               className="min-h-11 min-w-11 shrink-0 rounded text-lg text-slate-400 hover:bg-rose-500/10 hover:text-danger"
                             >
                                 &times;
                             </button>
