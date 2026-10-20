@@ -40,7 +40,7 @@ export default {
         },
         {
             title: 'Read the Z-reading',
-            body: 'The **Business day closed** screen shows the **Z-Reading number** and the day’s **Gross sales**, **VAT**, **Void total** and **Refund total**. These figures are fixed for good.',
+            body: 'The **Business day closed** screen shows the **Z-Reading number** and the day’s **Gross sales**, **VAT**, **Void total** and **Refund total**. These figures are fixed for good. Click **Print Z-reading** to print the day’s paper copy for your records. Any later printout is marked **REPRINT — COPY** and recorded.',
             figure: {
                 shot: 'day-closed',
                 alt: 'The Business day closed screen with the Z-reading number and totals.',

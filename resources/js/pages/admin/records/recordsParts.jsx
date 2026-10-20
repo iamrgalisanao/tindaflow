@@ -48,6 +48,7 @@ export const AUDIT_TYPES = [
     { id: 'TERMINAL_REVOKED', label: 'Till revoked' },
     { id: 'X_READING_GENERATED', label: 'X-Reading generated' },
     { id: 'Z_READING_GENERATED', label: 'Z-Reading generated' },
+    { id: 'Z_READING_REPRINTED', label: 'Z-Reading copy printed' },
 ];
 
 export const JOURNAL_TYPES = [
@@ -241,6 +242,8 @@ export function describeAudit(event) {
             return `Shift closed, variance ${money(after.variance)}`;
         case 'X_READING_GENERATED':
             return 'X-Reading generated';
+        case 'Z_READING_REPRINTED':
+            return `A copy of Z-Reading #${after.z_counter ?? '?'} was printed`;
         case 'Z_READING_GENERATED':
             return `Z-Reading #${after.z_counter ?? '?'} generated; the fiscal day closed`;
         default:

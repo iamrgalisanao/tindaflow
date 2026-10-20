@@ -13,7 +13,7 @@ export function usePrintFrame() {
     const [job, setJob] = useState(null);
     const frameRef = useRef(null);
 
-    const print = useCallback((html) => setJob({ html, id: crypto.randomUUID() }), []);
+    const print = useCallback((html, title = 'Invoice to print') => setJob({ html, title, id: crypto.randomUUID() }), []);
 
     function printLoadedFrame() {
         const target = frameRef.current?.contentWindow;
@@ -25,7 +25,7 @@ export function usePrintFrame() {
         <iframe
             key={job.id}
             ref={frameRef}
-            title="Invoice to print"
+            title={job.title}
             aria-hidden="true"
             tabIndex={-1}
             srcDoc={job.html}

@@ -12,6 +12,7 @@ use App\Models\FiscalDay;
 use App\Models\ZReading;
 use App\Services\Auth\PosRequestContext;
 use App\Services\FiscalDay\FiscalDayCloseService;
+use App\Services\FiscalDay\ZReadingPrintService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -89,6 +90,29 @@ class FiscalDayController extends Controller
         }
 
         return (new ZReadingResource($zReading))->response();
+    }
+
+    /**
+     * fiscalDayZReadingDocumentGet: the plain original Z-reading, rendered for an 80mm roll from the stored snapshot. A read:
+     * it records nothing. The till prints it once, when the day closes; every later copy goes through the reprint.
+     */
+    public function zReadingDocument(ZReadingPrintService $service, string $fiscalDayId): JsonResponse
+    {
+        return response()->json(['render_html' => $service->original($fiscalDayId, Auth::guard('web')->user()->store_id), 'is_reprint' => false]);
+    }
+
+    /** fiscalDayZReadingReprint: records that a copy was printed (Z_READING_REPRINTED) and returns it marked REPRINT -- COPY. */
+    public function zReadingReprint(ZReadingPrintService $service, string $fiscalDayId): JsonResponse
+    {
+        ['event' => $event, 'html' => $html] = $service->reprint($fiscalDayId, Auth::guard('web')->user());
+
+        return response()->json([
+            'reprint_event_id' => $event->id,
+            'render_html' => $html,
+            'is_reprint' => true,
+            'reprinted_at' => $event->occurred_at->toJSON(),
+            'requested_by' => $event->actor_user_id,
+        ], 201);
     }
 
     private function findInStore(string $fiscalDayId): FiscalDay

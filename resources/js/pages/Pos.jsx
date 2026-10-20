@@ -99,6 +99,10 @@ export default function Pos() {
     const [originalPrinted, setOriginalPrinted] = useState(false);
     const [printBusy, setPrintBusy] = useState(false);
     const [printError, setPrintError] = useState(null);
+    // The Z-reading: the first printout (right as the day closes) is the plain original; every later one is a recorded copy.
+    const [zOriginalPrinted, setZOriginalPrinted] = useState(false);
+    const [zPrintBusy, setZPrintBusy] = useState(false);
+    const [zPrintError, setZPrintError] = useState(null);
     const [copyKey, setCopyKey] = useState(newIdempotencyKey);
     const attempts = useRef({});
 
@@ -390,6 +394,26 @@ export default function Pos() {
             );
         }
         setCheckoutBusy(false);
+    }
+
+    async function printZReading() {
+        setZPrintBusy(true);
+        setZPrintError(null);
+        try {
+            const dayId = fiscalDayCloseResult.z_reading.fiscal_day_id;
+            const response = zOriginalPrinted
+                ? await apiFetch(`/api/v1/fiscal-days/${dayId}/z-reading/reprints`, { method: 'POST' })
+                : await apiFetch(`/api/v1/fiscal-days/${dayId}/z-reading/document`);
+            if (response.ok) {
+                printDocument(response.body.render_html, 'Z-reading to print');
+                setZOriginalPrinted(true);
+            } else {
+                setZPrintError('The Z-reading could not be prepared for printing. The day is closed and the reading is saved; you can print a copy from Records, Fiscal days.');
+            }
+        } catch {
+            setZPrintError('The connection dropped. The day is closed and the reading is saved. Press the button to try printing again.');
+        }
+        setZPrintBusy(false);
     }
 
     async function printInvoice() {
@@ -912,6 +936,22 @@ export default function Pos() {
                             <dd className="font-mono">₱{fiscalDayCloseResult.z_reading.totals_snapshot.refund_total}</dd>
                         </div>
                     </dl>
+                    <div className="space-y-1">
+                        <button
+                            type="button"
+                            disabled={zPrintBusy}
+                            onClick={printZReading}
+                            className="w-full rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                        >
+                            {zPrintBusy ? 'Preparing…' : zOriginalPrinted ? 'Print another copy' : 'Print Z-reading'}
+                        </button>
+                        {zOriginalPrinted && <p className="text-xs text-slate-400">Another copy is marked REPRINT — COPY and recorded.</p>}
+                        {zPrintError && (
+                            <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                                {zPrintError}
+                            </p>
+                        )}
+                    </div>
                     <Link to="/" className="block text-center text-sm text-slate-400 underline">
                         Back to dashboard
                     </Link>

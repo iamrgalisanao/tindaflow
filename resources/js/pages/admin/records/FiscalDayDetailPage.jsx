@@ -1,16 +1,52 @@
 import { Link, useParams } from 'react-router-dom';
 import AdminLayout from '../AdminLayout';
 import { ErrorAlert } from '../catalog/CatalogParts';
-import { failureMessage } from '../catalog/catalogApi';
+import { useState } from 'react';
+import { usePrintFrame } from '../../../lib/usePrintFrame';
+import { failureMessage, request } from '../catalog/catalogApi';
 import { formatDateTime, formatMoney, shortId } from '../reports/formatters';
 import { DayStatusBadge, Facts, Money, PaymentBreakdown, Panel, Variance, useLoad, useSignIn } from './historyParts';
 
 function ZReadingPanel({ reading }) {
     const totals = reading.totals_snapshot;
+    const { print, frame } = usePrintFrame();
+    const [busy, setBusy] = useState(false);
+    const [printError, setPrintError] = useState(null);
+
+    // Paper from history is always a copy: the plain original is printed once, when the day closes at the till. Each copy is
+    // marked REPRINT -- COPY and recorded, so no unmarked duplicate can come from here.
+    async function printCopy() {
+        setBusy(true);
+        setPrintError(null);
+        const response = await request(`/api/v1/fiscal-days/${reading.fiscal_day_id}/z-reading/reprints`, { method: 'POST' });
+        if (response.ok) {
+            print(response.body.render_html, 'Z-reading to print');
+        } else {
+            setPrintError(failureMessage(response, 'The Z-reading could not be prepared for printing.'));
+        }
+        setBusy(false);
+    }
 
     return (
         <Panel title={`Z-reading #${totals.z_counter}`} note="The end-of-day figures, fixed when the day was closed. They are never recalculated.">
             <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        disabled={busy}
+                        onClick={printCopy}
+                        className="min-h-11 rounded-md border border-slate-700 px-4 text-sm text-slate-100 hover:bg-slate-800 disabled:opacity-50 lg:min-h-0 lg:py-2"
+                    >
+                        {busy ? 'Preparing…' : 'Print a copy'}
+                    </button>
+                    <p className="text-xs text-slate-500">Each copy is marked REPRINT — COPY and recorded.</p>
+                </div>
+                {printError && (
+                    <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                        {printError}
+                    </p>
+                )}
+                {frame}
                 <Facts
                     items={[
                         ['Business date', reading.business_date],

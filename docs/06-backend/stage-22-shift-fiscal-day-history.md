@@ -81,3 +81,19 @@ names would need `USER_MANAGE` / `TERMINAL_MANAGE`, which a manager does not hol
 `fiscalDayCurrentGet` (§3); cash-movement history (there is no list operation, only the totals on the shift);
 cashier and terminal names on these pages; a way to print or export a Z-reading; and sales-per-shift links (the
 sales list has no shift filter).
+
+## Addendum (2026-10-20): printing the Z-reading
+
+The Z-reading could be read on screen but not printed. `ZReadingPrinter` renders it as an 80 mm print document (the same narrow monospace
+layout as the invoice, ADR-007) from the stored `totals_snapshot`; the figures are never recalculated, and only the shop name, the till's
+code and the name of whoever closed the day are looked up around it. Two operations, both session-only and store-scoped like the reading:
+`fiscalDayZReadingDocumentGet` returns the plain original and records nothing; `fiscalDayZReadingReprint` records a `Z_READING_REPRINTED`
+audit event (who asked, which day, which counter) and returns the copy marked REPRINT -- COPY with the time.
+
+The till prints the **original** once, on the "Business day closed" screen, and every further printout from there is a recorded copy. From
+Records, Fiscal days, the only button is **Print a copy**, so no unmarked duplicate can come from history. The server cannot enforce
+"original once" (the original is a read), so this is the screens' rule, as it is for the invoice at checkout. The reprint is not
+idempotent: it needs no terminal (an administrator can print from the back office), and the idempotency table is keyed by terminal; a retry
+after a lost response records one extra copy and never changes a figure. No journal entry is written for a copy (the journal's event list is
+closed and a reading copy is not a journal event), and no legal wording is printed (BIR-006 is parked).
+

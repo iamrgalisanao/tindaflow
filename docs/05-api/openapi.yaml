@@ -1720,6 +1720,49 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+  /fiscal-days/{fiscalDayId}/z-reading/document:
+    get:
+      operationId: fiscalDayZReadingDocumentGet
+      tags: [FiscalDay]
+      summary: The plain original Z-reading, rendered for an 80mm roll
+      description: 'Session only, store-scoped, like fiscalDayZReadingGet. A read: it records nothing. Rendered from the stored totals_snapshot and never recalculated. The till prints it once, as the business day closes; every later copy goes through fiscalDayZReadingReprint. A day of another store, or one with no Z-reading yet, is FISCAL_DAY_NOT_FOUND.'
+      parameters:
+      - {$ref: '#/components/parameters/FiscalDayIdPath'}
+      responses:
+        '200':
+          description: The document
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  render_html: {type: string}
+                  is_reprint: {type: boolean, enum: [false]}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /fiscal-days/{fiscalDayId}/z-reading/reprints:
+    post:
+      operationId: fiscalDayZReadingReprint
+      tags: [FiscalDay]
+      summary: Record and render a marked copy of the Z-reading
+      description: 'Session only, store-scoped. Records a Z_READING_REPRINTED audit event naming the signed-in user and returns the document marked REPRINT -- COPY. Changes nothing about the reading, the fiscal day or any counter. Not idempotent: a retry after a lost response records one more copy, never a changed figure.'
+      parameters:
+      - {$ref: '#/components/parameters/FiscalDayIdPath'}
+      responses:
+        '201':
+          description: The copy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reprint_event_id: {type: string, format: uuid}
+                  render_html: {type: string}
+                  is_reprint: {type: boolean, enum: [true]}
+                  reprinted_at: {type: string, format: date-time}
+                  requested_by: {type: string, format: uuid}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /fiscal-days/{fiscalDayId}/close:
     post:
       operationId: fiscalDayClose
