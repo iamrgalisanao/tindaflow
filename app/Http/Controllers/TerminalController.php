@@ -11,6 +11,7 @@ use App\Http\Resources\TerminalSummaryResource;
 use App\Models\AuditEvent;
 use App\Models\Store;
 use App\Models\Terminal;
+use App\Services\Audit\AuditTrail;
 use App\Services\Terminal\TerminalCredentialCookie;
 use App\Services\Terminal\TerminalEnrollmentService;
 use App\Services\Terminal\TerminalEnrollmentTokenService;
@@ -86,7 +87,7 @@ class TerminalController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        $result = $service->enroll($request->validated('token'), $actor->store_id);
+        $result = $service->enroll($request->validated('token'), $actor->store_id, $actor->id);
 
         $response = (new TerminalSummaryResource($result['terminal']))->response();
 
@@ -145,8 +146,17 @@ class TerminalController extends Controller
 
         // Only revoked_at changes -- module-a-auth-terminal-initialization.md
         // §14 Ruling 3/9: revocation is independent of TerminalStatus, no
-        // status transition is invented here.
-        $terminal->update(['revoked_at' => now()]);
+        // status transition is invented here. Revoking a till that is already revoked changes nothing: the
+        // original revocation time stands and nothing more is recorded.
+        if ($terminal->revoked_at === null) {
+            DB::transaction(function () use ($terminal, $actor) {
+                $terminal->update(['revoked_at' => now()]);
+
+                AuditTrail::record($terminal->store_id, 'TERMINAL_REVOKED', $actor->id, 'terminal', $terminal->id, null, [
+                    'terminal_code' => $terminal->terminal_code,
+                ], $terminal->id);
+            });
+        }
 
         return (new TerminalSummaryResource($terminal->refresh()))->response();
     }

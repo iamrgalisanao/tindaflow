@@ -40,7 +40,7 @@ class FiscalInstallationController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        $installation = $service->create($actor->store_id, $request->validated());
+        $installation = $service->create($actor->store_id, $request->validated(), $actor);
 
         return (new FiscalInstallationResource($installation))->response()->setStatusCode(201);
     }
@@ -56,6 +56,7 @@ class FiscalInstallationController extends Controller
             $fiscalInstallationId,
             $request->validated('terminal_id'),
             $effectiveFrom === null ? null : Carbon::parse($effectiveFrom),
+            $actor,
         );
 
         return (new TerminalFiscalInstallationResource($mapping))->response()->setStatusCode(201);

@@ -86,7 +86,7 @@ class AuditLogHttpTest extends PostgresSchemaTestCase
             $this->event($w['storeId'], 'STOCK_ADJUSTED', "2026-01-0{$i} 09:00:00");
         }
 
-        $page = $this->asUser($w['manager'])->getJson('/api/v1/audit-events?per_page=2&page=2');
+        $page = $this->asUser($w['manager'])->getJson('/api/v1/audit-events?event_type=STOCK_ADJUSTED&per_page=2&page=2');
 
         $this->assertSame(3, $page->json('meta.total'));
         $this->assertSame(2, $page->json('meta.last_page'));

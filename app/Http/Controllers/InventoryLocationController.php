@@ -44,7 +44,7 @@ class InventoryLocationController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        $location = $service->create($actor->store_id, $request->validated('name'), (bool) $request->validated('is_default', false));
+        $location = $service->create($actor->store_id, $request->validated('name'), (bool) $request->validated('is_default', false), $actor);
 
         return (new InventoryLocationResource($location))->response()->setStatusCode(201);
     }
@@ -53,7 +53,7 @@ class InventoryLocationController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        $location = $service->update($actor->store_id, $inventoryLocationId, $request->validated());
+        $location = $service->update($actor->store_id, $inventoryLocationId, $request->validated(), $actor);
 
         return (new InventoryLocationResource($location))->response();
     }

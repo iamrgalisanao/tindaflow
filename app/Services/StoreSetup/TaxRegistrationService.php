@@ -5,6 +5,7 @@ namespace App\Services\StoreSetup;
 use App\Models\AuditEvent;
 use App\Models\TaxRegistration;
 use App\Models\User;
+use App\Services\Audit\AuditTrail;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -51,16 +52,24 @@ final class TaxRegistrationService
                 return $this->correct($unstarted, $registrationType, $effectiveFrom, $priorEffectiveTo, $actor);
             }
 
-            TaxRegistration::where('store_id', $storeId)
+            $closed = TaxRegistration::where('store_id', $storeId)
                 ->whereNull('effective_to')
                 ->update(['effective_to' => $priorEffectiveTo]);
 
-            return TaxRegistration::create([
+            $registration = TaxRegistration::create([
                 'store_id' => $storeId,
                 'registration_type' => $registrationType,
                 'effective_from' => $effectiveFrom,
                 'effective_to' => null,
             ]);
+
+            AuditTrail::record($storeId, 'TAX_REGISTRATION_CREATED', $actor?->id, 'tax_registration', $registration->id, null, [
+                'registration_type' => $registrationType,
+                'effective_from' => $effectiveFrom,
+                'closed_previous_as_of' => $closed > 0 ? $priorEffectiveTo : null,
+            ]);
+
+            return $registration;
         });
     }
 

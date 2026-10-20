@@ -6,6 +6,8 @@ use App\Domain\Exceptions\InvoiceSeriesAlreadyActiveException;
 use App\Domain\Exceptions\InvoiceSeriesAlreadyClosedException;
 use App\Domain\Exceptions\InvoiceSeriesNotFoundException;
 use App\Models\InvoiceSeries;
+use App\Models\User;
+use App\Services\Audit\AuditTrail;
 use App\Services\Idempotency\DatabaseExceptionTranslator;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -32,7 +34,7 @@ final class InvoiceSeriesService
      *                             fiscal installation already used (invariants.md #11/#18; the field error keeps
      *                             the frozen error catalog unchanged)
      */
-    public function create(string $storeId, array $data): InvoiceSeries
+    public function create(string $storeId, array $data, ?User $actor = null): InvoiceSeries
     {
         $this->exceptionTranslator->registerConstraint(
             self::ONE_ACTIVE_PER_INSTALLATION,
@@ -40,10 +42,10 @@ final class InvoiceSeriesService
         );
 
         try {
-            return DB::transaction(function () use ($storeId, $data) {
+            return DB::transaction(function () use ($storeId, $data, $actor) {
                 $this->assertNoIssuedNumberIsReused($storeId, $data['fiscal_installation_id'], (int) $data['starting_number']);
 
-                return InvoiceSeries::create([
+                $series = InvoiceSeries::create([
                     'store_id' => $storeId,
                     'fiscal_installation_id' => $data['fiscal_installation_id'],
                     'series_code' => $data['series_code'],
@@ -58,6 +60,16 @@ final class InvoiceSeriesService
                     'status' => 'ACTIVE',
                     'version' => 0,
                 ]);
+
+                AuditTrail::record($storeId, 'INVOICE_SERIES_CREATED', $actor?->id, 'invoice_series', $series->id, null, [
+                    'fiscal_installation_id' => $series->fiscal_installation_id,
+                    'series_code' => $series->series_code,
+                    'prefix' => $series->prefix,
+                    'starting_number' => $series->starting_number,
+                    'ending_number' => $series->ending_number,
+                ]);
+
+                return $series;
             });
         } catch (QueryException $e) {
             $this->exceptionTranslator->translate($e);
@@ -94,9 +106,9 @@ final class InvoiceSeriesService
         }
     }
 
-    public function close(string $storeId, string $invoiceSeriesId): InvoiceSeries
+    public function close(string $storeId, string $invoiceSeriesId, ?User $actor = null): InvoiceSeries
     {
-        return DB::transaction(function () use ($storeId, $invoiceSeriesId) {
+        return DB::transaction(function () use ($storeId, $invoiceSeriesId, $actor) {
             $series = InvoiceSeries::where('store_id', $storeId)->lockForUpdate()->find($invoiceSeriesId);
 
             if ($series === null) {
@@ -108,6 +120,13 @@ final class InvoiceSeriesService
             }
 
             $series->update(['status' => 'CLOSED']);
+
+            AuditTrail::record($storeId, 'INVOICE_SERIES_CLOSED', $actor?->id, 'invoice_series', $series->id, ['status' => 'ACTIVE'], [
+                'status' => 'CLOSED',
+                'series_code' => $series->series_code,
+                'prefix' => $series->prefix,
+                'last_number_issued' => $series->current_number >= $series->starting_number ? $series->current_number : null,
+            ]);
 
             return $series;
         });

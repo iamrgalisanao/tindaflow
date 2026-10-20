@@ -161,9 +161,9 @@ Format: `# title — verdict — the gap`.
 | 34 | One open shift per cashier | COVERED | Constraint test is a false positive; HTTP and race tests carry the proof |
 | 35 | Sale needs open shift and fiscal day | COVERED | — |
 | 36 | Day cannot close with an open shift | COVERED | Does not assert the day stays OPEN |
-| 37 | Shift totals computed | PARTIAL | `refunds_total`, void exclusion and non-cash refunds untested |
+| 37 | Shift totals computed | PARTIAL | `refunds_total` and non-cash refunds now proven (see the later passes below); void exclusion still untested |
 | 38 | Variance recorded, never corrected | PARTIAL | Post-close immutability unpinned |
-| 39 | Cash-out authorization | PARTIAL | Boundary untested; code is `>=` (finding 7) |
+| 39 | Cash-out authorization | COVERED | Boundary pinned; code is `>=` and the wording is "at or above" (finding 7) |
 | 40 | Readings reproducible | UNCOVERED | No reproducibility test; drift (finding 3), since fixed and tested |
 | 41 | Readings append-only | UNCOVERED-structural | No test pins the absence of update/delete |
 | 42 | One Z-reading per fiscal day | PARTIAL | Atomicity of close unproven |
@@ -190,8 +190,8 @@ Format: `# title — verdict — the gap`.
 | 58 | `Quantity` and `Money` distinct | UNCOVERED-structural | Nothing refuses one where the other is expected |
 | 59 | DISC-001 exact allocation sum | COVERED | No DB-level sum assertion |
 | 60 | DISC-002 allocation immutability | UNCOVERED-structural | Nothing snapshots `sale_items` across a refund |
-| 61 | DISC-003 no recompute from current config | PARTIAL | No test changes price or tax class then refunds |
-| 62 | DISC-004 refund cap from `net_line_amount` | PARTIAL | No refund test uses an order-level discount |
+| 61 | DISC-003 no recompute from current config | COVERED | A price and tax-class change part-way through a refund series has no effect (later pass below) |
+| 62 | DISC-004 refund cap from `net_line_amount` | COVERED | Exercised with an order discount that leaves a rounding residual (later pass below) |
 | 63 | DISC-005 deterministic residual | PARTIAL | Per-line VAT tie-break untested |
 | 64 | DISC-006 grand-total reconciliation | COVERED | — |
 | 65 | Mixed-basket tax scope | COVERED | No multi-VATABLE-line basket |

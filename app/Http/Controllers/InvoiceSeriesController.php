@@ -46,7 +46,7 @@ class InvoiceSeriesController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        $series = $service->create($actor->store_id, $request->validated());
+        $series = $service->create($actor->store_id, $request->validated(), $actor);
 
         return (new InvoiceSeriesResource($series))->response()->setStatusCode(201);
     }
@@ -55,7 +55,7 @@ class InvoiceSeriesController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        $series = $service->close($actor->store_id, $invoiceSeriesId);
+        $series = $service->close($actor->store_id, $invoiceSeriesId, $actor);
 
         return (new InvoiceSeriesResource($series))->response();
     }

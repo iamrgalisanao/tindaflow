@@ -36,6 +36,16 @@ export const AUDIT_TYPES = [
     { id: 'FISCAL_CONFIGURATION_UNLOCKED', label: 'Fiscal setup unlocked' },
     { id: 'FISCAL_CONFIGURATION_LOCKED', label: 'Fiscal setup locked' },
     { id: 'TAX_REGISTRATION_CORRECTED', label: 'Tax registration corrected' },
+    { id: 'TAX_REGISTRATION_CREATED', label: 'Tax registration added' },
+    { id: 'FISCAL_INSTALLATION_CREATED', label: 'Fiscal installation added' },
+    { id: 'FISCAL_INSTALLATION_TERMINAL_ASSIGNED', label: 'Till assigned to a fiscal installation' },
+    { id: 'INVOICE_SERIES_CREATED', label: 'Invoice series created' },
+    { id: 'INVOICE_SERIES_CLOSED', label: 'Invoice series closed' },
+    { id: 'INVENTORY_LOCATION_CREATED', label: 'Stock location added' },
+    { id: 'INVENTORY_LOCATION_UPDATED', label: 'Stock location changed' },
+    { id: 'TERMINAL_ENROLLMENT_TOKEN_ISSUED', label: 'Enrollment token issued' },
+    { id: 'TERMINAL_ENROLLED', label: 'Till enrolled' },
+    { id: 'TERMINAL_REVOKED', label: 'Till revoked' },
     { id: 'X_READING_GENERATED', label: 'X-Reading generated' },
     { id: 'Z_READING_GENERATED', label: 'Z-Reading generated' },
 ];
@@ -192,6 +202,33 @@ export function describeAudit(event) {
             return `User ${after.email ?? 'a user'} reactivated`;
         case 'TERMINAL_CREATED':
             return `Till ${after.terminal_code ?? '—'} added${after.via === 'console' ? ' from the server' : ''}`;
+        case 'TAX_REGISTRATION_CREATED':
+            return `Tax registration ${after.registration_type ?? '—'} added, effective ${after.effective_from ?? '—'}${after.closed_previous_as_of ? `; the previous one ends ${after.closed_previous_as_of}` : ''}`;
+        case 'FISCAL_INSTALLATION_CREATED':
+            return `Fiscal installation added: ${after.deployment_model ?? '—'}, software ${after.software_version ?? '—'}`;
+        case 'FISCAL_INSTALLATION_TERMINAL_ASSIGNED':
+            return `Till ${after.terminal_code ?? '—'} assigned to a fiscal installation${event.before_metadata ? ' (it was under another)' : ''}`;
+        case 'INVOICE_SERIES_CREATED':
+            return `Invoice series ${after.prefix ?? ''}${after.series_code ?? '—'} created, starting at ${after.starting_number ?? '—'}`;
+        case 'INVOICE_SERIES_CLOSED':
+            return `Invoice series ${after.prefix ?? ''}${after.series_code ?? '—'} closed${after.last_number_issued ? `; the last number issued was ${after.last_number_issued}` : '; it had issued no number'}`;
+        case 'INVENTORY_LOCATION_CREATED':
+            return `Stock location "${after.name ?? '—'}" added${after.is_default ? ' as the default' : ''}`;
+        case 'INVENTORY_LOCATION_UPDATED':
+            return `Stock location changed: ${
+                [
+                    event.before_metadata?.name !== after.name ? `name ${event.before_metadata?.name ?? '—'} → ${after.name ?? '—'}` : null,
+                    event.before_metadata?.is_default !== after.is_default && after.is_default ? 'made the default' : null,
+                ]
+                    .filter(Boolean)
+                    .join(', ') || 'no listed field'
+            }`;
+        case 'TERMINAL_ENROLLMENT_TOKEN_ISSUED':
+            return `Enrollment token issued for till ${after.terminal_code ?? '—'}`;
+        case 'TERMINAL_ENROLLED':
+            return `A browser was enrolled as till ${after.terminal_code ?? '—'}${after.re_enrolled_after_revocation ? ' (after it had been revoked)' : ''}`;
+        case 'TERMINAL_REVOKED':
+            return `Till ${after.terminal_code ?? '—'} revoked; the browser holding its credential can no longer sell`;
         case 'FISCAL_CONFIGURATION_UNLOCKED':
             return `Fiscal setup unlocked from the server${after.unlocked_until ? ` until ${after.unlocked_until}` : ''}`;
         case 'FISCAL_CONFIGURATION_LOCKED':

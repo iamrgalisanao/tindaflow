@@ -7,6 +7,8 @@ use App\Domain\Exceptions\TerminalNotFoundException;
 use App\Models\FiscalInstallation;
 use App\Models\Terminal;
 use App\Models\TerminalFiscalInstallation;
+use App\Models\User;
+use App\Services\Audit\AuditTrail;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -20,9 +22,9 @@ use Illuminate\Support\Facades\DB;
 final class FiscalInstallationService
 {
     /** @param  array<string, mixed>  $data  the already-shape-validated request body */
-    public function create(string $storeId, array $data): FiscalInstallation
+    public function create(string $storeId, array $data, ?User $actor = null): FiscalInstallation
     {
-        return DB::transaction(function () use ($storeId, $data) {
+        return DB::transaction(function () use ($storeId, $data, $actor) {
             $installation = FiscalInstallation::create([
                 'store_id' => $storeId,
                 'deployment_model' => $data['deployment_model'],
@@ -51,6 +53,14 @@ final class FiscalInstallationService
                 ]);
             }
 
+            AuditTrail::record($storeId, 'FISCAL_INSTALLATION_CREATED', $actor?->id, 'fiscal_installation', $installation->id, null, [
+                'deployment_model' => $installation->deployment_model,
+                'software_version' => $installation->software_version,
+                'machine_serial_number' => $installation->machine_serial_number,
+                'has_accreditation' => ! empty($data['accreditation']),
+                'has_permit_to_use' => ! empty($data['permit_to_use']),
+            ]);
+
             return $installation->load(['accreditations', 'permitsToUse', 'terminals' => fn ($query) => $query->wherePivotNull('effective_to')]);
         });
     }
@@ -66,11 +76,11 @@ final class FiscalInstallationService
      * requiring a separate close step first, matching the
      * `taxRegistrationCreate` "prior one closed" convention.
      */
-    public function assignTerminal(string $storeId, string $fiscalInstallationId, string $terminalId, ?Carbon $effectiveFrom): TerminalFiscalInstallation
+    public function assignTerminal(string $storeId, string $fiscalInstallationId, string $terminalId, ?Carbon $effectiveFrom, ?User $actor = null): TerminalFiscalInstallation
     {
         $effectiveFrom ??= now();
 
-        return DB::transaction(function () use ($storeId, $fiscalInstallationId, $terminalId, $effectiveFrom) {
+        return DB::transaction(function () use ($storeId, $fiscalInstallationId, $terminalId, $effectiveFrom, $actor) {
             $installation = FiscalInstallation::where('store_id', $storeId)->find($fiscalInstallationId);
             if ($installation === null) {
                 throw FiscalInstallationNotFoundException::forId($fiscalInstallationId);
@@ -81,17 +91,27 @@ final class FiscalInstallationService
                 throw TerminalNotFoundException::forId($terminalId);
             }
 
+            $previous = TerminalFiscalInstallation::where('terminal_id', $terminalId)->whereNull('effective_to')->first();
+
             TerminalFiscalInstallation::where('terminal_id', $terminalId)
                 ->whereNull('effective_to')
                 ->update(['effective_to' => $effectiveFrom]);
 
-            return TerminalFiscalInstallation::create([
+            $mapping = TerminalFiscalInstallation::create([
                 'store_id' => $storeId,
                 'terminal_id' => $terminalId,
                 'fiscal_installation_id' => $fiscalInstallationId,
                 'effective_from' => $effectiveFrom,
                 'effective_to' => null,
             ]);
+
+            AuditTrail::record($storeId, 'FISCAL_INSTALLATION_TERMINAL_ASSIGNED', $actor?->id, 'terminal_fiscal_installation', $mapping->id,
+                $previous === null ? null : ['fiscal_installation_id' => $previous->fiscal_installation_id],
+                ['fiscal_installation_id' => $fiscalInstallationId, 'terminal_id' => $terminalId, 'terminal_code' => $terminal->terminal_code, 'effective_from' => $effectiveFrom->toIso8601String()],
+                $terminalId,
+            );
+
+            return $mapping;
         });
     }
 }

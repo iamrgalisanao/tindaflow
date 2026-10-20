@@ -83,3 +83,24 @@ No Stitch mockup was generated: the screens reuse the established admin patterns
 `auditEventGet` and `journalEntryGet` (§3), names instead of short ids for actors, deep links from a sale
 or refund to its audit trail, invoice reprint, product CSV import/export, barcode lookup, and the deferred
 shift and fiscal-day read endpoints.
+
+## 7. Configuration changes recorded (2026-10-20)
+
+Alongside sales, stock and cash, the audit log now records the changes to how the shop is set up, each written in the same
+transaction as the change, naming the signed-in administrator (`actor_user_id`; empty when done from the server console), and never
+carrying a password, hash, token or credential. `audit_events.event_type` is free text, so these are an additive list, not a schema
+change.
+
+| Event | Written when |
+|---|---|
+| `USER_CREATED`, `USER_UPDATED`, `USER_PASSWORD_CHANGED`, `USER_DEACTIVATED`, `USER_ACTIVATED` | The Users screen (an update records name, e-mail and role before and after; a no-op writes nothing) |
+| `PASSWORD_RESET` | The server-console password reset |
+| `TERMINAL_CREATED`, `TERMINAL_ENROLLMENT_TOKEN_ISSUED`, `TERMINAL_ENROLLED`, `TERMINAL_REVOKED` | A till is added, offered a token, enrolled, or revoked (revoking again changes nothing and writes nothing) |
+| `FISCAL_INSTALLATION_CREATED`, `FISCAL_INSTALLATION_TERMINAL_ASSIGNED` | A fiscal installation is added; a till is assigned to one (with the installation it left, if any) |
+| `TAX_REGISTRATION_CREATED`, `TAX_REGISTRATION_CORRECTED` | A tax registration is added (with the date it closed the previous one); an unstarted one is corrected |
+| `INVOICE_SERIES_CREATED`, `INVOICE_SERIES_CLOSED` | A series is created; a series is closed (with the last number it issued) |
+| `INVENTORY_LOCATION_CREATED`, `INVENTORY_LOCATION_UPDATED` | A stock location is added or changed |
+| `FISCAL_CONFIGURATION_UNLOCKED`, `FISCAL_CONFIGURATION_LOCKED` | The server operator opens or closes the fiscal-setup window (ADR-014) |
+
+Not recorded here: product categories and brands (catalogue data, not fiscal or access configuration).
+

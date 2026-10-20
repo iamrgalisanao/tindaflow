@@ -6,6 +6,7 @@ use App\Domain\Exceptions\EnrollmentTokenInvalidException;
 use App\Models\Store;
 use App\Models\Terminal;
 use App\Models\TerminalEnrollmentToken;
+use App\Services\Audit\AuditTrail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -44,11 +45,11 @@ use Illuminate\Support\Str;
 final class TerminalEnrollmentService
 {
     /** @return array{terminal: Terminal, credential: string} */
-    public function enroll(string $plaintextToken, string $actorStoreId): array
+    public function enroll(string $plaintextToken, string $actorStoreId, ?string $actorUserId = null): array
     {
         $terminalId = $this->consumeToken($plaintextToken, $actorStoreId);
 
-        return $this->issueCredential($terminalId);
+        return $this->issueCredential($terminalId, $actorUserId);
     }
 
     public function consumeToken(string $plaintextToken, string $actorStoreId): string
@@ -73,9 +74,9 @@ final class TerminalEnrollmentService
     }
 
     /** @return array{terminal: Terminal, credential: string} */
-    public function issueCredential(string $terminalId): array
+    public function issueCredential(string $terminalId, ?string $actorUserId = null): array
     {
-        return DB::transaction(function () use ($terminalId): array {
+        return DB::transaction(function () use ($terminalId, $actorUserId): array {
             $terminal = Terminal::lockForUpdate()->findOrFail($terminalId);
 
             // ADR-014: re-enrolling a revoked terminal takes a licensed seat back (backstop to the check made
@@ -86,6 +87,8 @@ final class TerminalEnrollmentService
             }
 
             $plaintextCredential = Str::random(64);
+
+            $wasRevoked = $terminal->revoked_at !== null;
 
             $terminal->update([
                 'credential_hash' => hash('sha256', $plaintextCredential),
@@ -105,6 +108,12 @@ final class TerminalEnrollmentService
                 // would be permanently impossible.
                 'revoked_at' => null,
             ]);
+
+            // Which till a browser became, and by whom; never the credential or its hash.
+            AuditTrail::record($terminal->store_id, 'TERMINAL_ENROLLED', $actorUserId, 'terminal', $terminal->id, null, [
+                'terminal_code' => $terminal->terminal_code,
+                're_enrolled_after_revocation' => $wasRevoked,
+            ], $terminal->id);
 
             return ['terminal' => $terminal->refresh(), 'credential' => $plaintextCredential];
         });

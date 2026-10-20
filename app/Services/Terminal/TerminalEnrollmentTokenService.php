@@ -5,6 +5,8 @@ namespace App\Services\Terminal;
 use App\Models\Terminal;
 use App\Models\TerminalEnrollmentToken;
 use App\Models\User;
+use App\Services\Audit\AuditTrail;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -23,13 +25,23 @@ final class TerminalEnrollmentTokenService
     {
         $plaintext = Str::random(64);
 
-        $model = TerminalEnrollmentToken::create([
-            'store_id' => $terminal->store_id,
-            'terminal_id' => $terminal->id,
-            'token_hash' => hash('sha256', $plaintext),
-            'created_by' => $actor->id,
-            'expires_at' => now()->addMinutes(self::TTL_MINUTES),
-        ]);
+        $model = DB::transaction(function () use ($terminal, $actor, $plaintext) {
+            $model = TerminalEnrollmentToken::create([
+                'store_id' => $terminal->store_id,
+                'terminal_id' => $terminal->id,
+                'token_hash' => hash('sha256', $plaintext),
+                'created_by' => $actor->id,
+                'expires_at' => now()->addMinutes(self::TTL_MINUTES),
+            ]);
+
+            // Never the token, nor its hash: who asked to enroll which till, and until when the offer stands.
+            AuditTrail::record($terminal->store_id, 'TERMINAL_ENROLLMENT_TOKEN_ISSUED', $actor->id, 'terminal', $terminal->id, null, [
+                'terminal_code' => $terminal->terminal_code,
+                'expires_at' => $model->expires_at->toIso8601String(),
+            ], $terminal->id);
+
+            return $model;
+        });
 
         return ['token' => $plaintext, 'model' => $model];
     }
