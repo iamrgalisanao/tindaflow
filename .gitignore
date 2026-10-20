@@ -35,3 +35,6 @@ Thumbs.db
 /docker/backups/
 /docker/letsencrypt/
 /docker/acme/
+
+# Intermediate files (CLAUDE.md: never committed, always regenerated)
+/.tmp/

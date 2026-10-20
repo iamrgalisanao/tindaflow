@@ -4,10 +4,10 @@ namespace App\Console\Commands;
 
 use App\Models\AuditEvent;
 use App\Models\User;
+use App\Services\Auth\UserSessions;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -60,9 +60,7 @@ class ResetUserPassword extends Command
             $user->forceFill(['password_hash' => Hash::make($password), 'active' => true])->save();
 
             // Signed-in browsers of this user must not survive a password reset (a lost or borrowed till, for instance).
-            if (config('session.driver') === 'database' && Schema::hasTable('sessions')) {
-                DB::table('sessions')->where('user_id', $user->id)->delete();
-            }
+            app(UserSessions::class)->endFor($user->id);
 
             AuditEvent::create([
                 'store_id' => $user->store_id,

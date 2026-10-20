@@ -27,6 +27,15 @@ export const AUDIT_TYPES = [
     { id: 'SHIFT_OPENED', label: 'Shift opened' },
     { id: 'SHIFT_CLOSED', label: 'Shift closed' },
     { id: 'PASSWORD_RESET', label: 'Password reset' },
+    { id: 'USER_CREATED', label: 'User created' },
+    { id: 'USER_UPDATED', label: 'User changed' },
+    { id: 'USER_PASSWORD_CHANGED', label: 'Password changed' },
+    { id: 'USER_DEACTIVATED', label: 'User deactivated' },
+    { id: 'USER_ACTIVATED', label: 'User reactivated' },
+    { id: 'TERMINAL_CREATED', label: 'Till added' },
+    { id: 'FISCAL_CONFIGURATION_UNLOCKED', label: 'Fiscal setup unlocked' },
+    { id: 'FISCAL_CONFIGURATION_LOCKED', label: 'Fiscal setup locked' },
+    { id: 'TAX_REGISTRATION_CORRECTED', label: 'Tax registration corrected' },
     { id: 'X_READING_GENERATED', label: 'X-Reading generated' },
     { id: 'Z_READING_GENERATED', label: 'Z-Reading generated' },
 ];
@@ -112,6 +121,16 @@ function describePackaging(snapshot, verb, suffix) {
     return `${what} ${verb} product ${snapshot.sku ?? '—'}${suffix && snapshot.barcode ? `; ${suffix}` : ''}`;
 }
 
+const USER_FIELDS = { name: 'name', email: 'e-mail', role: 'role' };
+
+/** "role CASHIER → MANAGER, name …" for the fields of a user that differ. */
+function describeUserChange(before, after) {
+    return Object.entries(USER_FIELDS)
+        .filter(([field]) => before[field] !== after[field])
+        .map(([field, label]) => `${label} ${before[field] ?? '—'} → ${after[field] ?? '—'}`)
+        .join(', ');
+}
+
 /** One plain sentence for an audit event, from what the event recorded. Unknown types fall back to their name. */
 export function describeAudit(event) {
     const after = event.after_metadata ?? {};
@@ -161,6 +180,24 @@ export function describeAudit(event) {
             return `${event.event_type === 'CASH_IN' ? 'Cash added to' : 'Cash taken from'} the drawer: ${money(after.amount)}`;
         case 'PASSWORD_RESET':
             return `Password reset from the server for ${after.email ?? 'a user'}${after.reactivated ? ' (reactivated)' : ''}; their sessions were ended`;
+        case 'USER_CREATED':
+            return `User ${after.email ?? 'a user'} created as ${after.role ?? '—'}${after.password_set ? '' : ' (no password yet)'}`;
+        case 'USER_UPDATED':
+            return `User ${after.email ?? 'a user'} changed: ${describeUserChange(event.before_metadata ?? {}, after) || 'no listed field'}`;
+        case 'USER_PASSWORD_CHANGED':
+            return `Password changed for ${after.email ?? 'a user'}; ${after.sessions_ended ?? 0} signed-in ${after.sessions_ended === 1 ? 'browser was' : 'browsers were'} signed out`;
+        case 'USER_DEACTIVATED':
+            return `User ${after.email ?? 'a user'} deactivated; ${after.sessions_ended ?? 0} signed-in ${after.sessions_ended === 1 ? 'browser was' : 'browsers were'} signed out`;
+        case 'USER_ACTIVATED':
+            return `User ${after.email ?? 'a user'} reactivated`;
+        case 'TERMINAL_CREATED':
+            return `Till ${after.terminal_code ?? '—'} added${after.via === 'console' ? ' from the server' : ''}`;
+        case 'FISCAL_CONFIGURATION_UNLOCKED':
+            return `Fiscal setup unlocked from the server${after.unlocked_until ? ` until ${after.unlocked_until}` : ''}`;
+        case 'FISCAL_CONFIGURATION_LOCKED':
+            return 'Fiscal setup locked again';
+        case 'TAX_REGISTRATION_CORRECTED':
+            return `Tax registration that had not started was corrected: ${event.before_metadata?.effective_from ?? '—'} → ${after.effective_from ?? '—'}${after.registration_type ? ` (${after.registration_type})` : ''}`;
         case 'SHIFT_OPENED':
             return `Shift opened with ${money(after.opening_cash)} in the drawer`;
         case 'SHIFT_CLOSED':

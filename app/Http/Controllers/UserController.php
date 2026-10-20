@@ -53,7 +53,7 @@ class UserController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        return (new UserSummaryResource($service->create($actor->store_id, $request->validated())))
+        return (new UserSummaryResource($service->create($actor->store_id, $request->validated(), $actor)))
             ->response()
             ->setStatusCode(201);
     }
@@ -62,20 +62,20 @@ class UserController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        return (new UserSummaryResource($service->update($actor->store_id, $userId, $request->validated())))->response();
+        return (new UserSummaryResource($service->update($actor->store_id, $userId, $request->validated(), $actor, $request->hasSession() ? $request->session()->getId() : null)))->response();
     }
 
     public function deactivate(UserService $service, string $userId): JsonResponse
     {
         $actor = Auth::guard('web')->user();
 
-        return (new UserSummaryResource($service->setActive($actor->store_id, $userId, false)))->response();
+        return (new UserSummaryResource($service->setActive($actor->store_id, $userId, false, $actor)))->response();
     }
 
     public function activate(UserService $service, string $userId): JsonResponse
     {
         $actor = Auth::guard('web')->user();
 
-        return (new UserSummaryResource($service->setActive($actor->store_id, $userId, true)))->response();
+        return (new UserSummaryResource($service->setActive($actor->store_id, $userId, true, $actor)))->response();
     }
 }
