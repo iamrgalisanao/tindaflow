@@ -2334,8 +2334,9 @@ paths:
     get:
       operationId: fiscalInstallationList
       tags: [FiscalInstallation]
+      x-capability: STORE_SETTINGS_MANAGE
       summary: List fiscal installations
-      description: 'Session only, so a store can always see what is configured (ADR-014: changing it needs FISCAL_CONFIGURATION_MANAGE, held only while the server operator has unlocked it). Administrative surface only. Entering values here does not itself constitute BIR accreditation — TindaFlow V1 is not accredited (architecture.md §12/ADR-009).'
+      description: 'The store''s administrators can always see what is configured (ADR-014: changing it needs FISCAL_CONFIGURATION_MANAGE, held only while the server operator has unlocked it); a cashier or manager cannot, since it carries accreditation and permit numbers and the machine serial. Administrative surface only. Entering values here does not itself constitute BIR accreditation — TindaFlow V1 is not accredited (architecture.md §12/ADR-009).'
       responses:
         '200':
           description: Fiscal installations
@@ -2427,8 +2428,9 @@ paths:
     get:
       operationId: invoiceSeriesList
       tags: [InvoiceSeries]
+      x-capability: STORE_SETTINGS_MANAGE
       summary: List invoice series for the store
-      description: 'Session only (ADR-014): reading is open to the store, changing is not.'
+      description: 'Administrators only (STORE_SETTINGS_MANAGE); changing needs FISCAL_CONFIGURATION_MANAGE, held only while the server operator has unlocked it (ADR-014).'
       parameters:
       - {$ref: '#/components/parameters/PageParam'}
       - {$ref: '#/components/parameters/PerPageParam'}

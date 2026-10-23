@@ -288,9 +288,10 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // FISCAL_CONFIGURATION_MANAGE-gated, store-scoped, no terminal
     // credential needed -- same shape as Terminal management above.
     // ADR-014: the fiscal configuration is read-only for a store's administrators until the server operator unlocks it
-    // (FISCAL_CONFIGURATION_MANAGE), so the lists below need only a session -- a shop can always see what is configured.
+    // (FISCAL_CONFIGURATION_MANAGE). Reading it is the administrators' (STORE_SETTINGS_MANAGE), not any signed-in user's: the
+    // installation list carries the accreditation and permit numbers and the machine serial, which a cashier has no need of.
     Route::get('/fiscal-installations', [FiscalInstallationController::class, 'list'])
-        ->middleware(['auth', EnsureUserIsActive::class]);
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
     Route::post('/fiscal-installations', [FiscalInstallationController::class, 'create'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
     Route::post('/fiscal-installations/{fiscalInstallationId}/terminals', [FiscalInstallationController::class, 'assignTerminal'])
@@ -302,7 +303,7 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
 
     Route::get('/invoice-series', [InvoiceSeriesController::class, 'list'])
-        ->middleware(['auth', EnsureUserIsActive::class]);
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
     Route::post('/invoice-series', [InvoiceSeriesController::class, 'create'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
     Route::post('/invoice-series/{invoiceSeriesId}/close', [InvoiceSeriesController::class, 'close'])

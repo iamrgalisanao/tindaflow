@@ -370,7 +370,7 @@ prejudge.
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
 |---|---|---|---|---|---|---|---|---|---|
-| GET | /fiscal-installations | fiscalInstallationList | session | false | — | no | — | 200 array | 401 |
+| GET | /fiscal-installations | fiscalInstallationList | session | false | `STORE_SETTINGS_MANAGE` | no | — | 200 array | 401, 403 |
 | POST | /fiscal-installations | fiscalInstallationCreate | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | FiscalInstallationInput (`accreditation`/`permit_to_use` objects) | 201 FiscalInstallation | 403, 422 |
 | POST | /fiscal-installations/{fiscalInstallationId}/terminals | fiscalInstallationAssignTerminal | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | terminal_id+effective_from? | 201 TerminalFiscalInstallation | 403, 404, 422, 409 |
 
@@ -382,13 +382,13 @@ The table `InvoiceSeriesAllocator::allocateForFiscalInstallation` reads at check
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
 |---|---|---|---|---|---|---|---|---|---|
-| GET | /invoice-series | invoiceSeriesList | session | false | — | no | fiscal_installation_id? (query) | 200 paginated array | 401 |
+| GET | /invoice-series | invoiceSeriesList | session | false | `STORE_SETTINGS_MANAGE` | no | fiscal_installation_id? (query) | 200 paginated array | 401, 403 |
 | POST | /invoice-series | invoiceSeriesCreate | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | InvoiceSeriesInput | 201 InvoiceSeries | 403, 409 `INVOICE_SERIES_ALREADY_ACTIVE`, 422 |
 | POST | /invoice-series/{invoiceSeriesId}/close | invoiceSeriesClose | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | — | 200 InvoiceSeries | 403, 404, 409 `INVOICE_SERIES_ALREADY_CLOSED` |
 
 ## InventoryLocation (3) — store-setup pass (2026-09-18), tagged `Inventory` (existing tag), no prior draft at any stage
 
-**ADR-014 (2026-10-03):** creating and editing a location now needs `STORE_SETTINGS_MANAGE` (a shop's own stock locations are not part of the locked fiscal configuration); `fiscalInstallationList` and `invoiceSeriesList` became session-only.
+**ADR-014 (2026-10-03):** creating and editing a location now needs `STORE_SETTINGS_MANAGE` (a shop's own stock locations are not part of the locked fiscal configuration); `fiscalInstallationList` and `invoiceSeriesList` stay administrator-readable (`STORE_SETTINGS_MANAGE`), no longer `FISCAL_CONFIGURATION_MANAGE`.
 
 **Loosened 2026-09-20 (stage 25):** `inventoryLocationList` is now session-only, no capability (it was `FISCAL_CONFIGURATION_MANAGE`). A location is just a name, and a MANAGER (`STOCK_ADJUST` without `FISCAL_CONFIGURATION_MANAGE`) needs the list for the stock, count and transfer screens; before this the Stock page could not show a manager where stock was. Create and update are unchanged.
 

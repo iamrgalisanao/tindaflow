@@ -62,6 +62,20 @@ class FiscalConfigurationLockTest extends PostgresSchemaTestCase
         }
     }
 
+    public function test_only_administrators_can_read_the_installation_and_series_lists(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $manager = User::factory()->manager()->create(['store_id' => $admin->store_id]);
+        $cashier = User::factory()->create(['store_id' => $admin->store_id]);
+
+        foreach (['/api/v1/fiscal-installations', '/api/v1/invoice-series'] as $uri) {
+            foreach ([$manager, $cashier] as $user) {
+                $this->forwardSessionCookie($this->login($user))->getJson($uri)->assertStatus(403);
+            }
+            $this->forwardSessionCookie($this->login($admin))->getJson($uri)->assertOk();
+        }
+    }
+
     public function test_the_shops_own_stock_locations_stay_editable_while_the_fiscal_configuration_is_locked(): void
     {
         $admin = User::factory()->admin()->create();
