@@ -52,6 +52,7 @@ export const AUDIT_TYPES = [
     { id: 'TERMINAL_REVOKED', label: 'Till revoked' },
     { id: 'X_READING_GENERATED', label: 'X-Reading generated' },
     { id: 'Z_READING_GENERATED', label: 'Z-Reading generated' },
+    { id: 'Z_READING_PRINTED', label: 'Z-Reading original printed' },
     { id: 'Z_READING_REPRINTED', label: 'Z-Reading copy printed' },
     { id: 'TERMINAL_SHARED_USE_SUSPECTED', label: 'Till possibly used from two computers' },
 ];
@@ -255,6 +256,8 @@ export function describeAudit(event) {
             return `Shift closed, variance ${money(after.variance)}`;
         case 'X_READING_GENERATED':
             return 'X-Reading generated';
+        case 'Z_READING_PRINTED':
+            return `The original of Z-Reading #${after.z_counter ?? '?'} was printed`;
         case 'TERMINAL_SHARED_USE_SUSPECTED':
             return `Till ${after.terminal_code ?? '—'} was used from two different computers in turn${after.ip_address ? ` (${after.ip_address}${after.other_ip_address && after.other_ip_address !== after.ip_address ? ` and ${after.other_ip_address}` : ''})` : ''}; if that is not expected, re-enroll the till`;
         case 'Z_READING_REPRINTED':

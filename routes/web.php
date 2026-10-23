@@ -189,12 +189,11 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class]);
     Route::get('/fiscal-days/{fiscalDayId}/z-reading', [FiscalDayController::class, 'getZReading'])->whereUuid('fiscalDayId')
         ->middleware(['auth', EnsureUserIsActive::class]);
-    // Z-reading paper: the plain original (a read, records nothing) and the recorded, REPRINT-marked copy. Session only,
-    // store-scoped, like the reading itself.
-    Route::get('/fiscal-days/{fiscalDayId}/z-reading/document', [FiscalDayController::class, 'zReadingDocument'])->whereUuid('fiscalDayId')
-        ->middleware(['auth', EnsureUserIsActive::class]);
-    Route::post('/fiscal-days/{fiscalDayId}/z-reading/reprints', [FiscalDayController::class, 'zReadingReprint'])->whereUuid('fiscalDayId')
-        ->middleware(['auth', EnsureUserIsActive::class]);
+    // Z-reading paper (one operation; the SERVER decides which printout is the original): the first print of a reading is the plain
+    // original, every later one a marked, recorded copy. Store-scoped and REPORT_VIEW (the end-of-day totals are the owner's and
+    // managers', not a cashier's), and rate-limited because every print writes an audit event.
+    Route::post('/fiscal-days/{fiscalDayId}/z-reading/prints', [FiscalDayController::class, 'zReadingPrint'])->whereUuid('fiscalDayId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:REPORT_VIEW', 'throttle:reprints']);
 
     // openapi.yaml Catalog tag. Reads need only the session (operation-inventory.md);
     // every mutation is CATALOG_MANAGE. No terminal credential. {productId} is

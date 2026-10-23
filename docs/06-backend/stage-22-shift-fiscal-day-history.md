@@ -82,18 +82,22 @@ names would need `USER_MANAGE` / `TERMINAL_MANAGE`, which a manager does not hol
 cashier and terminal names on these pages; a way to print or export a Z-reading; and sales-per-shift links (the
 sales list has no shift filter).
 
-## Addendum (2026-10-20): printing the Z-reading
+## Addendum (2026-10-20, revised 2026-10-23): printing the Z-reading
 
 The Z-reading could be read on screen but not printed. `ZReadingPrinter` renders it as an 80 mm print document (the same narrow monospace
 layout as the invoice, ADR-007) from the stored `totals_snapshot`; the figures are never recalculated, and only the shop name, the till's
-code and the name of whoever closed the day are looked up around it. Two operations, both session-only and store-scoped like the reading:
-`fiscalDayZReadingDocumentGet` returns the plain original and records nothing; `fiscalDayZReadingReprint` records a `Z_READING_REPRINTED`
-audit event (who asked, which day, which counter) and returns the copy marked REPRINT -- COPY with the time.
+code and the name of whoever closed the day are looked up around it. One operation, `fiscalDayZReadingPrint` (store-scoped, `REPORT_VIEW`,
+30 an hour per person), and **the server decides which printout is the original**: the first print of a reading is the plain original,
+recorded in `z_reading_prints` with a `Z_READING_PRINTED` audit event; every later print is a copy marked REPRINT -- COPY and recorded as
+`Z_READING_REPRINTED`.
 
-The till prints the **original** once, on the "Business day closed" screen, and every further printout from there is a recorded copy. From
-Records, Fiscal days, the only button is **Print a copy**, so no unmarked duplicate can come from history. The server cannot enforce
-"original once" (the original is a read), so this is the screens' rule, as it is for the invoice at checkout. The reprint is not
-idempotent: it needs no terminal (an administrator can print from the back office), and the idempotency table is keyed by terminal; a retry
-after a lost response records one extra copy and never changes a figure. No journal entry is written for a copy (the journal's event list is
-closed and a reading copy is not a journal event), and no legal wording is printed (BIR-006 is parked).
+An earlier design (2026-10-20) had a plain-read "original" and a separate recorded reprint, and left "original once" to the screens, so a
+direct API call could fetch any number of unmarked originals; a security review found that, and the original is now claimed on the server.
+`z_readings` is append-only (the application role cannot UPDATE it), so the claim lives in its own insert-only table whose unique
+`z_reading_id` is the arbiter: two simultaneous first prints cannot both be originals. The reading's resource shows `original_printed_at`
+and `original_printed_by`. The till prints the original as the day closes (the "Business day closed" screen); Records, Fiscal days offers
+**Print Z-reading** until the original exists and **Print a copy** after, so an original is whichever print comes first, by whoever, recorded.
 
+The print is not idempotent (no terminal to key it by; an administrator can print from the back office): a retry after a lost response
+records one extra print and never changes a figure. No journal entry is written (the journal's event list is closed and a printout is not a
+journal event), and no legal wording is printed (BIR-006 is parked).

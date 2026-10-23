@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ZReading extends Model
 {
@@ -35,6 +36,11 @@ class ZReading extends Model
     public function fiscalDay(): BelongsTo
     {
         return $this->belongsTo(FiscalDay::class);
+    }
+
+    public function originalPrint(): HasOne
+    {
+        return $this->hasOne(ZReadingPrint::class);
     }
 
     public function generatedBy(): BelongsTo

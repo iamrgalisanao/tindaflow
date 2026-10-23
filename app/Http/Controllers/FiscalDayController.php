@@ -93,24 +93,18 @@ class FiscalDayController extends Controller
     }
 
     /**
-     * fiscalDayZReadingDocumentGet: the plain original Z-reading, rendered for an 80mm roll from the stored snapshot. A read:
-     * it records nothing. The till prints it once, when the day closes; every later copy goes through the reprint.
+     * fiscalDayZReadingPrint: the server decides which printout is the original. The first print of a reading is the plain original;
+     * every later one is a copy marked REPRINT -- COPY. Either way it is recorded, with who asked.
      */
-    public function zReadingDocument(ZReadingPrintService $service, string $fiscalDayId): JsonResponse
+    public function zReadingPrint(ZReadingPrintService $service, string $fiscalDayId): JsonResponse
     {
-        return response()->json(['render_html' => $service->original($fiscalDayId, Auth::guard('web')->user()->store_id), 'is_reprint' => false]);
-    }
-
-    /** fiscalDayZReadingReprint: records that a copy was printed (Z_READING_REPRINTED) and returns it marked REPRINT -- COPY. */
-    public function zReadingReprint(ZReadingPrintService $service, string $fiscalDayId): JsonResponse
-    {
-        ['event' => $event, 'html' => $html] = $service->reprint($fiscalDayId, Auth::guard('web')->user());
+        ['event' => $event, 'html' => $html, 'is_reprint' => $isReprint] = $service->print($fiscalDayId, Auth::guard('web')->user());
 
         return response()->json([
-            'reprint_event_id' => $event->id,
+            'print_event_id' => $event->id,
             'render_html' => $html,
-            'is_reprint' => true,
-            'reprinted_at' => $event->occurred_at->toJSON(),
+            'is_reprint' => $isReprint,
+            'printed_at' => $event->occurred_at->toJSON(),
             'requested_by' => $event->actor_user_id,
         ], 201);
     }

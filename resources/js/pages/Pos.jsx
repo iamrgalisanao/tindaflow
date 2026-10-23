@@ -104,6 +104,7 @@ export default function Pos() {
     const [zOriginalPrinted, setZOriginalPrinted] = useState(false);
     const [zPrintBusy, setZPrintBusy] = useState(false);
     const [zPrintError, setZPrintError] = useState(null);
+    const [zWasCopy, setZWasCopy] = useState(false); // the server made the last printout a copy (the original had already been printed)
     const [copyKey, setCopyKey] = useState(newIdempotencyKey);
     const attempts = useRef({});
 
@@ -402,12 +403,13 @@ export default function Pos() {
         setZPrintError(null);
         try {
             const dayId = fiscalDayCloseResult.z_reading.fiscal_day_id;
-            const response = zOriginalPrinted
-                ? await apiFetch(`/api/v1/fiscal-days/${dayId}/z-reading/reprints`, { method: 'POST' })
-                : await apiFetch(`/api/v1/fiscal-days/${dayId}/z-reading/document`);
+            // The server decides which printout is the original: the first print of a reading is the plain original, every later one
+            // (from here or from Records) is a marked, recorded copy.
+            const response = await apiFetch(`/api/v1/fiscal-days/${dayId}/z-reading/prints`, { method: 'POST' });
             if (response.ok) {
                 printDocument(response.body.render_html, 'Z-reading to print');
                 setZOriginalPrinted(true);
+                setZWasCopy(response.body.is_reprint);
             } else {
                 setZPrintError('The Z-reading could not be prepared for printing. The day is closed and the reading is saved; you can print a copy from Records, Fiscal days.');
             }
@@ -947,7 +949,11 @@ export default function Pos() {
                         >
                             {zPrintBusy ? 'Preparing…' : zOriginalPrinted ? 'Print another copy' : 'Print Z-reading'}
                         </button>
-                        {zOriginalPrinted && <p className="text-xs text-slate-400">Another copy is marked REPRINT — COPY and recorded.</p>}
+                        {zOriginalPrinted && (
+                            <p className="text-xs text-slate-400">
+                                {zWasCopy ? 'The original was already printed, so that one is marked REPRINT — COPY.' : 'Another copy is marked REPRINT — COPY and recorded.'}
+                            </p>
+                        )}
                         {zPrintError && (
                             <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-300">
                                 {zPrintError}

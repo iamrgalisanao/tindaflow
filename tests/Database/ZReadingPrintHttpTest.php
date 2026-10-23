@@ -7,12 +7,14 @@ use App\Models\Sale;
 use App\Models\Shift;
 use App\Models\Store;
 use App\Models\ZReading;
+use App\Models\ZReadingPrint;
 use Illuminate\Support\Str;
 use Tests\Database\Concerns\BuildsSalesScenario;
 
 /**
- * Z-reading paper: the plain original (a read, records nothing) and the recorded, REPRINT-marked copy. Both come from the stored
- * snapshot; nothing about the reading, the fiscal day or any counter changes.
+ * Z-reading paper, with the SERVER deciding which printout is the original: the first print of a reading is the plain original (recorded),
+ * every later one a copy marked REPRINT -- COPY (recorded). Both come from the stored snapshot; nothing about the reading, the fiscal day
+ * or any counter changes.
  */
 class ZReadingPrintHttpTest extends PostgresSchemaTestCase
 {
@@ -30,49 +32,76 @@ class ZReadingPrintHttpTest extends PostgresSchemaTestCase
         return [$w, ZReading::where('fiscal_day_id', $w['cashierShift']->fiscal_day_id)->sole()];
     }
 
-    public function test_the_original_is_the_plain_document_from_the_stored_snapshot_and_records_nothing(): void
+    private function print(array $w, ZReading $reading, string $as = 'admin')
+    {
+        return $this->asUser($w[$as])->postJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading/prints");
+    }
+
+    public function test_the_first_print_is_the_plain_original_and_is_recorded_as_such(): void
     {
         [$w, $reading] = $this->closedDay();
-        $before = AuditEvent::count();
 
-        $response = $this->asUser($w['admin'])->getJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading/document");
+        $response = $this->print($w, $reading);
 
-        $response->assertOk()->assertJson(['is_reprint' => false]);
+        $response->assertStatus(201)->assertJson(['is_reprint' => false, 'requested_by' => $w['admin']->id]);
         $html = $response->json('render_html');
         $this->assertStringContainsString('Z-READING', $html);
         $this->assertStringContainsString('<title>Z-Reading '.$reading->totals_snapshot['z_counter'].'</title>', $html);
         $this->assertStringContainsString('PHP '.number_format((float) $reading->totals_snapshot['gross_sales'], 2), $html);
         $this->assertStringContainsString($reading->terminal->terminal_code, $html);
         $this->assertStringNotContainsString('REPRINT', $html);
-        $this->assertSame($before, AuditEvent::count(), 'reading the original records nothing');
+        $row = ZReadingPrint::sole();
+        $this->assertSame($reading->id, $row->z_reading_id);
+        $this->assertSame($w['admin']->id, $row->printed_by);
+        $event = AuditEvent::where('event_type', 'Z_READING_PRINTED')->sole();
+        $this->assertSame($w['admin']->id, $event->actor_user_id);
+        $this->assertSame(0, AuditEvent::where('event_type', 'Z_READING_REPRINTED')->count());
     }
 
-    public function test_a_reprint_is_marked_and_recorded_with_who_asked_and_changes_nothing_else(): void
+    public function test_every_later_print_is_a_marked_copy_even_from_someone_else(): void
+    {
+        [$w, $reading] = $this->closedDay();
+        $this->print($w, $reading, 'manager')->assertStatus(201)->assertJson(['is_reprint' => false]);
+
+        $copy = $this->print($w, $reading, 'admin');
+        $again = $this->print($w, $reading, 'manager');
+
+        foreach ([$copy, $again] as $response) {
+            $response->assertStatus(201)->assertJson(['is_reprint' => true]);
+            $this->assertStringContainsString('REPRINT &mdash; COPY', $response->json('render_html'));
+        }
+        $this->assertSame(1, ZReadingPrint::count(), 'there is exactly one original');
+        $this->assertSame($w['manager']->id, ZReadingPrint::sole()->printed_by, 'the first printer stays the original');
+        $this->assertSame(1, AuditEvent::where('event_type', 'Z_READING_PRINTED')->count());
+        $this->assertSame(2, AuditEvent::where('event_type', 'Z_READING_REPRINTED')->count());
+    }
+
+    public function test_an_original_claimed_a_moment_earlier_makes_the_next_print_a_copy_without_a_second_original(): void
+    {
+        [$w, $reading] = $this->closedDay();
+        // Another request won the race for the original between this one's check and its insert: the unique constraint decides.
+        ZReadingPrint::create(['store_id' => $w['storeId'], 'z_reading_id' => $reading->id, 'printed_by' => $w['manager']->id]);
+
+        $response = $this->print($w, $reading);
+
+        $response->assertStatus(201)->assertJson(['is_reprint' => true]);
+        $this->assertSame(1, ZReadingPrint::count());
+    }
+
+    public function test_printing_changes_nothing_about_the_reading_and_the_resource_says_when_the_original_was_printed(): void
     {
         [$w, $reading] = $this->closedDay();
         $snapshot = $reading->totals_snapshot;
+        $this->assertNull($this->asUser($w['admin'])->getJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading")->json('original_printed_at'));
 
-        $response = $this->asUser($w['manager'])->postJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading/reprints");
+        $this->print($w, $reading);
+        $this->print($w, $reading);
 
-        $response->assertStatus(201)->assertJson(['is_reprint' => true, 'requested_by' => $w['manager']->id]);
-        $this->assertStringContainsString('REPRINT &mdash; COPY', $response->json('render_html'));
-        $event = AuditEvent::where('event_type', 'Z_READING_REPRINTED')->sole();
-        $this->assertSame($response->json('reprint_event_id'), $event->id);
-        $this->assertSame($w['manager']->id, $event->actor_user_id);
-        $this->assertSame($reading->fiscal_day_id, $event->entity_id);
-        $this->assertSame($snapshot['z_counter'], $event->after_metadata['z_counter']);
-        $this->assertEquals($snapshot, $reading->refresh()->totals_snapshot, 'the reading is untouched');
+        $this->assertEquals($snapshot, $reading->refresh()->totals_snapshot);
         $this->assertSame(1, ZReading::where('fiscal_day_id', $reading->fiscal_day_id)->count());
-    }
-
-    public function test_every_reprint_is_recorded_on_its_own(): void
-    {
-        [$w, $reading] = $this->closedDay();
-
-        $this->asUser($w['admin'])->postJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading/reprints")->assertStatus(201);
-        $this->asUser($w['admin'])->postJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading/reprints")->assertStatus(201);
-
-        $this->assertSame(2, AuditEvent::where('event_type', 'Z_READING_REPRINTED')->count());
+        $read = $this->asUser($w['admin'])->getJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading");
+        $this->assertNotNull($read->json('original_printed_at'));
+        $this->assertSame($w['admin']->id, $read->json('original_printed_by'));
     }
 
     public function test_the_figures_are_the_stored_ones_even_if_the_ledger_has_moved_since(): void
@@ -81,7 +110,7 @@ class ZReadingPrintHttpTest extends PostgresSchemaTestCase
         $stored = $reading->totals_snapshot['gross_sales'];
         Sale::query()->update(['grand_total' => '1.00']);
 
-        $html = $this->asUser($w['admin'])->getJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading/document")->json('render_html');
+        $html = $this->print($w, $reading)->json('render_html');
 
         $this->assertStringContainsString('PHP '.number_format((float) $stored, 2), $html, 'never recalculated');
     }
@@ -91,31 +120,53 @@ class ZReadingPrintHttpTest extends PostgresSchemaTestCase
         [$w, $reading] = $this->closedDay();
         Store::where('id', $w['storeId'])->update(['name' => '<script>alert(1)</script> Store']);
 
-        $html = $this->asUser($w['admin'])->getJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading/document")->json('render_html');
+        $html = $this->print($w, $reading)->json('render_html');
 
         $this->assertStringNotContainsString('<script>alert', $html);
         $this->assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt; Store', $html);
     }
 
-    public function test_another_stores_day_and_a_day_with_no_reading_are_not_found(): void
+    public function test_another_stores_day_and_a_day_with_no_reading_are_not_found_and_leave_no_trace(): void
     {
-        [$w, $reading] = $this->closedDay();
+        [, $reading] = $this->closedDay();
         $other = $this->world();
         $openDay = Shift::find($other['cashierShift']->id)->fiscal_day_id; // open: no Z-reading yet
 
         foreach ([$openDay, $reading->fiscal_day_id] as $dayId) {
-            $as = $this->asUser($other['admin']);
-            $as->getJson("/api/v1/fiscal-days/{$dayId}/z-reading/document")->assertStatus(404)->assertJson(['error' => ['code' => 'FISCAL_DAY_NOT_FOUND']]);
-            $as->postJson("/api/v1/fiscal-days/{$dayId}/z-reading/reprints")->assertStatus(404);
+            $this->asUser($other['admin'])->postJson("/api/v1/fiscal-days/{$dayId}/z-reading/prints")
+                ->assertStatus(404)->assertJson(['error' => ['code' => 'FISCAL_DAY_NOT_FOUND']]);
         }
-        $this->assertSame(0, AuditEvent::where('event_type', 'Z_READING_REPRINTED')->count());
+        $this->assertSame(0, ZReadingPrint::count());
+        $this->assertSame(0, AuditEvent::whereIn('event_type', ['Z_READING_PRINTED', 'Z_READING_REPRINTED'])->count());
+    }
+
+    public function test_a_cashier_cannot_print_the_days_totals(): void
+    {
+        [$w, $reading] = $this->closedDay();
+
+        $this->print($w, $reading, 'cashier')->assertStatus(403);
+
+        $this->assertSame(0, ZReadingPrint::count(), 'a refused request must not become the original');
+        $this->assertSame(0, AuditEvent::whereIn('event_type', ['Z_READING_PRINTED', 'Z_READING_REPRINTED'])->count());
+    }
+
+    public function test_prints_are_rate_limited_so_they_cannot_flood_the_audit_log(): void
+    {
+        [$w, $reading] = $this->closedDay();
+        $as = $this->asUser($w['admin']);
+
+        foreach (range(1, 30) as $n) {
+            $as->postJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading/prints")->assertStatus(201);
+        }
+        $as->postJson("/api/v1/fiscal-days/{$reading->fiscal_day_id}/z-reading/prints")->assertStatus(429);
+
+        $this->assertSame(30, AuditEvent::whereIn('event_type', ['Z_READING_PRINTED', 'Z_READING_REPRINTED'])->count());
     }
 
     public function test_it_needs_a_session(): void
     {
         $id = (string) Str::uuid();
 
-        $this->getJson("/api/v1/fiscal-days/{$id}/z-reading/document")->assertStatus(401);
-        $this->postJson("/api/v1/fiscal-days/{$id}/z-reading/reprints")->assertStatus(401);
+        $this->postJson("/api/v1/fiscal-days/{$id}/z-reading/prints")->assertStatus(401);
     }
 }
