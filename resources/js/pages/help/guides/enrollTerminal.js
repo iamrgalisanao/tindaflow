@@ -70,5 +70,5 @@ export default {
         },
     ],
     done: 'The till is enrolled. A cashier can now open a shift and start selling.',
-    next: ['open-shift', 'manage-users'],
+    next: ['enroll-till-remotely', 'open-shift', 'manage-users'],
 };

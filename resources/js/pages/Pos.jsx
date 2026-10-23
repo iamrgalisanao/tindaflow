@@ -17,6 +17,7 @@ import XReadingPanel from './pos/XReadingPanel';
 import { attemptKey, failureText, newIdempotencyKey, settleAttempt } from './pos/attempts';
 import { apiMoney, clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 import MoneyInput from '../components/MoneyInput';
+import PairingRequestPanel from './pos/PairingRequestPanel';
 
 const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'];
 
@@ -568,8 +569,9 @@ export default function Pos() {
             <div className="min-h-screen bg-slate-950 text-slate-100 [color-scheme:dark]">
                 <div className="mx-auto max-w-md p-8 text-center">
                     <p className="rounded-md bg-amber-500/10 px-3 py-3 text-sm text-amber-300">
-                        This browser is not enrolled as any terminal. Ask an admin to enroll it under Terminal Enrollment.
+                        This browser is not enrolled as any terminal. Ask an admin to open Terminals and enroll this browser.
                     </p>
+                    <PairingRequestPanel />
                     <Link to="/" className="mt-4 inline-block text-sm text-slate-400 underline">
                         Back to dashboard
                     </Link>

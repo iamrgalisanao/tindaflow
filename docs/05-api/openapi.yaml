@@ -128,6 +128,182 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+  /terminal/pairing-requests:
+    post:
+      operationId: terminalPairingRequestCreate
+      tags: [Terminal]
+      summary: Ask for this browser to be approved as a till (ADR-015)
+      description: 'Any signed-in user, at the browser that wants to be a till. Returns once a short code (to be read to an administrator) and a secret (kept by this browser, used to collect the credential). Both are stored only hashed. A person has one live request at a time; at most 20 wait per store (429 PAIRING_REQUEST_LIMIT); 10 an hour per person.'
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          description: The request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: string, format: uuid}
+                  code: {type: string, example: 'ABCD-EFGH'}
+                  secret: {type: string}
+                  expires_at: {type: string, format: date-time}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429':
+          description: Too many requests waiting, or too many asked (PAIRING_REQUEST_LIMIT / RATE_LIMITED)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+    get:
+      operationId: terminalPairingRequestList
+      tags: [Terminal]
+      x-capability: TERMINAL_MANAGE
+      summary: Till requests waiting for approval
+      description: 'Pending, unexpired requests of the actor''s store, oldest first, with who asked, from which address and browser. The code is never listed: the administrator must type the one shown on the till computer.'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: Waiting requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string, format: uuid}
+                        requested_by:
+                          type: object
+                          properties:
+                            id: {type: string, format: uuid}
+                            name: {type: string}
+                            role: {$ref: '#/components/schemas/UserRole'}
+                        ip_address: {type: string, nullable: true}
+                        user_agent: {type: string, nullable: true}
+                        requested_at: {type: string, format: date-time}
+                        expires_at: {type: string, format: date-time}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /terminal/pairing-requests/{requestId}/claim:
+    post:
+      operationId: terminalPairingRequestClaim
+      tags: [Terminal]
+      summary: The requesting browser asks whether it has been approved (ADR-015)
+      description: 'Needs the secret and must come from the same signed-in user that asked. 202 while still waiting. Once approved, issues the terminal credential as the HttpOnly cookie, exactly once, and answers the terminal. 409 PAIRING_REQUEST_INVALID for every other case (unknown, someone else''s, wrong secret, expired, declined, already used).'
+      security:
+      - cookieAuth: []
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [secret]
+              properties:
+                secret: {type: string}
+      responses:
+        '200':
+          description: Approved; terminal credential established for this browser
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TerminalSummary'}
+        '202':
+          description: Still waiting for an administrator
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string, enum: [PENDING]}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409':
+          description: PAIRING_REQUEST_INVALID
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /terminal/pairing-requests/{requestId}/approve:
+    post:
+      operationId: terminalPairingRequestApprove
+      tags: [Terminal]
+      x-capability: TERMINAL_MANAGE
+      summary: Approve a till request with the code read from the till computer, and choose its terminal (ADR-015)
+      description: 'The code must match the request (a wrong one is a 422 field error; five decline the request). Approving a revoked terminal needs a free licensed seat (409 TERMINAL_LIMIT_REACHED); approving an already-enrolled terminal replaces its credential.'
+      security:
+      - cookieAuth: []
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, terminal_id]
+              properties:
+                code: {type: string}
+                terminal_id: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: string, format: uuid}
+                  status: {type: string, enum: [APPROVED]}
+                  terminal_id: {type: string, format: uuid}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: PAIRING_REQUEST_INVALID or TERMINAL_LIMIT_REACHED
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /terminal/pairing-requests/{requestId}/reject:
+    post:
+      operationId: terminalPairingRequestReject
+      tags: [Terminal]
+      x-capability: TERMINAL_MANAGE
+      summary: Decline a till request (ADR-015)
+      security:
+      - cookieAuth: []
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Declined
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: string, format: uuid}
+                  status: {type: string, enum: [REJECTED]}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: PAIRING_REQUEST_INVALID
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
   /terminal/current:
     get:
       operationId: terminalCurrent

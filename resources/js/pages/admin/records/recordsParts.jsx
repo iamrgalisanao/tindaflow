@@ -44,6 +44,10 @@ export const AUDIT_TYPES = [
     { id: 'INVENTORY_LOCATION_CREATED', label: 'Stock location added' },
     { id: 'INVENTORY_LOCATION_UPDATED', label: 'Stock location changed' },
     { id: 'TERMINAL_ENROLLMENT_TOKEN_ISSUED', label: 'Enrollment token issued' },
+    { id: 'TERMINAL_PAIRING_REQUESTED', label: 'Till approval requested' },
+    { id: 'TERMINAL_PAIRING_APPROVED', label: 'Till approval granted' },
+    { id: 'TERMINAL_PAIRING_DECLINED', label: 'Till approval declined' },
+    { id: 'TERMINAL_PAIRING_CODE_REFUSED', label: 'Wrong till approval code' },
     { id: 'TERMINAL_ENROLLED', label: 'Till enrolled' },
     { id: 'TERMINAL_REVOKED', label: 'Till revoked' },
     { id: 'X_READING_GENERATED', label: 'X-Reading generated' },
@@ -226,6 +230,14 @@ export function describeAudit(event) {
             }`;
         case 'TERMINAL_ENROLLMENT_TOKEN_ISSUED':
             return `Enrollment token issued for till ${after.terminal_code ?? '—'}`;
+        case 'TERMINAL_PAIRING_REQUESTED':
+            return `A computer asked to be approved as a till${after.ip_address ? ` (from ${after.ip_address})` : ''}`;
+        case 'TERMINAL_PAIRING_APPROVED':
+            return `A till request was approved: that computer became till ${after.terminal_code ?? '—'}${after.ip_address ? ` (from ${after.ip_address})` : ''}`;
+        case 'TERMINAL_PAIRING_DECLINED':
+            return `A till request was declined${after.ip_address ? ` (from ${after.ip_address})` : ''}`;
+        case 'TERMINAL_PAIRING_CODE_REFUSED':
+            return `A wrong code was entered for a till request (attempt ${after.attempts ?? '?'} of 5)${after.declined ? '; the request was declined' : ''}`;
         case 'TERMINAL_ENROLLED':
             return `A browser was enrolled as till ${after.terminal_code ?? '—'}${after.re_enrolled_after_revocation ? ' (after it had been revoked)' : ''}`;
         case 'TERMINAL_REVOKED':

@@ -26,6 +26,7 @@ use App\Http\Controllers\StoreSettingsController;
 use App\Http\Controllers\StoreSetupController;
 use App\Http\Controllers\TaxRegistrationController;
 use App\Http\Controllers\TerminalController;
+use App\Http\Controllers\TerminalPairingController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VoidController;
 use App\Http\Middleware\ComposeAuthoritativeContext;
@@ -59,6 +60,18 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     Route::post('/terminals', [TerminalController::class, 'create'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
     Route::post('/terminal-enrollment-tokens', [TerminalController::class, 'createEnrollmentToken'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
+    // ADR-015: remote till approval. The browser that wants to be a till (any signed-in user, any role) asks and then claims; an
+    // administrator anywhere lists, approves with the code read from that browser's screen, or declines.
+    Route::post('/terminal/pairing-requests', [TerminalPairingController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'throttle:pairing']);
+    Route::post('/terminal/pairing-requests/{requestId}/claim', [TerminalPairingController::class, 'claim'])->whereUuid('requestId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/terminal/pairing-requests', [TerminalPairingController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
+    Route::post('/terminal/pairing-requests/{requestId}/approve', [TerminalPairingController::class, 'approve'])->whereUuid('requestId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
+    Route::post('/terminal/pairing-requests/{requestId}/reject', [TerminalPairingController::class, 'reject'])->whereUuid('requestId')
         ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);
     Route::post('/terminal/enroll', [TerminalController::class, 'enroll'])
         ->middleware(['auth', EnsureUserIsActive::class, 'can:TERMINAL_MANAGE']);

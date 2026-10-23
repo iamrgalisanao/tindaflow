@@ -47,6 +47,11 @@ admin operations that make sense from any authenticated browser, and
 |---|---|---|---|---|---|---|---|---|---|
 | POST | /terminal-enrollment-tokens | terminalCreateEnrollmentToken | session | false | `TERMINAL_MANAGE` | no | terminal_id | 201 Token | 403, 404 |
 | POST | /terminal/enroll | terminalEnroll | session (admin on this workstation) | false (this is what establishes it) | `TERMINAL_MANAGE` | no | token | 200 TerminalSummary | 409 (token used/expired/revoked) |
+| POST | /terminal/pairing-requests | terminalPairingRequestCreate | session | false | — | no | — | 201 `{id, code, secret, expires_at}` | 401, 429 `PAIRING_REQUEST_LIMIT` |
+| GET | /terminal/pairing-requests | terminalPairingRequestList | session | false | `TERMINAL_MANAGE` | no | — | 200 `{data: [...]}` (never the codes) | 401, 403 |
+| POST | /terminal/pairing-requests/{requestId}/claim | terminalPairingRequestClaim | session | false | — | no | secret | 202 pending / 200 TerminalSummary + credential cookie | 401, 409 `PAIRING_REQUEST_INVALID` |
+| POST | /terminal/pairing-requests/{requestId}/approve | terminalPairingRequestApprove | session | false | `TERMINAL_MANAGE` | no | code, terminal_id | 200 | 401, 403, 404 `TERMINAL_NOT_FOUND`, 409 `PAIRING_REQUEST_INVALID`/`TERMINAL_LIMIT_REACHED`, 422 |
+| POST | /terminal/pairing-requests/{requestId}/reject | terminalPairingRequestReject | session | false | `TERMINAL_MANAGE` | no | — | 200 | 401, 403, 409 `PAIRING_REQUEST_INVALID` |
 | GET | /terminal/current | terminalCurrent | session | true | — | no | — | 200 TerminalSummary | `TERMINAL_NOT_ENROLLED` |
 | POST | /terminals | terminalCreate | session | false | `TERMINAL_MANAGE` | no | terminal_code | 201 TerminalSummary | 403, 409 `TERMINAL_LIMIT_REACHED`, 422 |
 | GET | /terminals | terminalList | session | false | `TERMINAL_MANAGE` | no | — | 200 paginated | 403 |

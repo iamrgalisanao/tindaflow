@@ -5,6 +5,7 @@ import closeBusinessDay from './closeBusinessDay';
 import closeShift from './closeShift';
 import editProduct from './editProduct';
 import enrollTerminal from './enrollTerminal';
+import enrollTerminalRemotely from './enrollTerminalRemotely';
 import findSale from './findSale';
 import glossary from './glossary';
 import importProducts from './importProducts';
@@ -41,6 +42,7 @@ const ALL = [
     signIn,
     setupStore,
     enrollTerminal,
+    enrollTerminalRemotely,
     manageUsers,
     openShift,
     makeSale,

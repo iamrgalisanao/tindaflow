@@ -25,6 +25,11 @@ import { formatDateTime } from './reports/formatters';
 export default function TerminalsPage() {
     const signIn = useSignIn();
     const { data: result, failure, loading, reload } = useLoad('/api/v1/terminals?per_page=100');
+    // ADR-015: till computers asking to be approved from here (an administrator does not have to be at the till). Refreshed every few
+    // seconds while this page is open, since a cashier is waiting on the other end.
+    const { data: pairing, reload: reloadPairing } = useLoad('/api/v1/terminal/pairing-requests');
+    const [pairingChoice, setPairingChoice] = useState({}); // request id -> { terminalId, code }
+    const [pairingError, setPairingError] = useState({}); // request id -> message
 
     // The terminal this browser currently holds a credential for, or why it holds none.
     const [thisBrowser, setThisBrowser] = useState(undefined); // undefined = still resolving
@@ -76,6 +81,55 @@ export default function TerminalsPage() {
         } else {
             setActionError(failureMessage(response, 'The terminal could not be added.'));
         }
+        setBusy(false);
+    }
+
+    useEffect(() => {
+        const timer = setInterval(reloadPairing, 8000);
+
+        return () => clearInterval(timer);
+    }, [reloadPairing]);
+
+    function choose(requestId, patch) {
+        setPairingChoice((prior) => ({ ...prior, [requestId]: { terminalId: '', code: '', ...prior[requestId], ...patch } }));
+        setPairingError((prior) => ({ ...prior, [requestId]: null }));
+    }
+
+    async function approvePairing(pending) {
+        const choice = pairingChoice[pending.id] ?? {};
+        setBusy(true);
+        setActionError(null);
+        setNotice(null);
+        const response = await request(`/api/v1/terminal/pairing-requests/${pending.id}/approve`, {
+            method: 'POST',
+            body: { code: choice.code, terminal_id: choice.terminalId },
+        });
+        if (response.ok) {
+            const till = terminals.find((terminal) => terminal.id === choice.terminalId);
+            setNotice(`Approved. The computer asking (${pending.requested_by?.name ?? 'a user'}) will connect as ${till?.terminal_code ?? 'the till'} within a few seconds.`);
+            reload();
+            reloadPairing();
+        } else {
+            const fieldMessage = response.body?.error?.details?.code;
+            setPairingError((prior) => ({
+                ...prior,
+                [pending.id]: [].concat(fieldMessage ?? []).join(' ') || failureMessage(response, 'The request could not be approved.'),
+            }));
+            reloadPairing();
+        }
+        setBusy(false);
+    }
+
+    async function declinePairing(pending) {
+        setBusy(true);
+        setActionError(null);
+        const response = await request(`/api/v1/terminal/pairing-requests/${pending.id}/reject`, { method: 'POST' });
+        if (response.ok) {
+            setNotice('The request was declined.');
+        } else {
+            setActionError(failureMessage(response, 'The request could not be declined.'));
+        }
+        reloadPairing();
         setBusy(false);
     }
 
@@ -190,6 +244,106 @@ export default function TerminalsPage() {
                         </div>
                     </>
                 )}
+            </section>
+
+            <section className="mb-4 rounded-lg border border-slate-800 bg-slate-900 p-4" aria-label="Tills waiting for approval">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-slate-100">Tills waiting for approval</h3>
+                    <button type="button" onClick={reloadPairing} className="text-xs text-slate-400 underline">
+                        Refresh
+                    </button>
+                </div>
+                {(pairing?.data ?? []).length === 0 ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                        None right now. To enroll a till computer that you are not at: the person there signs in and clicks “Ask an admin to approve this
+                        computer”, then reads you the code on their screen. It will appear here.
+                    </p>
+                ) : (
+                    <ul className="mt-3 space-y-3">
+                        {pairing.data.map((pending) => {
+                            const choice = pairingChoice[pending.id] ?? { terminalId: '', code: '' };
+                            const chosen = terminals.find((terminal) => terminal.id === choice.terminalId);
+                            return (
+                                <li key={pending.id} className="rounded-md border border-slate-800 bg-slate-950 p-3">
+                                    <p className="text-sm text-slate-100">
+                                        {pending.requested_by?.name ?? 'Someone'} <span className="text-xs text-slate-500">({pending.requested_by?.role?.toLowerCase()})</span>
+                                    </p>
+                                    <p className="mt-0.5 font-mono text-[11px] text-slate-500">
+                                        {pending.ip_address ?? 'unknown address'} · asked {formatDateTime(pending.requested_at)}
+                                    </p>
+                                    <p className="mt-0.5 break-all text-[11px] text-slate-600">{pending.user_agent}</p>
+                                    <div className="mt-3 flex flex-wrap items-end gap-2">
+                                        <div>
+                                            <label htmlFor={`pair_terminal_${pending.id}`} className="mb-1 block text-xs text-slate-500">
+                                                Make it this till
+                                            </label>
+                                            <select
+                                                id={`pair_terminal_${pending.id}`}
+                                                value={choice.terminalId}
+                                                onChange={(event) => choose(pending.id, { terminalId: event.target.value })}
+                                                className={fieldClass}
+                                            >
+                                                <option value="">Choose a till…</option>
+                                                {terminals.map((terminal) => (
+                                                    <option key={terminal.id} value={terminal.id}>
+                                                        {terminal.terminal_code}
+                                                        {terminal.activated_at && !terminal.revoked_at ? ' (already enrolled)' : ''}
+                                                        {terminal.revoked_at ? ' (revoked)' : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label htmlFor={`pair_code_${pending.id}`} className="mb-1 block text-xs text-slate-500">
+                                                Code they read to you
+                                            </label>
+                                            <input
+                                                id={`pair_code_${pending.id}`}
+                                                type="text"
+                                                autoComplete="off"
+                                                autoCapitalize="characters"
+                                                maxLength={9}
+                                                value={choice.code}
+                                                onChange={(event) => choose(pending.id, { code: event.target.value.toUpperCase() })}
+                                                placeholder="ABCD-EFGH"
+                                                className={`${fieldClass} w-36 font-mono tracking-wider`}
+                                            />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            disabled={busy || !choice.terminalId || choice.code.replace(/[^A-Z0-9]/gi, '').length < 8}
+                                            onClick={() => approvePairing(pending)}
+                                            className="min-h-11 rounded-md bg-emerald-500 px-4 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 lg:min-h-0 lg:py-2"
+                                        >
+                                            Approve
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={busy}
+                                            onClick={() => declinePairing(pending)}
+                                            className="min-h-11 rounded-md border border-rose-800/60 px-4 text-sm text-rose-400 hover:bg-rose-600 hover:text-white disabled:opacity-50 lg:min-h-0 lg:py-2"
+                                        >
+                                            Decline
+                                        </button>
+                                    </div>
+                                    {chosen?.activated_at && !chosen?.revoked_at && (
+                                        <p className="mt-2 text-xs text-amber-400">
+                                            {chosen.terminal_code} is already enrolled on another browser. Approving replaces it: that browser stops working as this till.
+                                        </p>
+                                    )}
+                                    {pairingError[pending.id] && (
+                                        <p role="alert" className="mt-2 text-xs text-rose-400">
+                                            {pairingError[pending.id]}
+                                        </p>
+                                    )}
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
+                <p className="mt-3 text-[11px] text-slate-600">
+                    Only approve a code you were given by someone you know, for a computer you expect. The code is never shown here on purpose.
+                </p>
             </section>
 
             {issued && (

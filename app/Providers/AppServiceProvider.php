@@ -31,6 +31,10 @@ class AppServiceProvider extends ServiceProvider
     {
         RateLimiter::for('login', fn (Request $request) => LoginRateLimiter::limit()->by(LoginRateLimiter::key($request)));
 
+        // ADR-015: asking to become a till is a rare, deliberate act (once per computer); ten an hour per person is plenty and keeps
+        // the administrators' waiting list from being flooded. Polling for the answer is not limited by this, only by the API ceiling.
+        RateLimiter::for('pairing', fn (Request $request) => Limit::perHour(10)->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
+
         // A generous ceiling on the whole API, per signed-in user: far above what a till produces, low enough that
         // a runaway client or a stolen session cannot hammer the database or the import/export endpoints. (Laravel
         // orders `auth` ahead of `throttle`, so a guest is answered 401 before it is counted; the only route a
