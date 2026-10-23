@@ -3085,6 +3085,10 @@ components:
         terminal_code: {type: string}
         status: {$ref: '#/components/schemas/TerminalStatus'}
         activated_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time, nullable: true}
+        last_seen_at: {type: string, format: date-time, nullable: true, description: 'When the till was last used (written at most once a minute).'}
+        last_seen_ip: {type: string, nullable: true, description: 'The network address of the computer that last used it; only as reliable as the network path to the server.'}
+        shared_use_suspected_at: {type: string, format: date-time, nullable: true, description: 'Set when the till''s credential was used from two different computers in turn; a flag for an administrator, never a lock. Cleared by enrolling the till again.'}
     Category:
       type: object
       properties:

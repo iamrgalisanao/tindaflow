@@ -440,7 +440,7 @@ export default function TerminalsPage() {
                         <table className="w-full min-w-max text-left text-sm">
                             <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
                                 <tr>
-                                    {['Terminal', 'Status', 'Activated', ''].map((heading, index) => (
+                                    {['Terminal', 'Status', 'Activated', 'Last used', ''].map((heading, index) => (
                                         <th key={heading || index} className="border-b border-slate-800 px-3 py-2 font-mono">
                                             {heading}
                                         </th>
@@ -465,6 +465,14 @@ export default function TerminalsPage() {
                                                         REVOKED
                                                     </span>
                                                 )}
+                                                {terminal.shared_use_suspected_at && !revokedAt && (
+                                                    <span
+                                                        title="This till's credential was used from two different computers in turn."
+                                                        className="ml-2 rounded border border-amber-600/70 px-1.5 py-0.5 font-mono text-[10px] text-amber-400"
+                                                    >
+                                                        TWO COMPUTERS?
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className="px-3 py-2">
                                                 <span className="inline-block rounded border border-slate-600 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-300">
@@ -474,6 +482,16 @@ export default function TerminalsPage() {
                                             <td className="px-3 py-2 font-mono text-[12px] text-slate-400">
                                                 {terminal.activated_at ? formatDateTime(terminal.activated_at) : '—'}
                                                 {revokedAt && <span className="block text-[11px] text-rose-400">revoked {formatDateTime(revokedAt)}</span>}
+                                            </td>
+                                            <td className="px-3 py-2 font-mono text-[12px] text-slate-400">
+                                                {terminal.last_seen_at ? formatDateTime(terminal.last_seen_at) : '—'}
+                                                {terminal.last_seen_ip && <span className="block text-[11px] text-slate-600">{terminal.last_seen_ip}</span>}
+                                                {terminal.shared_use_suspected_at && !revokedAt && (
+                                                    <span className="mt-1 block max-w-xs whitespace-normal text-[11px] leading-snug text-amber-400">
+                                                        Used from two different computers in turn ({formatDateTime(terminal.shared_use_suspected_at)}). If that is not
+                                                        expected, enroll this till again: its old credential then stops working.
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className="px-3 py-2 text-right">
                                                 <button

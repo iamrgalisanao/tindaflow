@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Services\Terminal\TerminalCredentialCookie;
 use App\Services\Terminal\TerminalCredentialResolver;
+use App\Services\Terminal\TerminalUsageTracker;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -28,6 +29,9 @@ class ResolveTerminalContext
         $terminal = app(TerminalCredentialResolver::class)->resolve($credential);
 
         $request->attributes->set('terminal', $terminal);
+
+        // Where and when this till was last used, and whether two computers are taking turns with its credential. Never blocks.
+        app(TerminalUsageTracker::class)->record($terminal, $request);
 
         $response = $next($request);
 

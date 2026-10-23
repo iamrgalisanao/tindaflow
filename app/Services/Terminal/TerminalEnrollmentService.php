@@ -107,6 +107,10 @@ final class TerminalEnrollmentService
                 // the old revocation, or re-binding to the same record
                 // would be permanently impossible.
                 'revoked_at' => null,
+                // A fresh credential makes every copy of the old one useless, so the suspicion starts over.
+                'shared_use_suspected_at' => null,
+                'last_seen_signature' => null,
+                'previous_signature' => null,
             ]);
 
             // Which till a browser became, and by whom; never the credential or its hash.

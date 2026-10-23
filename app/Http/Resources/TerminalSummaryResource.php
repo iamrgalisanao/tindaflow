@@ -41,6 +41,11 @@ class TerminalSummaryResource extends JsonResource
             'activated_at' => $this->resource->activated_at?->toJSON(),
             // null = not revoked. Never derived from `status`, which revocation deliberately leaves alone.
             'revoked_at' => $this->resource->revoked_at?->toJSON(),
+            // Where and when the till was last used, and whether two computers have been taking turns with its credential (a flag for an
+            // administrator, never a lock; TerminalUsageTracker).
+            'last_seen_at' => $this->resource->last_seen_at?->toJSON(),
+            'last_seen_ip' => $this->resource->last_seen_ip,
+            'shared_use_suspected_at' => $this->resource->shared_use_suspected_at?->toJSON(),
         ];
     }
 }

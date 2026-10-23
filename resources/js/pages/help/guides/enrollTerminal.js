@@ -66,7 +66,7 @@ export default {
                 alt: 'The This browser box showing the browser is enrolled as DEMO-01.',
                 marks: [{ type: 'look', target: 'this-browser', label: 'Enrolled', detail: 'The browser is enrolled as the terminal shown here.' }],
             },
-            tip: 'Enroll each till once. It stays enrolled until an admin revokes it, even after signing out. If a till is lost or stolen, click **Revoke** on its row to lock that browser out at once.',
+            tip: 'Enroll each till once. It stays enrolled until an admin revokes it, even after signing out. If a till is lost or stolen, click **Revoke** on its row to lock that browser out at once. If a row shows **TWO COMPUTERS?**, its credential has been used from two different computers in turn; if that is not expected, enroll the till again and the old credential stops working.',
         },
     ],
     done: 'The till is enrolled. A cashier can now open a shift and start selling.',

@@ -19,9 +19,10 @@ class Terminal extends Model
     protected $fillable = [
         'store_id', 'terminal_code', 'status', 'activated_at',
         'credential_hash', 'credential_issued_at', 'revoked_at',
+        'last_seen_at', 'last_seen_ip', 'last_seen_user_agent', 'last_seen_signature', 'previous_signature', 'shared_use_suspected_at',
     ];
 
-    protected $hidden = ['credential_hash'];
+    protected $hidden = ['credential_hash', 'last_seen_signature', 'previous_signature'];
 
     protected function casts(): array
     {
@@ -29,6 +30,8 @@ class Terminal extends Model
             'activated_at' => 'datetime',
             'credential_issued_at' => 'datetime',
             'revoked_at' => 'datetime',
+            'last_seen_at' => 'datetime',
+            'shared_use_suspected_at' => 'datetime',
         ];
     }
 
