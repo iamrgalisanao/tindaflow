@@ -83,9 +83,10 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
                         const lineDiscountCents = grossCents === null ? 0n : clampedDiscountCents(line.discount, grossCents);
                         const cents = grossCents === null ? null : grossCents - lineDiscountCents;
                         return (
-                            <li key={line.product.id} className="flex items-start justify-between gap-3 px-4 py-3">
+                            <li key={line.key} className="flex items-start justify-between gap-3 px-4 py-3">
                                 <span className="min-w-0">
                                     <span className="block truncate text-sm font-medium text-slate-100">{line.product.name}</span>
+                                    {line.note && <span className="block truncate text-xs text-emerald-300">{line.note}</span>}
                                     <span className="block font-mono text-xs text-slate-400">
                                         {line.quantity} &times; ₱{line.product.selling_price}
                                         {lineDiscountCents > 0n && <span className="text-amber-400"> − ₱{pesos(lineDiscountCents)} discount</span>}

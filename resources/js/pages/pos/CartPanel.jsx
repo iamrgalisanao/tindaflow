@@ -35,7 +35,7 @@ export default function CartPanel({
         const current = toThousandths(line.quantity) ?? STEP;
         const next = current + direction * STEP;
         if (next > 0n) {
-            onQuantity(line.product.id, fromThousandths(next));
+            onQuantity(line.key, fromThousandths(next));
         }
     }
 
@@ -67,24 +67,25 @@ export default function CartPanel({
                     const cents = invalid ? null : grossCents - lineDiscountCents;
                     const unit = line.product.unit_of_measure ?? 'unit';
                     return (
-                        <li key={line.product.id} className="flex items-center gap-3 px-4 py-3">
+                        <li key={line.key} className="flex items-center gap-3 px-4 py-3">
                             <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-medium text-slate-100">{line.product.name}</p>
+                                {line.note && <p className="truncate text-xs text-emerald-300">{line.note}</p>}
                                 <p className="font-mono text-xs text-slate-400">
                                     @ ₱{line.product.selling_price} / {unit}
                                 </p>
                                 {canDiscount && (
                                     <div className="mt-1 flex items-center gap-1">
-                                        <label htmlFor={`line_discount_${line.product.id}`} className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                                        <label htmlFor={`line_discount_${line.key}`} className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-400">
                                             -₱
                                         </label>
                                         <MoneyInput
-                                            id={`line_discount_${line.product.id}`}
+                                            id={`line_discount_${line.key}`}
                                             symbol={false}
                                             placeholder="0.00"
                                             value={line.discount ?? ''}
                                             onFocus={(event) => event.target.select()}
-                                            onChange={(value) => onLineDiscountChange(line.product.id, value)}
+                                            onChange={(value) => onLineDiscountChange(line.key, value)}
                                             aria-label={`Discount on ${line.product.name}`}
                                             className="min-h-7 w-16 rounded border border-slate-700 bg-slate-950 px-1 text-right font-mono text-xs tabular-nums text-amber-300 focus:border-amber-500 focus:outline-none"
                                         />
@@ -106,7 +107,7 @@ export default function CartPanel({
                                     type="text"
                                     inputMode="decimal"
                                     value={line.quantity}
-                                    onChange={(event) => onQuantity(line.product.id, event.target.value)}
+                                    onChange={(event) => onQuantity(line.key, event.target.value)}
                                     aria-label={`Quantity of ${line.product.name}`}
                                     aria-invalid={invalid}
                                     className={`min-h-11 w-16 border-y px-1 text-center font-mono text-sm tabular-nums focus:outline-none focus:ring-1 ${
@@ -129,7 +130,7 @@ export default function CartPanel({
 
                             <button
                                 type="button"
-                                onClick={() => onRemove(line.product.id)}
+                                onClick={() => onRemove(line.key)}
                                 aria-label={`Remove ${line.product.name}`}
                                 className="min-h-11 min-w-11 shrink-0 rounded text-lg text-slate-400 hover:bg-red-500/10 hover:text-red-400"
                             >

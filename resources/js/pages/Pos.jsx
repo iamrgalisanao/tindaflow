@@ -294,28 +294,28 @@ export default function Pos() {
         }
     }
 
-    function addToCart(product) {
+    // A line is one product, or one product with the dish the cashier picked (kept only on screen, see mealMenus.js).
+    function addToCart(product, note = '') {
+        const key = note === '' ? product.id : `${product.id}|${note}`;
         setCart((prior) => {
-            const existing = prior.find((line) => line.product.id === product.id);
+            const existing = prior.find((line) => line.key === key);
             if (existing) {
-                return prior.map((line) =>
-                    line.product.id === product.id ? { ...line, quantity: fromThousandths((toThousandths(line.quantity) ?? 0n) + 1000n) } : line,
-                );
+                return prior.map((line) => (line.key === key ? { ...line, quantity: fromThousandths((toThousandths(line.quantity) ?? 0n) + 1000n) } : line));
             }
-            return [...prior, { product, quantity: '1', discount: '' }];
+            return [...prior, { key, product, note, quantity: '1', discount: '' }];
         });
     }
 
-    function setQuantity(productId, quantity) {
-        setCart((prior) => prior.map((line) => (line.product.id === productId ? { ...line, quantity } : line)));
+    function setQuantity(key, quantity) {
+        setCart((prior) => prior.map((line) => (line.key === key ? { ...line, quantity } : line)));
     }
 
-    function setLineDiscount(productId, discountText) {
-        setCart((prior) => prior.map((line) => (line.product.id === productId ? { ...line, discount: discountText } : line)));
+    function setLineDiscount(key, discountText) {
+        setCart((prior) => prior.map((line) => (line.key === key ? { ...line, discount: discountText } : line)));
     }
 
-    function removeFromCart(productId) {
-        setCart((prior) => prior.filter((line) => line.product.id !== productId));
+    function removeFromCart(key) {
+        setCart((prior) => prior.filter((line) => line.key !== key));
     }
 
     const canDiscount = user.capabilities.includes('DISCOUNT_OVERRIDE');

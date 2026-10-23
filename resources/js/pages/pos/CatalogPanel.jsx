@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../api';
+import MealPicker from './MealPicker';
+import { mealMenus, mealSkus } from './mealMenus';
 
 const PAGE_SIZE = 100;
 
@@ -14,6 +16,27 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
     const [tiles, setTiles] = useState(null); // null = loading
     const [loadFailed, setLoadFailed] = useState(false);
     const [total, setTotal] = useState(0);
+    const [mealProducts, setMealProducts] = useState({}); // sku => product, for the meal menus' proteins
+    const [pickingMenu, setPickingMenu] = useState(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        Promise.all(mealSkus.map((sku) => apiFetch(`/api/v1/products?active=1&search=${encodeURIComponent(sku)}`))).then((responses) => {
+            if (cancelled) {
+                return;
+            }
+            const found = {};
+            responses.forEach((response) => {
+                if (response.ok) {
+                    response.body.data.filter((product) => mealSkus.includes(product.sku)).forEach((product) => (found[product.sku] = product));
+                }
+            });
+            setMealProducts(found);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -52,7 +75,8 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
     const categoryName = (id) => categories.find((category) => category.id === id)?.name ?? '';
 
     const searching = results !== null;
-    const shown = searching ? results : tiles;
+    const shown = searching ? results : tiles === null ? null : tiles.filter((product) => !mealSkus.includes(product.sku));
+    const showMealMenus = !searching && categoryId === '' && mealMenus.some((menu) => menu.proteins.some((protein) => mealProducts[protein.sku]));
 
     return (
         <section aria-label="Products" className="flex min-h-0 flex-1 flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
@@ -121,7 +145,41 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                 </div>
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            {pickingMenu && (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                    <MealPicker
+                        menu={pickingMenu}
+                        productsBySku={mealProducts}
+                        onAdd={(product, note) => {
+                            onAdd(product, note);
+                            setPickingMenu(null);
+                        }}
+                        onCancel={() => setPickingMenu(null)}
+                    />
+                </div>
+            )}
+
+            <div className={`min-h-0 flex-1 overflow-y-auto ${pickingMenu ? 'hidden' : ''}`}>
+                {showMealMenus && (
+                    <ul className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                        {mealMenus.map((menu) => (
+                            <li key={menu.id}>
+                                <button
+                                    type="button"
+                                    onClick={() => setPickingMenu(menu)}
+                                    className="flex min-h-28 w-full flex-col rounded-lg border border-emerald-500/40 border-b-2 bg-emerald-500/5 p-3 text-left hover:bg-emerald-500/10 active:bg-emerald-500/15"
+                                >
+                                    <span className="font-mono text-[11px] uppercase tracking-wider text-emerald-400">Meal · choose options</span>
+                                    <span className="mt-1 text-sm font-medium text-slate-100">{menu.name}</span>
+                                    <span className="mt-0.5 text-xs text-slate-400">{menu.description}</span>
+                                    <span className="mt-auto pt-2 font-mono text-lg font-bold tabular-nums text-emerald-400">
+                                        from ₱{Math.min(...menu.proteins.map((protein) => Number(mealProducts[protein.sku]?.selling_price ?? Infinity)))}
+                                    </span>
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                )}
                 {shown === null && <p className="py-8 text-center text-sm text-slate-400">Loading products…</p>}
                 {loadFailed && !searching && (
                     <p role="alert" className="rounded bg-red-500/10 px-3 py-2 text-sm text-red-300">
