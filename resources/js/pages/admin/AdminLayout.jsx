@@ -27,6 +27,11 @@ const MENU_NAV = [
     { to: '/admin/menu/prices', label: 'Meal prices' },
 ];
 
+const EMPLOYEE_NAV = [
+    { to: '/admin/employees', label: 'Employees' },
+    { to: '/admin/employees/cards', label: 'Print ID cards' },
+];
+
 const SALES_NAV = [
     { to: '/admin/sales', label: 'Sales history' },
     { to: '/admin/sales/approvals', label: 'Approvals', capability: 'SALE_VOID_APPROVE' },
@@ -232,6 +237,15 @@ const SECTIONS = [
         capability: ['AUDIT_VIEW', 'JOURNAL_VIEW', 'REPORT_VIEW'],
         matches: (path) => ['/admin/audit', '/admin/journal', '/admin/shifts', '/admin/fiscal-days'].some((prefix) => path.startsWith(prefix)),
         links: RECORDS_NAV,
+    },
+    {
+        id: 'employees',
+        label: 'Employees',
+        to: '/admin/employees',
+        icon: 'users',
+        capability: 'EMPLOYEE_MANAGE',
+        matches: (path) => path.startsWith('/admin/employees'),
+        links: EMPLOYEE_NAV,
     },
     {
         id: 'users',

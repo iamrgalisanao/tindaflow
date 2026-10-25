@@ -587,6 +587,7 @@ applying to the business day in slip mode.
 87. **EMP-001 — the code is system generated.** `employee_code` is `TSC`/`SUB` plus a gap-free-per-type five-digit number from a locked
     counter, unique per store, immutable, never reused (including after deactivation). Only a user holding `EMPLOYEE_MANAGE` can create or
     edit an employee; no cashier or till endpoint can.
+    *Built in slice 3.1 (2026-10-25):* the counter is `employee_code_sequences`, one row per store and type, locked `FOR UPDATE` in the creating transaction (a rollback gives the number back; two real processes get distinct gap-free codes — `EmployeeCodeConcurrencyTest`). The number grows past 99999 (`TSC100000`) rather than failing. Immutability is enforced twice: the API refuses `employee_code`/`employee_type` in a request, and the application database role has no UPDATE on those columns. The till's `employeeLookup` is an exact match only (case and surrounding whitespace ignored), store-scoped, and refuses an inactive employee (`EMPLOYEE_INACTIVE`).
 88. **CREDIT-001 — credit is a whole-sale tender.** A `CREDIT` payment is the sale's only payment, equals its grand total, requires an
     active employee on the sale, and is refused in a sale that has any other tender.
 89. **CREDIT-002 — credit never touches the drawer.** A credit sale adds nothing to `cash_sales`, `expected_cash` or change allocation, and

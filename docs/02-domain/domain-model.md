@@ -131,6 +131,7 @@ JOURNAL_VIEW           -- read electronic_journal_entry records
 USER_MANAGE            -- create/edit user accounts and roles
 TERMINAL_MANAGE        -- enroll/decommission terminals
 FISCAL_CONFIGURATION_MANAGE  -- edit tax_registration / fiscal_installation records
+EMPLOYEE_MANAGE        -- (ADR-016 slice 3.1) employees, their ID cards and the credit limit per type; ADMIN only
 ```
 
 **Amendment (Stage 4 remediation, 2026-09-16):** the six capabilities
@@ -740,7 +741,16 @@ gain `BANK_TRANSFER` and `CREDIT`; `store_settings` gains `sale_document_mode`; 
 **`employee`** — `store_id`, `employee_type` (`DIRECT`|`SUBCONTRACTOR`), `employee_code` (system generated `TSC00001` / `SUB00001`, immutable,
 also the QR value), `name`, `billing_party_id`, `active`. Created only by a user holding `EMPLOYEE_MANAGE` (ADMIN).
 
-**Capabilities added** (catalog grows from 17 to 20): `EMPLOYEE_MANAGE` (ADMIN), `CREDIT_LIMIT_OVERRIDE` (MANAGER, ADMIN),
+**Built in slice 3.1 (2026-10-25).** `employee` stores `first_name`, `middle_name?` and `last_name` (the joined `name` is derived), `created_by`, and
+UNIQUE `(store_id, employee_code)`; the application role has no UPDATE on `employee_code`, `employee_type`, `store_id` or `created_by`.
+`employee_code_sequence` (`store_id`, `employee_type`, `last_number`): the locked counter behind the codes, lifecycle. `billing_party`
+(`store_id`, `name`, `active`) is **one row per store, named TSC**: the client decided (2026-10-25) that subcontractor employees are billed to
+TSC too, so it has no `employee_type` column. `credit_policy` (`store_id`, `employee_type`, `limit_per_cutoff`, `updated_by`, UNIQUE per store and
+type) is a **mutable current value, not an effective-dated history**: the limit is only ever compared with the present, every change is the
+append-only `CREDIT_LIMIT_CHANGED` audit event (old and new value), and an override records the limit it overrode. Defaults: DIRECT 1,500.00,
+SUBCONTRACTOR 1,000.00 (client, 2026-10-25), created by the migration for existing stores and on first use for a new one.
+
+**Capabilities added** (catalog grows from 17 to 20; `EMPLOYEE_MANAGE` is built, slice 3.1, 2026-10-25): `EMPLOYEE_MANAGE` (ADMIN), `CREDIT_LIMIT_OVERRIDE` (MANAGER, ADMIN),
 `BILLING_MANAGE` (MANAGER, ADMIN). Menu editing reuses `CATALOG_MANAGE`; billing read reuses `REPORT_VIEW`; changing the sale document
 mode reuses `FISCAL_CONFIGURATION_MANAGE` (vendor unlock, ADR-014). The V1 roles stay ADMIN/MANAGER/CASHIER: the client's "supervisor" is a MANAGER.
 

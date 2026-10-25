@@ -320,6 +320,34 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $this->assertSame('INVOICE', $this->ring($w)['document_mode']);
     }
 
+    public function test_the_employee_admin_works_as_the_restricted_role_and_the_code_cannot_be_changed_or_the_row_deleted(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+
+        // The first creation inserts the counter row, the second updates it (column-level UPDATE of last_number).
+        $first = $this->asUser($w['admin'])->postJson('/api/v1/employees', ['employee_type' => 'DIRECT', 'first_name' => 'Ana', 'last_name' => 'Reyes'])->assertStatus(201);
+        $second = $this->asUser($w['admin'])->postJson('/api/v1/employees', ['employee_type' => 'DIRECT', 'first_name' => 'Ben', 'last_name' => 'Cruz'])->assertStatus(201);
+        $this->assertSame(['TSC00001', 'TSC00002'], [$first->json('employee_code'), $second->json('employee_code')]);
+
+        $this->asUser($w['admin'])->patchJson("/api/v1/employees/{$first->json('id')}", ['first_name' => 'Anna'])->assertOk()->assertJson(['first_name' => 'Anna']);
+        $this->asUser($w['admin'])->postJson("/api/v1/employees/{$first->json('id')}/deactivate")->assertOk()->assertJson(['active' => false]);
+        $this->asUser($w['admin'])->postJson("/api/v1/employees/{$first->json('id')}/activate")->assertOk()->assertJson(['active' => true]);
+        $this->asUser($w['admin'])->putJson('/api/v1/credit-policies/SUBCONTRACTOR', ['limit_per_cutoff' => '900.00'])->assertOk();
+        $this->asUser($w['admin'])->call('POST', '/api/v1/employees/import', [], [], [], ['CONTENT_TYPE' => 'text/csv', 'HTTP_ACCEPT' => 'application/json'], "first_name,last_name,employee_type\nCarla,Diaz,SUB\n")
+            ->assertStatus(202)->assertJson(['created' => 1]);
+        $this->asUser($w['cashier'], $w['enroll1'])->getJson('/api/v1/employees/lookup?code=tsc00001')->assertOk()->assertJson(['employee_code' => 'TSC00001']);
+
+        $this->assertTrue($this->refuses(fn () => DB::table('employees')->update(['employee_code' => 'TSC99999'])), 'the code must not be updatable');
+        $this->assertTrue($this->refuses(fn () => DB::table('employees')->update(['employee_type' => 'SUBCONTRACTOR'])), 'the type must not be updatable');
+        $this->assertTrue($this->refuses(fn () => DB::table('employees')->update(['store_id' => $w['storeId']])), 'the store must not be updatable');
+        $this->assertTrue($this->refuses(fn () => DB::table('employees')->delete()), 'an employee must not be deletable');
+        $this->assertTrue($this->refuses(fn () => DB::table('employee_code_sequences')->update(['employee_type' => 'SUBCONTRACTOR'])), 'a counter keeps its type');
+        $this->assertTrue($this->refuses(fn () => DB::table('employee_code_sequences')->delete()), 'a counter must not be deletable');
+        $this->assertTrue($this->refuses(fn () => DB::table('credit_policies')->update(['employee_type' => 'DIRECT'])), 'a policy keeps its type');
+        $this->assertTrue($this->refuses(fn () => DB::table('credit_policies')->delete()), 'a policy must not be deletable');
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_parties')->delete()), 'a billing party must not be deletable');
+    }
+
     public function test_the_tables_the_app_is_allowed_to_delete_from_are_exactly_the_ones_that_hold_no_money_or_audit_data(): void
     {
         $this->worldUnderTheHardenedRole();
@@ -329,7 +357,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }

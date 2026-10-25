@@ -86,13 +86,30 @@ REVOKE UPDATE ON
     menu_prices,    -- ADR-016 slice 1.2, MENU-004: the menu's price history; a price change is a new row
     sale_item_selections, -- ADR-016 slice 1.3, MENU-001: what was chosen on a meal line, snapshotted at the sale; never changed
     sale_slips,     -- ADR-016 slice 2.2a, SLIP-001: the document of a slip-mode sale and its print snapshot; never changed
-    slip_counters   -- ADR-016 slice 2.2a: lifecycle, not append-only -- UPDATE is revoked here and re-granted by column below
+    slip_counters,  -- ADR-016 slice 2.2a: lifecycle, not append-only -- UPDATE is revoked here and re-granted by column below
+    employees,      -- ADR-016 slice 3.1: lifecycle -- UPDATE is revoked here and re-granted by column below (not employee_code / employee_type)
+    employee_code_sequences, -- ADR-016 slice 3.1: lifecycle -- the counters; re-granted by column below
+    credit_policies -- ADR-016 slice 3.1: lifecycle -- the current limit; re-granted by column below
 FROM tindaflow_app;
 
 -- slip_counters is the running slip number of each terminal. The checkout transaction increments `last_number` (and stamps
 -- `updated_at`) and inserts a terminal's first row; nothing else about a counter ever changes, so the UPDATE is narrowed to those two
 -- columns. Like every table it is never deleted (the store-wide REVOKE DELETE above). A sale that rolls back rolls its increment back.
 GRANT UPDATE (last_number, updated_at) ON slip_counters TO tindaflow_app;
+
+-- employees (ADR-016 slice 3.1, EMP-001) is a lifecycle table: a name is corrected and an employee is deactivated and reactivated,
+-- never deleted (the store-wide REVOKE DELETE). The UPDATE is narrowed to exactly those columns, so the application role cannot change
+-- `employee_code` (the code is also the QR value and is never reissued), `employee_type` (it fixes the code's prefix and the limit),
+-- `store_id` or `created_by`, whatever a bug or a stray query tries.
+GRANT UPDATE (first_name, middle_name, last_name, billing_party_id, active, updated_at) ON employees TO tindaflow_app;
+
+-- employee_code_sequences is the counter behind the codes: the transaction that creates an employee bumps `last_number` (and stamps
+-- `updated_at`) and inserts a store's first row of a type; nothing else about a counter changes.
+GRANT UPDATE (last_number, updated_at) ON employee_code_sequences TO tindaflow_app;
+
+-- credit_policies holds the CURRENT limit per cut-off of one employee type of one store. Changing it is an UPDATE of the limit (and who
+-- and when); the row's store and type never change. The history of limits is the CREDIT_LIMIT_CHANGED audit event, which is append-only.
+GRANT UPDATE (limit_per_cutoff, updated_by, updated_at) ON credit_policies TO tindaflow_app;
 
 -- voids/refunds are NOT fully append-only (they transition
 -- REQUESTED -> APPROVED/REJECTED/VOIDED|COMPLETED, Stage 4 pass 5's
@@ -134,6 +151,9 @@ GRANT UPDATE (status) ON sales TO tindaflow_app;
 -- sales.document_mode sits under the table-wide UPDATE revoke of `sales` (written once at INSERT); store_settings.sale_document_mode and
 -- slip_footer are ordinary columns of a lifecycle table (the store settings and the mode switch update them), and idempotency_records
 -- gained one allowed operation type, which is a CHECK change only.
+
+-- billing_parties (ADR-016 slice 3.1) is a plain lifecycle/configuration table: INSERT and UPDATE (rename, deactivate), never DELETE
+-- (covered by the store-wide REVOKE DELETE). It needs no statement here.
 
 -- shifts/fiscal_days/invoice_series/idempotency_records are lifecycle
 -- aggregates with frozen-domain-required in-place field changes

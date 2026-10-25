@@ -75,6 +75,7 @@ export default function Dashboard() {
         { to: '/admin/inventory/stock', label: 'Inventory', note: 'Stock on hand, counts, transfers', capability: 'STOCK_ADJUST' },
         { to: '/admin/shifts', label: 'Shifts', note: 'Drawer counts and variances', capability: 'REPORT_VIEW' },
         { to: '/admin/audit', label: 'Audit log', note: 'Who did what, and when', capability: 'AUDIT_VIEW' },
+        { to: '/admin/employees', label: 'Employees', note: 'Credit employees, ID cards, credit limits', capability: 'EMPLOYEE_MANAGE' },
         { to: '/admin/users', label: 'Users', note: 'Cashiers, managers, admins', capability: 'USER_MANAGE' },
         { to: '/admin/terminals', label: 'Terminals', note: 'Enrol a till, review enrolled terminals', capability: 'TERMINAL_MANAGE' },
         { to: '/admin/store-setup', label: 'Store setup', note: 'Business details, stock locations, fiscal setup and readiness', capability: 'STORE_SETTINGS_MANAGE' },

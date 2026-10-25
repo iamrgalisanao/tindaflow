@@ -29,7 +29,7 @@ final class RoleCapabilityCatalog
         'PRICE_OVERRIDE', 'DISCOUNT_OVERRIDE', 'STOCK_ADJUST', 'CASH_OUT',
         'REPORT_VIEW', 'STORE_SETTINGS_MANAGE', 'FISCAL_DAY_CLOSE', 'CATALOG_MANAGE',
         'AUDIT_VIEW', 'JOURNAL_VIEW', 'USER_MANAGE', 'TERMINAL_MANAGE',
-        'FISCAL_CONFIGURATION_MANAGE',
+        'FISCAL_CONFIGURATION_MANAGE', 'EMPLOYEE_MANAGE',
     ];
 
     /**
@@ -47,6 +47,7 @@ final class RoleCapabilityCatalog
             'PRICE_OVERRIDE', 'DISCOUNT_OVERRIDE', 'STOCK_ADJUST', 'CASH_OUT',
             'REPORT_VIEW', 'STORE_SETTINGS_MANAGE', 'FISCAL_DAY_CLOSE', 'CATALOG_MANAGE',
             'AUDIT_VIEW', 'JOURNAL_VIEW', 'USER_MANAGE', 'TERMINAL_MANAGE',
+            'EMPLOYEE_MANAGE', // ADR-016 section 5: ADMIN only. A MANAGER does not hold it (a manager is the credit supervisor, not the one who enrols staff).
         ],
         'MANAGER' => [
             'SALE_VOID', 'SALE_VOID_APPROVE', 'SALE_REFUND', 'SALE_REFUND_APPROVE',

@@ -12,7 +12,7 @@ class RoleCapabilityCatalogTest extends TestCase
     {
         $capabilities = RoleCapabilityCatalog::forRole('ADMIN');
 
-        $this->assertCount(16, $capabilities);
+        $this->assertCount(17, $capabilities);
         $this->assertContains('USER_MANAGE', $capabilities);
         $this->assertContains('TERMINAL_MANAGE', $capabilities);
         $this->assertContains('STORE_SETTINGS_MANAGE', $capabilities);
@@ -26,6 +26,7 @@ class RoleCapabilityCatalogTest extends TestCase
         $this->assertContains('SALE_VOID_APPROVE', $capabilities);
         $this->assertContains('FISCAL_DAY_CLOSE', $capabilities);
         $this->assertNotContains('USER_MANAGE', $capabilities);
+        $this->assertNotContains('EMPLOYEE_MANAGE', $capabilities);
         $this->assertNotContains('TERMINAL_MANAGE', $capabilities);
         $this->assertNotContains('STORE_SETTINGS_MANAGE', $capabilities);
         $this->assertNotContains('FISCAL_CONFIGURATION_MANAGE', $capabilities);
@@ -41,11 +42,11 @@ class RoleCapabilityCatalogTest extends TestCase
         $this->assertSame([], RoleCapabilityCatalog::forRole('NOT_A_ROLE'));
     }
 
-    // A2: the fixed vocabulary itself -- 17 entries, no duplicates.
-    public function test_capabilities_constant_has_exactly_seventeen_unique_entries(): void
+    // A2: the fixed vocabulary itself -- 18 entries, no duplicates.
+    public function test_capabilities_constant_has_exactly_eighteen_unique_entries(): void
     {
-        $this->assertCount(17, RoleCapabilityCatalog::CAPABILITIES);
-        $this->assertCount(17, array_unique(RoleCapabilityCatalog::CAPABILITIES));
+        $this->assertCount(18, RoleCapabilityCatalog::CAPABILITIES);
+        $this->assertCount(18, array_unique(RoleCapabilityCatalog::CAPABILITIES));
     }
 
     public function test_admin_is_defined_as_every_capability_but_the_unlock_only_one(): void

@@ -17,6 +17,8 @@ import TaxRegistrations from './pages/admin/TaxRegistrations';
 import ProductsPage from './pages/admin/catalog/ProductsPage';
 import CatalogNamesPage from './pages/admin/catalog/CatalogNamesPage';
 import MenuGroupsPage from './pages/admin/catalog/MenuGroupsPage';
+import EmployeeCardsPage from './pages/admin/employees/EmployeeCardsPage';
+import EmployeesPage from './pages/admin/employees/EmployeesPage';
 import DishesPage from './pages/admin/menu/DishesPage';
 import MealPricesPage from './pages/admin/menu/MealPricesPage';
 import MealsPage from './pages/admin/menu/MealsPage';
@@ -170,6 +172,22 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <UsersPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/employees"
+                    element={
+                        <RequireAuth>
+                            <EmployeesPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/employees/cards"
+                    element={
+                        <RequireAuth>
+                            <EmployeeCardsPage />
                         </RequireAuth>
                     }
                 />

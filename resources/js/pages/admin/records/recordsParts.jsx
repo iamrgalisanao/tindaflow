@@ -24,6 +24,12 @@ export const AUDIT_TYPES = [
     { id: 'MENU_DISH_SHOWN', label: 'Dish shown' },
     { id: 'MENU_PRICE_CHANGED', label: 'Meal price changed' },
     { id: 'MENU_STRUCTURE_CHANGED', label: 'Meal menu changed' },
+    { id: 'EMPLOYEE_CREATED', label: 'Employee created' },
+    { id: 'EMPLOYEE_UPDATED', label: 'Employee changed' },
+    { id: 'EMPLOYEE_DEACTIVATED', label: 'Employee deactivated' },
+    { id: 'EMPLOYEE_REACTIVATED', label: 'Employee reactivated' },
+    { id: 'EMPLOYEES_IMPORTED', label: 'Employees imported' },
+    { id: 'CREDIT_LIMIT_CHANGED', label: 'Credit limit changed' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -161,6 +167,17 @@ function describeUserChange(before, after) {
         .join(', ');
 }
 
+const EMPLOYEE_TYPE_NAMES = { DIRECT: 'TSC', SUBCONTRACTOR: 'SUB' };
+const EMPLOYEE_NAME_FIELDS = { first_name: 'first name', middle_name: 'middle name', last_name: 'last name' };
+
+/** "first name Maria → Marie" for the name parts of an employee that differ. */
+function describeEmployeeChange(before = {}, after = {}) {
+    return Object.keys(before)
+        .filter((field) => field in EMPLOYEE_NAME_FIELDS)
+        .map((field) => `${EMPLOYEE_NAME_FIELDS[field]} ${before[field] ?? '—'} → ${after[field] ?? '—'}`)
+        .join(', ');
+}
+
 const MENU_GROUP_FIELDS = { name: 'name', sort_order: 'position', active: 'status' };
 
 /** "name Lunch → Lunch Meals, status active → hidden" from a menu group change's before and after. */
@@ -200,6 +217,18 @@ export function describeAudit(event) {
             return `Menu group "${after.name ?? '—'}" created${after.parent_id ? ' as a sub-group' : ''}`;
         case 'MENU_GROUP_UPDATED':
             return `Menu group "${after.name ?? '—'}" changed: ${describeMenuGroupChange(event.before_metadata ?? {}, after) || 'no listed field'}`;
+        case 'EMPLOYEE_CREATED':
+            return `Employee ${after.employee_code ?? '—'} created: ${[after.first_name, after.middle_name, after.last_name].filter(Boolean).join(' ') || 'unnamed'} (${EMPLOYEE_TYPE_NAMES[after.employee_type] ?? after.employee_type ?? '—'})`;
+        case 'EMPLOYEE_UPDATED':
+            return `Employee ${after.employee_code ?? '—'} changed: ${describeEmployeeChange(event.before_metadata ?? {}, after) || 'no listed field'}`;
+        case 'EMPLOYEE_DEACTIVATED':
+            return `Employee ${after.employee_code ?? '—'}${after.name ? ` (${after.name})` : ''} deactivated; they can no longer be charged`;
+        case 'EMPLOYEE_REACTIVATED':
+            return `Employee ${after.employee_code ?? '—'}${after.name ? ` (${after.name})` : ''} reactivated`;
+        case 'EMPLOYEES_IMPORTED':
+            return `Employee CSV import: ${after.created ?? 0} created, ${after.skipped ?? 0} skipped as already enrolled${after.failed ? `, ${after.failed} with problems` : ''}`;
+        case 'CREDIT_LIMIT_CHANGED':
+            return `${EMPLOYEE_TYPE_NAMES[after.employee_type] ?? after.employee_type ?? '—'} credit limit ${money((event.before_metadata ?? {}).limit_per_cutoff)} → ${money(after.limit_per_cutoff)} per cut-off`;
         case 'MENU_DISH_CREATED':
             return `Dish "${after.name ?? '—'}" created`;
         case 'MENU_DISH_RENAMED':

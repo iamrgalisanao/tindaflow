@@ -4,6 +4,7 @@ use App\Http\Controllers\AuditEventController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FiscalDayController;
 use App\Http\Controllers\FiscalInstallationController;
 use App\Http\Controllers\InventoryController;
@@ -280,6 +281,25 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // The till's read-only meal menu (ADR-016, slice 1.3): any signed-in user of the store, no capability.
     Route::get('/menu', [TillMenuController::class, 'show'])
         ->middleware(['auth', EnsureUserIsActive::class]);
+
+    // Employees and credit limits (ADR-016 section 5, slice 3.1). employeeLookup is the one till operation: any signed-in user, one
+    // employee by exact code, no listing. Everything else, reads included, is EMPLOYEE_MANAGE (ADMIN only; a cashier or manager gets 403).
+    // No delete: an employee is deactivated and the code is never reissued (EMP-001). The literal paths come before {employeeId}.
+    Route::get('/employees/lookup', [EmployeeController::class, 'lookup'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::middleware(['auth', EnsureUserIsActive::class, 'can:EMPLOYEE_MANAGE'])->group(function () {
+        Route::get('/employees', [EmployeeController::class, 'list']);
+        Route::post('/employees', [EmployeeController::class, 'create']);
+        Route::post('/employees/import', [EmployeeController::class, 'import']);
+        Route::get('/employees/id-cards', [EmployeeController::class, 'idCards']);
+        Route::get('/employees/{employeeId}', [EmployeeController::class, 'get'])->whereUuid('employeeId');
+        Route::patch('/employees/{employeeId}', [EmployeeController::class, 'update'])->whereUuid('employeeId');
+        Route::post('/employees/{employeeId}/activate', [EmployeeController::class, 'activate'])->whereUuid('employeeId');
+        Route::post('/employees/{employeeId}/deactivate', [EmployeeController::class, 'deactivate'])->whereUuid('employeeId');
+
+        Route::get('/credit-policies', [EmployeeController::class, 'creditPolicies']);
+        Route::put('/credit-policies/{employeeType}', [EmployeeController::class, 'creditPolicySetLimit']);
+    });
 
     // Meal menu configuration (ADR-016, slice 1.2): dish categories, dishes, meals, option groups, options and prices. Every
     // operation, reads included, is CATALOG_MANAGE (the till gets its own read-only payload in slice 1.3). There is no delete:
