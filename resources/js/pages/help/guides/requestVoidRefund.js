@@ -58,7 +58,7 @@ export default {
                     { type: 'click', target: 'request', label: 'Click Request refund', detail: 'Click Request refund.' },
                 ],
             },
-            note: 'Cash refunds come out of the drawer. Other methods do not. You can split the money across more than one method.',
+            note: 'Cash refunds come out of the drawer. Other methods do not. You can split the money across more than one method. On a meal sale, extra rice is its own line, so it can be refunded without the meal (see “Sell a Standard or Combo Meal”).',
         },
     ],
     done: 'The manager will review it under Approvals. Nothing moves in stock or in the drawer until then.',

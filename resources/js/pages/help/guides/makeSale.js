@@ -11,6 +11,7 @@ export default {
         {
             title: 'Tap a product to add it',
             body: 'Tap a product’s tile to put one in the cart. Tap it again for another. The category tabs above the tiles (**All**, **Beverages**, **Groceries**…) help you find things faster.',
+            note: 'If your store has set up **menu groups** (for example **Lunch** and **Beverages**), the tabs show those groups instead, with smaller tabs for any sub-groups, and meals appear as green **Meal** tiles. To sell a meal, see “Sell a Standard or Combo Meal”.',
             figure: {
                 shot: 'till-register-empty',
                 alt: 'The register with product tiles on the left.',
@@ -111,5 +112,5 @@ export default {
         },
     ],
     done: 'That is the whole sale. Next, learn how to take GCash or split a payment, and how to look up an earlier sale.',
-    next: ['pay-other', 'find-sale', 'senior-pwd'],
+    next: ['sell-meal', 'pay-other', 'find-sale', 'senior-pwd'],
 };

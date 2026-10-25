@@ -67,7 +67,7 @@ cd "$HERE"
 if [ "$#" -eq 0 ]; then set -- ""; fi
 for prefix in "$@"; do
   for script in "$prefix"*.mjs; do
-    [ "$script" = "lib.mjs" ] && continue
+    case "$script" in lib.mjs|canteen.mjs|validate.mjs) continue ;; esac
     [ -f "$script" ] || continue
     echo "== $script"
     node "$script" || { echo "FAILED: $script" >&2; stop_browsers; exit 1; }

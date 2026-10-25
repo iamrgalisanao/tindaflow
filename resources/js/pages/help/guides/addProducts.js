@@ -37,7 +37,7 @@ export default {
         },
         {
             title: 'Type the SKU, barcode and name',
-            body: 'The **SKU** is your own short code for the product and must be unique. The **Barcode** is what a scanner reads; leave it empty if the product has none. Then type the **Name** the cashier will see. Pick a **Category** and **Brand** from the lists.',
+            body: 'The **SKU** is your own short code for the product and must be unique. The **Barcode** is what a scanner reads; leave it empty if the product has none. Then type the **Name** the cashier will see. Pick a **Category** and **Brand** from the lists. If your till uses menu groups, also pick a **Menu group** so the product shows under the right tab.',
             figure: {
                 shot: 'catalog-product-form-top',
                 alt: 'The top of the New product panel with SKU, barcode, name, category and brand filled in.',
@@ -79,5 +79,5 @@ export default {
         },
     ],
     done: 'Your products are in the catalog. Record how many you have on the shelf next.',
-    next: ['receive-stock', 'import-products'],
+    next: ['receive-stock', 'import-products', 'menu-groups'],
 };

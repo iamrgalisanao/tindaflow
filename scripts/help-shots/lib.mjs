@@ -221,7 +221,7 @@ export async function boxOf(page, spec) {
  * shot(page, id, { targets: { name: spec }, clip: {x,y,w,h}, pad: 4 })
  * Saves <id>.webp (2x) and records each target as [left, top, width, height] percent of the picture.
  */
-export async function shot(page, id, { targets = {}, clip = null, pad = 5, padBy = {} } = {}) {
+export async function shot(page, id, { targets = {}, clip = null, pad = 5, padBy = {}, beyond = true } = {}) {
     const vp = page.viewport();
     const area = clip ?? { x: 0, y: 0, w: vp.width, h: vp.height };
     const t = {};
@@ -242,6 +242,7 @@ export async function shot(page, id, { targets = {}, clip = null, pad = 5, padBy
         path: path.join(OUT, `${id}.webp`),
         type: 'webp',
         quality: 82,
+        captureBeyondViewport: beyond, // false keeps a scrolled panel where it is (the default capture re-scrolls it to the end)
         clip: { x: area.x + scroll.x, y: area.y + scroll.y, width: area.w, height: area.h },
     });
     annotations[id] = { w: Math.round(area.w), h: Math.round(area.h), t };

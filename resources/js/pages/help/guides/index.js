@@ -1,5 +1,6 @@
 import addProducts from './addProducts';
 import approveVoidRefund from './approveVoidRefund';
+import buildMeal from './buildMeal';
 import cashDrawer from './cashDrawer';
 import closeBusinessDay from './closeBusinessDay';
 import closeShift from './closeShift';
@@ -12,6 +13,7 @@ import importProducts from './importProducts';
 import makeSale from './makeSale';
 import manageUsers from './manageUsers';
 import manualDiscount from './manualDiscount';
+import menuGroups from './menuGroups';
 import openShift from './openShift';
 import packsBarcodes from './packsBarcodes';
 import payOther from './payOther';
@@ -20,6 +22,7 @@ import records from './records';
 import reports from './reports';
 import requestVoidRefund from './requestVoidRefund';
 import salesHistory from './salesHistory';
+import sellMeal from './sellMeal';
 import seniorPwd from './seniorPwd';
 import setupStore from './setupStore';
 import signIn from './signIn';
@@ -46,6 +49,7 @@ const ALL = [
     manageUsers,
     openShift,
     makeSale,
+    sellMeal,
     payOther,
     seniorPwd,
     manualDiscount,
@@ -56,6 +60,8 @@ const ALL = [
     addProducts,
     importProducts,
     editProduct,
+    menuGroups,
+    buildMeal,
     packsBarcodes,
     receiveStock,
     stockCount,
