@@ -206,7 +206,9 @@ final class MenuPriceService
             return $now;
         }
 
-        $at = CarbonImmutable::parse((string) $requested);
+        // A browser sends an absolute instant ending in Z. Keep that instant but express it in the store's timezone, because the
+        // column is written from the wall clock and Postgres reads that wall clock in the store's timezone.
+        $at = CarbonImmutable::parse((string) $requested)->setTimezone(config('app.timezone'));
         if ($at->lessThan($now->subSeconds(self::CLOCK_SKEW_SECONDS))) {
             throw ValidationException::withMessages(['effective_from' => 'A new price cannot start in the past. Leave this empty to start now.']);
         }

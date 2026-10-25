@@ -444,6 +444,28 @@ class MealMenuHttpTest extends PostgresSchemaTestCase
         $this->assertSame($events, AuditEvent::where('event_type', 'MENU_PRICE_CHANGED')->count());
     }
 
+    public function test_a_price_scheduled_with_a_utc_instant_starts_at_exactly_that_instant(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $m = $this->menu($admin);
+        $this->price($admin, $m['meal'], $m['beef'], '68.00');
+        $this->travel(1)->minutes();
+        $start = now()->addDays(2)->startOfHour();
+
+        $this->asUser($admin)->postJson("/api/v1/meals/{$m['meal']->id}/prices", [
+            'dish_category_id' => $m['beef']->id,
+            'amount' => '72.00',
+            'effective_from' => $start->copy()->utc()->format('Y-m-d\TH:i:s\Z'),
+        ])->assertStatus(201);
+
+        $row = MenuPrice::where('meal_id', $m['meal']->id)->where('amount', '72.00')->firstOrFail();
+        $this->assertTrue($row->effective_from->equalTo($start), 'the stored instant is the instant that was sent, not shifted by the timezone offset');
+
+        $resolver = app(MenuPriceResolver::class);
+        $this->assertSame('68.00', $resolver->mealPrice($m['meal']->id, $m['beef']->id, $start->copy()->subSecond())->amount);
+        $this->assertSame('72.00', $resolver->mealPrice($m['meal']->id, $m['beef']->id, $start)->amount);
+    }
+
     public function test_a_price_may_be_scheduled_for_later_but_not_back_dated(): void
     {
         $admin = User::factory()->admin()->create();
