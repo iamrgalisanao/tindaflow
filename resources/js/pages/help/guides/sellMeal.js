@@ -19,7 +19,7 @@ export default {
                     { type: 'click', target: 'standard', label: 'Tap the meal', detail: 'Tap the meal tile to start choosing.' },
                 ],
             },
-            note: 'The number on a tab counts ordinary products only, so a tab that holds just meals may show **0**. The meal tiles are still there.',
+            note: 'The number on the selected tab counts the products and the meals shown under it, so a tab that holds only meals shows how many meal tiles it has.',
         },
         {
             title: 'Pick the dish category (it sets the price)',
@@ -97,7 +97,7 @@ export default {
         },
         {
             title: 'Check the cart',
-            body: 'Each meal is one cart line. Under its name, in green, you see the dish (and side) and the rice with its price. Use **−** and **+** to sell more plates of the same order. Each plate becomes its own line on the sale. For a different dish, add the meal again. A meal line has no discount box: manual line discounts are not offered on meals, but the **Senior Citizen / PWD discount** still applies to the whole order.',
+            body: 'Each meal is one cart line. The full name of the meal and its dish is shown on the line, wrapping onto a second row if it is long. Under it, in green, you see the dish (and side) and the rice with its price. Use **−** and **+** to sell more plates of the same order. Each plate becomes its own line on the sale. For a different dish, add the meal again. A meal line has no discount box: manual line discounts are not offered on meals, but the **Senior Citizen / PWD discount** still applies to the whole order.',
             figure: {
                 shot: 'meal-cart',
                 alt: 'The cart with a Standard Meal, a Combo Meal and a plain product, each meal listing its dish and rice.',
@@ -123,7 +123,7 @@ export default {
         },
         {
             title: 'If only the rice comes back: open the sale',
-            body: 'Because the rice is its own line, it can be refunded on its own. Open **Lookup**, click the sale, and look at its lines: the meal, with each rice as a separate line below it. Click **Request refund**.',
+            body: 'Because the rice is its own line, it can be refunded on its own. Open **Lookup**, click the sale, and look at its lines: the meal, with each rice as a separate line below it. A rice line names its meal, for example **Whole rice (for Standard Meal - Beef nilaga)**. Click **Request refund**.',
             figure: {
                 shot: 'meal-lookup-detail',
                 alt: 'The sale in Lookup with the meal line, the Whole rice line on its own and a Request refund button.',
@@ -146,7 +146,7 @@ export default {
                     { type: 'click', target: 'request', label: 'Click Request refund', detail: 'Click Request refund. A manager decides it under Approvals.' },
                 ],
             },
-            warning: 'Two plates with the same rice show the same line name. Check the price on the line before you choose it.',
+            warning: 'With two plates, each rice line names the meal it belongs to, for example **Whole rice (for Standard Meal - Beef nilaga)**. Read the meal name in brackets before you choose the line.',
         },
     ],
     done: 'That is a meal sale. Everything else works as for any other product.',
