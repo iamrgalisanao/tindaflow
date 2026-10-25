@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
+import QrCode from '../../../components/QrCode';
 import AdminLayout from '../AdminLayout';
 import { ErrorAlert } from '../catalog/CatalogParts';
 import { RETURN_KEY, failureMessage, request } from '../catalog/catalogApi';
@@ -21,8 +22,8 @@ const PRINT_CSS = `
 
 /**
  * /admin/employees/cards -- the printable ID-card sheet (employeeIdCards): name, type and the code of each active employee, eight
- * cards to a page. The code is the value a QR image will carry; this slice prints it as large text (no QR library is installed, and
- * dependencies are not added without approval), which a cashier can key in at the till. Filtering by type or search prints a subset.
+ * cards to a page. The QR image carries the code, which a scanner types into the till's lookup box; the code is also printed as large text so a
+ * cashier can key it in when a card will not scan. Filtering by type or search prints a subset.
  */
 export default function EmployeeCardsPage() {
     const { setUser } = useAuth();
@@ -70,7 +71,7 @@ export default function EmployeeCardsPage() {
                 <div>
                     <h2 className="text-xl font-semibold text-slate-100">Print ID cards</h2>
                     <p className="mt-1 max-w-2xl text-sm text-slate-400">
-                        One card for each active employee. Cashiers type the code at the till; a QR image on the card is not available yet.{' '}
+                        One card for each active employee. Each card carries a QR code a scanner can read at the till, and the code in large text to type if a card will not scan.{' '}
                         <Link to="/admin/employees" className="text-emerald-400 underline">
                             Back to employees
                         </Link>
@@ -149,7 +150,10 @@ export default function EmployeeCardsPage() {
                                 <div key={card.id} className="break-inside-avoid rounded-lg border-2 border-slate-400 bg-white p-4 text-black">
                                     <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600">{typeLabel(card.employee_type)}</p>
                                     <p className="mt-1 break-words text-lg font-bold leading-tight">{card.name}</p>
-                                    <p className="mt-3 text-center font-mono text-3xl font-bold tracking-[0.25em]">{card.employee_code}</p>
+                                    <div className="mt-3 flex items-center justify-between gap-3">
+                                        <QrCode value={card.employee_code} size={112} />
+                                        <p className="font-mono text-2xl font-bold tracking-[0.15em]">{card.employee_code}</p>
+                                    </div>
                                 </div>
                             ))}
                         </div>
