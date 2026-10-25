@@ -11,6 +11,7 @@ use App\Http\Controllers\InventoryLocationController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceSeriesController;
 use App\Http\Controllers\JournalEntryController;
+use App\Http\Controllers\MenuGroupController;
 use App\Http\Controllers\ProductBarcodeController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\RefundController;
@@ -237,6 +238,21 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     Route::get('/brands', [BrandController::class, 'list'])
         ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/brands', [BrandController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+
+    // Menu groups (ADR-016, slice 1.1): the till's navigation tree, two levels. Reads need only the session like the other
+    // catalog reads; every change is CATALOG_MANAGE. There is no delete: a group is hidden with deactivate (MENU-005).
+    Route::get('/menu-groups', [MenuGroupController::class, 'list'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/menu-groups', [MenuGroupController::class, 'create'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    Route::post('/menu-groups/reorder', [MenuGroupController::class, 'reorder'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    Route::patch('/menu-groups/{menuGroupId}', [MenuGroupController::class, 'update'])->whereUuid('menuGroupId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    Route::post('/menu-groups/{menuGroupId}/activate', [MenuGroupController::class, 'activate'])->whereUuid('menuGroupId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+    Route::post('/menu-groups/{menuGroupId}/deactivate', [MenuGroupController::class, 'deactivate'])->whereUuid('menuGroupId')
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
 
     // openapi.yaml Inventory tag. Reads are session-only. Receipts/adjustments attribute the

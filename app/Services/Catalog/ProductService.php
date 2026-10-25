@@ -22,7 +22,7 @@ final class ProductService
     public function __construct(private ProductAuditor $auditor, private ProductBarcodeService $barcodes) {}
 
     private const FIELDS = [
-        'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'unit_of_measure',
+        'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'menu_group_id', 'unit_of_measure',
         'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level',
     ];
 

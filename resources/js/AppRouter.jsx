@@ -15,6 +15,7 @@ import InventoryLocations from './pages/admin/InventoryLocations';
 import TaxRegistrations from './pages/admin/TaxRegistrations';
 import ProductsPage from './pages/admin/catalog/ProductsPage';
 import CatalogNamesPage from './pages/admin/catalog/CatalogNamesPage';
+import MenuGroupsPage from './pages/admin/catalog/MenuGroupsPage';
 import UsersPage from './pages/admin/users/UsersPage';
 import StockPage from './pages/admin/inventory/StockPage';
 import SalesPage from './pages/admin/sales/SalesPage';
@@ -287,6 +288,14 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <CatalogNamesPage kind="categories" />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/catalog/menu-groups"
+                    element={
+                        <RequireAuth>
+                            <MenuGroupsPage />
                         </RequireAuth>
                     }
                 />

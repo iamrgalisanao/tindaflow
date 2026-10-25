@@ -76,6 +76,19 @@ admin operations that make sense from any authenticated browser, and
 | POST | /products/import | productImport | session | false | `CATALOG_MANAGE` | no | CSV | 202 ImportResult | 422 |
 | GET | /products/export | productExport | session | false | — | no | — | 200 CSV | 401 |
 
+### Menu groups (6) — ADR-016 slice 1.1 (2026-10-25), forward-committed
+
+The till's two-level navigation tree (`docs/06-backend/canteen-build-plan.md` 1.1). Reads are session-only; every change is `CATALOG_MANAGE`; a group of another store is `MENU_GROUP_NOT_FOUND` (new code, 404). There is no delete (MENU-005). `productList` gains a `menu_group_id` filter (a top group includes its sub-groups) and `Product`/`ProductInput` gain a nullable `menu_group_id`.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /menu-groups | menuGroupList | session | false | — | no | `active?` | 200 paginated MenuGroup | 401 |
+| POST | /menu-groups | menuGroupCreate | session | false | `CATALOG_MANAGE` | no | name, parent_id?, sort_order? | 201 MenuGroup | 403, 422 (depth, duplicate name) |
+| POST | /menu-groups/reorder | menuGroupReorder | session | false | `CATALOG_MANAGE` | no | parent_id?, ids | 200 MenuGroup list | 403, 422 |
+| PATCH | /menu-groups/{menuGroupId} | menuGroupUpdate | session | false | `CATALOG_MANAGE` | no | name?, sort_order? | 200 MenuGroup | 403, `MENU_GROUP_NOT_FOUND`, 422 |
+| POST | /menu-groups/{menuGroupId}/activate | menuGroupActivate | session | false | `CATALOG_MANAGE` | no | — | 200 MenuGroup | 403, `MENU_GROUP_NOT_FOUND` |
+| POST | /menu-groups/{menuGroupId}/deactivate | menuGroupDeactivate | session | false | `CATALOG_MANAGE` | no | — | 200 MenuGroup | 403, `MENU_GROUP_NOT_FOUND` |
+
 ### Alternate barcodes and packs (3) — stage 26 (2026-09-20), forward-committed, no prior draft at any stage; extended in stage 29 (2026-09-21)
 
 **Stage 29:** a row is now a *packaging*: the barcode is optional, and a row may carry a `name` ("Case") and `units_per_base` (how many single units one holds; 1 for a plain alias), plus `can_receive`. `productBarcodeCreate` accepts `name`, `units_per_base` and `can_receive` and needs at least one of `barcode` and `name`; a duplicate name on the same product is a `422` on `name`. Stock is always kept in the base unit. See `docs/06-backend/stage-29-packaging-and-pack-receiving.md`.

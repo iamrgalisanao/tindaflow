@@ -431,6 +431,10 @@ paths:
       - name: category_id
         in: query
         schema: {type: string, format: uuid}
+      - name: menu_group_id
+        in: query
+        description: 'Products placed in this menu group. A top group also matches the products of its sub-groups.'
+        schema: {type: string, format: uuid}
       - name: active
         in: query
         schema: {type: boolean}
@@ -697,6 +701,176 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /menu-groups:
+    get:
+      operationId: menuGroupList
+      tags: [Catalog]
+      summary: 'List menu groups (ADR-016 slice 1.1: the till''s two-level navigation tree). Ordered as the tree is shown: each top group by sort_order, followed by its sub-groups. active=true returns only groups that are active AND whose parent (if any) is active, which is what the till asks for.'
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: active
+        in: query
+        schema: {type: boolean}
+      responses:
+        '200':
+          description: Paginated menu group list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/MenuGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      operationId: menuGroupCreate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: 'Create a menu group. parent_id (a top group of the same store) makes it a sub-group; the tree is two levels deep at most, so a sub-group cannot be a parent (422 on parent_id). The name is unique among its siblings, ignoring case (422 on name). sort_order defaults to last.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+                parent_id:
+                  anyOf:
+                  - {type: string, format: uuid}
+                  - {type: 'null'}
+                sort_order: {type: integer, minimum: 0}
+      responses:
+        '201':
+          description: Menu group created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MenuGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /menu-groups/reorder:
+    post:
+      operationId: menuGroupReorder
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: 'Put one set of siblings in order: the top groups (parent_id null) or the sub-groups of one group. ids must list every sibling exactly once (422 on ids); they are numbered 1..n.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                parent_id:
+                  anyOf:
+                  - {type: string, format: uuid}
+                  - {type: 'null'}
+                ids:
+                  type: array
+                  items: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The siblings in their new order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/MenuGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /menu-groups/{menuGroupId}:
+    patch:
+      operationId: menuGroupUpdate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: 'Rename and/or re-sort a menu group. The parent never changes (parent_id is rejected with 422). A group of another store is MENU_GROUP_NOT_FOUND.'
+      parameters:
+      - name: menuGroupId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                sort_order: {type: integer, minimum: 0}
+      responses:
+        '200':
+          description: Menu group updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MenuGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MENU_GROUP_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /menu-groups/{menuGroupId}/activate:
+    post:
+      operationId: menuGroupActivate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: Show a menu group on the till again (idempotent)
+      parameters:
+      - name: menuGroupId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Menu group activated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MenuGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MENU_GROUP_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /menu-groups/{menuGroupId}/deactivate:
+    post:
+      operationId: menuGroupDeactivate
+      tags: [Catalog]
+      x-capability: CATALOG_MANAGE
+      summary: 'Hide a menu group (and, on the till, the sub-groups under it) (idempotent). There is no delete (invariants.md MENU-005).'
+      parameters:
+      - name: menuGroupId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Menu group deactivated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MenuGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MENU_GROUP_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
   /brands:
     get:
       operationId: brandList
@@ -3076,6 +3250,17 @@ components:
       properties:
         id: {type: string, format: uuid}
         name: {type: string}
+    MenuGroup:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        parent_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        name: {type: string}
+        sort_order: {type: integer}
+        active: {type: boolean}
     Brand:
       type: object
       properties:
@@ -3120,6 +3305,10 @@ components:
           anyOf:
           - {type: string, format: uuid}
           - {type: 'null'}
+        menu_group_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
         unit_of_measure: {type: string}
         cost: {$ref: '#/components/schemas/Money'}
         selling_price: {$ref: '#/components/schemas/Money'}
@@ -3147,6 +3336,10 @@ components:
           - {type: string, format: uuid}
           - {type: 'null'}
         brand_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        menu_group_id:
           anyOf:
           - {type: string, format: uuid}
           - {type: 'null'}

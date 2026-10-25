@@ -2,6 +2,7 @@
 
 namespace Tests\Database;
 
+use App\Models\MenuGroup;
 use App\Models\Product;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -189,6 +190,25 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $this->asUser($w['manager'])->deleteJson("/api/v1/inventory/counts/{$count->json('id')}/lines/{$product->id}")->assertOk();
     }
 
+    public function test_the_menu_group_admin_works_as_the_restricted_role_and_a_group_cannot_be_deleted(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+
+        $top = $this->asUser($w['manager'])->postJson('/api/v1/menu-groups', ['name' => 'Lunch'])->assertStatus(201);
+        $sub = $this->asUser($w['manager'])->postJson('/api/v1/menu-groups', ['name' => 'Standard Meal', 'parent_id' => $top->json('id')])->assertStatus(201);
+        $this->asUser($w['manager'])->patchJson("/api/v1/menu-groups/{$sub->json('id')}", ['name' => 'Standard'])->assertOk();
+        $this->asUser($w['manager'])->postJson("/api/v1/menu-groups/{$sub->json('id')}/deactivate")->assertOk()->assertJson(['active' => false]);
+        $this->asUser($w['manager'])->postJson('/api/v1/menu-groups/reorder', ['parent_id' => null, 'ids' => [$top->json('id')]])->assertOk();
+
+        $product = Product::factory()->create(['store_id' => $w['storeId']]);
+        $this->asUser($w['manager'])->patchJson("/api/v1/products/{$product->id}", [
+            'sku' => $product->sku, 'name' => $product->name, 'unit_of_measure' => 'pc', 'selling_price' => '10.00', 'tax_class' => 'VATABLE',
+            'menu_group_id' => $top->json('id'),
+        ])->assertOk()->assertJson(['menu_group_id' => $top->json('id')]);
+
+        $this->assertTrue($this->refuses(fn () => MenuGroup::query()->delete()), 'a menu group must not be deletable');
+    }
+
     public function test_the_tables_the_app_is_allowed_to_delete_from_are_exactly_the_ones_that_hold_no_money_or_audit_data(): void
     {
         $this->worldUnderTheHardenedRole();
@@ -198,7 +218,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }

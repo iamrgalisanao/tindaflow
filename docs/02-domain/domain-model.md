@@ -721,7 +721,7 @@ mechanism V1 actually supports.
 ### 2.13 Canteen extension: meal menu, employee credit, slip mode, billing (ADR-016, proposed 2026-10-25)
 
 Additive only: no existing entity changes meaning. Full rationale, alternatives and the client decision on invoicing are in
-[ADR-016](../03-architecture/decisions/ADR-016-configurable-meal-menu-employee-credit-and-slip-mode.md). Not yet built.
+[ADR-016](../03-architecture/decisions/ADR-016-configurable-meal-menu-employee-credit-and-slip-mode.md). Not yet built, except `menu_group` and `product.menu_group_id` (slice 1.1, built 2026-10-25).
 
 **Configuration (mutable, never deleted, `active` flag):** `menu_group` (two levels; `product.menu_group_id`), `dish_category`,
 `dish` (own id, the future inventory attach point), `meal` (has a hidden backing `product`), `meal_option_group` (min/max,

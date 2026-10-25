@@ -3,6 +3,7 @@ import SlideOver from '../SlideOver';
 import AlternateBarcodes from './AlternateBarcodes';
 import { TAX_CLASSES, failureMessage, fieldErrors, normalizeMoney, request } from './catalogApi';
 import MoneyInput from '../../../components/MoneyInput';
+import { menuGroupOptions } from './menuGroupOptions';
 
 const UNIT_SUGGESTIONS = ['pc', 'kg', 'g', 'L', 'pack', 'box'];
 
@@ -14,6 +15,7 @@ function initialValues(product) {
         description: product?.description ?? '',
         category_id: product?.category_id ?? '',
         brand_id: product?.brand_id ?? '',
+        menu_group_id: product?.menu_group_id ?? '',
         unit_of_measure: product?.unit_of_measure ?? '',
         cost: product?.cost ?? '',
         selling_price: product?.selling_price ?? '',
@@ -148,6 +150,7 @@ export default function ProductFormPanel({
     product,
     categories,
     brands,
+    menuGroups = [],
     onCategoryCreated,
     onBrandCreated,
     onSaved,
@@ -191,6 +194,7 @@ export default function ProductFormPanel({
             description: values.description.trim() || null,
             category_id: values.category_id || null,
             brand_id: values.brand_id || null,
+            menu_group_id: values.menu_group_id || null,
             unit_of_measure: values.unit_of_measure.trim(),
             cost: values.cost.trim() === '' ? null : normalizeMoney(values.cost),
             selling_price: normalizeMoney(values.selling_price),
@@ -361,6 +365,17 @@ export default function ProductFormPanel({
                             {brands.map((brand) => (
                                 <option key={brand.id} value={brand.id}>
                                     {brand.name}
+                                </option>
+                            ))}
+                        </select>
+                    </Field>
+
+                    <Field id="product_menu_group" label="Menu group" error={errors.menu_group_id}>
+                        <select id="product_menu_group" value={values.menu_group_id} onChange={(event) => set('menu_group_id', event.target.value)} className={inputClass(errors.menu_group_id)}>
+                            <option value="">None (found by search only)</option>
+                            {menuGroupOptions(menuGroups).map((option) => (
+                                <option key={option.id} value={option.id}>
+                                    {option.label}
                                 </option>
                             ))}
                         </select>

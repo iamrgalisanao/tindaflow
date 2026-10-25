@@ -44,6 +44,7 @@ class ProductInputRequest extends FormRequest
             'description' => ['nullable', 'string'],
             'category_id' => ['nullable', 'uuid', Rule::exists('categories', 'id')->where('store_id', $storeId)],
             'brand_id' => ['nullable', 'uuid', Rule::exists('brands', 'id')->where('store_id', $storeId)],
+            'menu_group_id' => ['nullable', 'uuid', Rule::exists('menu_groups', 'id')->where('store_id', $storeId)],
             'unit_of_measure' => ['required', 'string', 'max:255'],
             'cost' => ['nullable', $money],
             'selling_price' => ['required', $money],

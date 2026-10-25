@@ -24,7 +24,7 @@ final class ProductAuditor
 {
     /** The fields worth a record: everything a sale, a price or a tax figure can depend on. */
     public const TRACKED = [
-        'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'unit_of_measure',
+        'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'menu_group_id', 'unit_of_measure',
         'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level', 'active',
     ];
 

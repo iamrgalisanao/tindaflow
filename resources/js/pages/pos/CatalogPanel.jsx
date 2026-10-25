@@ -2,17 +2,22 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from '../../api';
 import MealPicker from './MealPicker';
 import { mealMenus, mealSkus } from './mealMenus';
+import { buildMenuTabs, groupFilter } from './menuGroups';
 
 const PAGE_SIZE = 100;
 
 /**
- * Where the cashier finds what to sell: the scan/search box, the category tabs, and a grid of tap-to-add product tiles.
+ * Where the cashier finds what to sell: the scan/search box, the menu-group tabs and sub-tabs (or, in a store with no active
+ * menu groups, the category tabs exactly as before), and a grid of tap-to-add product tiles.
  * The scan box keeps focus and behaves exactly as before (a scanned barcode adds the product; anything else is a name or
  * SKU search). A search replaces the grid with its results until it is cleared.
  */
 export default function CatalogPanel({ search, onSearchChange, onSearch, onClearSearch, searchRef, scanNotice, results, onAdd }) {
     const [categories, setCategories] = useState([]);
     const [categoryId, setCategoryId] = useState(''); // '' = all
+    const [menuTabs, setMenuTabs] = useState(null); // null = loading; [] = this store has no active menu groups
+    const [groupId, setGroupId] = useState(''); // '' = all
+    const [subGroupId, setSubGroupId] = useState(''); // '' = the whole top group
     const [tiles, setTiles] = useState(null); // null = loading
     const [loadFailed, setLoadFailed] = useState(false);
     const [total, setTotal] = useState(0);
@@ -52,9 +57,28 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
 
     useEffect(() => {
         let cancelled = false;
+        apiFetch(`/api/v1/menu-groups?active=true&per_page=${PAGE_SIZE}`).then((response) => {
+            if (!cancelled) {
+                // A failed read leaves the till on its category tabs rather than without navigation.
+                setMenuTabs(response.ok ? buildMenuTabs(response.body.data) : []);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const groupMode = menuTabs !== null && menuTabs.length > 0;
+    const selectedTop = groupMode ? menuTabs.find((tab) => tab.id === groupId) : undefined;
+
+    useEffect(() => {
+        if (menuTabs === null) {
+            return undefined;
+        }
+        let cancelled = false;
         setTiles(null);
         setLoadFailed(false);
-        const filter = categoryId === '' ? '' : `&category_id=${encodeURIComponent(categoryId)}`;
+        const filter = groupMode ? groupFilter(groupId, subGroupId) : categoryId === '' ? '' : `&category_id=${encodeURIComponent(categoryId)}`;
         apiFetch(`/api/v1/products?active=1&per_page=${PAGE_SIZE}${filter}`).then((response) => {
             if (cancelled) {
                 return;
@@ -70,13 +94,13 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
         return () => {
             cancelled = true;
         };
-    }, [categoryId]);
+    }, [menuTabs, groupMode, categoryId, groupId, subGroupId]);
 
     const categoryName = (id) => categories.find((category) => category.id === id)?.name ?? '';
 
     const searching = results !== null;
     const shown = searching ? results : tiles === null ? null : tiles.filter((product) => !mealSkus.includes(product.sku));
-    const showMealMenus = !searching && categoryId === '' && mealMenus.some((menu) => menu.proteins.some((protein) => mealProducts[protein.sku]));
+    const showMealMenus = !searching && (groupMode ? groupId === '' : categoryId === '') && mealMenus.some((menu) => menu.proteins.some((protein) => mealProducts[protein.sku]));
 
     return (
         <section aria-label="Products" className="flex min-h-0 flex-1 flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
@@ -124,25 +148,43 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                     </button>
                 </div>
             ) : (
-                <div role="tablist" aria-label="Categories" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
-                    {[{ id: '', name: 'All' }, ...categories].map((category) => (
-                        <button
-                            key={category.id || 'all'}
-                            type="button"
-                            role="tab"
-                            aria-selected={categoryId === category.id}
-                            onClick={() => setCategoryId(category.id)}
-                            className={`flex min-h-11 shrink-0 items-center gap-2 rounded border px-4 font-mono text-[11px] font-bold uppercase tracking-widest ${
-                                categoryId === category.id ? 'border-emerald-500 bg-emerald-500 text-slate-950' : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:bg-slate-800'
-                            }`}
-                        >
-                            {category.name}
-                            {categoryId === category.id && shown !== null && (
-                                <span className="rounded bg-slate-950/25 px-1.5 py-0.5 text-[10px]">{total}</span>
-                            )}
-                        </button>
-                    ))}
-                </div>
+                <>
+                    {groupMode && (
+                        <div role="tablist" aria-label="Menu groups" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+                            {[{ id: '', name: 'All', children: [] }, ...menuTabs].map((tab) => (
+                                <TabButton
+                                    key={tab.id || 'all'}
+                                    selected={groupId === tab.id}
+                                    count={groupId === tab.id && subGroupId === '' && shown !== null ? total : null}
+                                    onClick={() => {
+                                        setGroupId(tab.id);
+                                        setSubGroupId('');
+                                    }}
+                                >
+                                    {tab.name}
+                                </TabButton>
+                            ))}
+                        </div>
+                    )}
+                    {groupMode && selectedTop && selectedTop.children.length > 0 && (
+                        <div role="tablist" aria-label={`${selectedTop.name} sub-groups`} className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+                            {[{ id: '', name: `All ${selectedTop.name}` }, ...selectedTop.children].map((tab) => (
+                                <TabButton key={tab.id || 'all'} small selected={subGroupId === tab.id} count={subGroupId === tab.id && shown !== null ? total : null} onClick={() => setSubGroupId(tab.id)}>
+                                    {tab.name}
+                                </TabButton>
+                            ))}
+                        </div>
+                    )}
+                    {menuTabs !== null && !groupMode && (
+                        <div role="tablist" aria-label="Categories" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+                            {[{ id: '', name: 'All' }, ...categories].map((category) => (
+                                <TabButton key={category.id || 'all'} selected={categoryId === category.id} count={categoryId === category.id && shown !== null ? total : null} onClick={() => setCategoryId(category.id)}>
+                                    {category.name}
+                                </TabButton>
+                            ))}
+                        </div>
+                    )}
+                </>
             )}
 
             {pickingMenu && (
@@ -187,7 +229,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                     </p>
                 )}
                 {shown !== null && shown.length === 0 && !loadFailed && (
-                    <p className="py-8 text-center text-sm text-slate-400">{searching ? 'No products match.' : 'No products in this category.'}</p>
+                    <p className="py-8 text-center text-sm text-slate-400">{searching ? 'No products match.' : groupMode ? 'No products in this group.' : 'No products in this category.'}</p>
                 )}
                 {shown !== null && shown.length > 0 && (
                     <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
@@ -218,5 +260,23 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                 )}
             </div>
         </section>
+    );
+}
+
+/** One tab of a tab strip; `small` is the sub-tab size, `count` the number of products shown when it is the selected tab. */
+function TabButton({ selected, count, small = false, onClick, children }) {
+    return (
+        <button
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            onClick={onClick}
+            className={`flex shrink-0 items-center gap-2 rounded border font-mono font-bold uppercase tracking-widest ${
+                small ? 'min-h-10 px-3 text-[10px]' : 'min-h-11 px-4 text-[11px]'
+            } ${selected ? 'border-emerald-500 bg-emerald-500 text-slate-950' : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:bg-slate-800'}`}
+        >
+            {children}
+            {count !== null && <span className="rounded bg-slate-950/25 px-1.5 py-0.5 text-[10px]">{count}</span>}
+        </button>
     );
 }

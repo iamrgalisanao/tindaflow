@@ -110,6 +110,11 @@ GRANT UPDATE (status) ON sales TO tindaflow_app;
 -- to be updated as an atomic side-effect of every stock_movement insert,
 -- in the same transaction. It is deliberately mutable.
 
+-- menu_groups (ADR-016, invariants.md MENU-005) is a lifecycle/configuration table: the application renames, re-sorts and
+-- hides (active = false) its rows, so it keeps INSERT and UPDATE, and it is never deleted. It needs no statement here: it is
+-- not in the DELETE allow-list above, so the store-wide REVOKE DELETE already covers it. tindaflow:harden-database reads
+-- that back, and AppendOnlyPrivilegesTest proves the menu admin works and a DELETE is refused under the restricted role.
+
 -- shifts/fiscal_days/invoice_series/idempotency_records are lifecycle
 -- aggregates with frozen-domain-required in-place field changes
 -- (shift totals at close, fiscal_day.status, invoice_series.current_number,

@@ -12,6 +12,9 @@ export const AUDIT_TYPES = [
     { id: 'PRODUCT_IMPORTED', label: 'Products imported' },
     { id: 'PRODUCT_BARCODE_ADDED', label: 'Barcode added' },
     { id: 'PRODUCT_BARCODE_REMOVED', label: 'Barcode removed' },
+    { id: 'MENU_GROUP_CREATED', label: 'Menu group created' },
+    { id: 'MENU_GROUP_UPDATED', label: 'Menu group changed' },
+    { id: 'MENU_GROUP_REORDERED', label: 'Menu groups reordered' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -94,6 +97,7 @@ const PRODUCT_FIELDS = {
     description: 'description',
     category_id: 'category',
     brand_id: 'brand',
+    menu_group_id: 'menu group',
     unit_of_measure: 'unit',
     cost: 'cost',
     selling_price: 'price',
@@ -116,7 +120,7 @@ function productValue(field, value) {
     if (field === 'track_inventory') {
         return value ? 'on' : 'off';
     }
-    if (field === 'category_id' || field === 'brand_id') {
+    if (field === 'category_id' || field === 'brand_id' || field === 'menu_group_id') {
         return shortId(value);
     }
     return String(value);
@@ -148,6 +152,19 @@ function describeUserChange(before, after) {
         .join(', ');
 }
 
+const MENU_GROUP_FIELDS = { name: 'name', sort_order: 'position', active: 'status' };
+
+/** "name Lunch → Lunch Meals, status active → hidden" from a menu group change's before and after. */
+function describeMenuGroupChange(before = {}, after = {}) {
+    return Object.keys(before)
+        .filter((field) => field in MENU_GROUP_FIELDS)
+        .map((field) => {
+            const show = (value) => (field === 'active' ? (value ? 'active' : 'hidden') : String(value ?? 'none'));
+            return `${MENU_GROUP_FIELDS[field]} ${show(before[field])} → ${show(after[field])}`;
+        })
+        .join(', ');
+}
+
 /** One plain sentence for an audit event, from what the event recorded. Unknown types fall back to their name. */
 export function describeAudit(event) {
     const after = event.after_metadata ?? {};
@@ -166,6 +183,12 @@ export function describeAudit(event) {
             return `Product ${after.sku ?? '—'} changed: ${describeProductChange(event.before_metadata ?? {}, after) || 'no listed field'}`;
         case 'PRODUCT_IMPORTED':
             return `Product CSV import: ${after.created ?? 0} created, ${after.updated ?? 0} updated, ${after.unchanged ?? 0} unchanged${after.failed ? `, ${after.failed} skipped` : ''}`;
+        case 'MENU_GROUP_CREATED':
+            return `Menu group "${after.name ?? '—'}" created${after.parent_id ? ' as a sub-group' : ''}`;
+        case 'MENU_GROUP_UPDATED':
+            return `Menu group "${after.name ?? '—'}" changed: ${describeMenuGroupChange(event.before_metadata ?? {}, after) || 'no listed field'}`;
+        case 'MENU_GROUP_REORDERED':
+            return `Menu groups reordered: ${(after.order ?? []).length} ${after.parent_id ? 'sub-groups' : 'groups'} in a new order`;
         case 'PRODUCT_BARCODE_ADDED':
             return describePackaging(after, 'added to', 'it can now be scanned to find this product');
         case 'PRODUCT_BARCODE_REMOVED':

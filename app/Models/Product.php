@@ -17,7 +17,7 @@ class Product extends Model
     protected $table = 'products';
 
     protected $fillable = [
-        'store_id', 'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id',
+        'store_id', 'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'menu_group_id',
         'unit_of_measure', 'cost', 'selling_price', 'tax_class', 'track_inventory',
         'reorder_level', 'active',
     ];
@@ -45,6 +45,11 @@ class Product extends Model
     public function brand(): BelongsTo
     {
         return $this->belongsTo(Brand::class);
+    }
+
+    public function menuGroup(): BelongsTo
+    {
+        return $this->belongsTo(MenuGroup::class);
     }
 
     public function barcodes(): HasMany

@@ -91,6 +91,8 @@ class HardenDatabase extends Command
             'the electronic journal must refuse UPDATE' => "select not has_table_privilege('{$role}', 'electronic_journal_entries', 'UPDATE')",
             'stock_movements must refuse UPDATE' => "select not has_table_privilege('{$role}', 'stock_movements', 'UPDATE')",
             'sales must refuse UPDATE of the total' => "select not has_column_privilege('{$role}', 'sales', 'grand_total', 'UPDATE')",
+            'menu_groups must allow UPDATE (rename, reorder, hide)' => "select has_table_privilege('{$role}', 'menu_groups', 'UPDATE')",
+            'menu_groups must refuse DELETE (a group is hidden, never deleted)' => "select not has_table_privilege('{$role}', 'menu_groups', 'DELETE')",
             'sales must allow UPDATE of the status (void and refund)' => "select has_column_privilege('{$role}', 'sales', 'status', 'UPDATE')",
         ];
 

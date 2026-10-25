@@ -16,6 +16,7 @@ export const STORE_SETUP_NAV = [
 const CATALOG_NAV = [
     { to: '/admin/catalog/products', label: 'Products' },
     { to: '/admin/catalog/categories', label: 'Categories' },
+    { to: '/admin/catalog/menu-groups', label: 'Menu groups' },
     { to: '/admin/catalog/brands', label: 'Brands' },
 ];
 

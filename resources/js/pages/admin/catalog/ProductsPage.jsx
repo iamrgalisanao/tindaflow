@@ -5,6 +5,7 @@ import { formatMoney } from '../reports/formatters';
 import { ActiveBadge, ConfirmDialog, ErrorAlert, Pager, TaxBadge, Toast } from './CatalogParts';
 import ProductFormPanel from './ProductFormPanel';
 import ProductImportPanel from './ProductImportPanel';
+import { groupPathLabel } from './menuGroupOptions';
 import { RETURN_KEY, downloadProductsCsv, failureMessage, fetchAll, request } from './catalogApi';
 
 const PER_PAGE = 25;
@@ -37,6 +38,7 @@ export default function ProductsPage() {
     const [loading, setLoading] = useState(true);
     const [categories, setCategories] = useState([]);
     const [brands, setBrands] = useState([]);
+    const [menuGroups, setMenuGroups] = useState([]);
     const [panel, setPanel] = useState(null); // null | { product?: object }
     const [importOpen, setImportOpen] = useState(false);
     const [exporting, setExporting] = useState(false);
@@ -62,6 +64,7 @@ export default function ProductsPage() {
     useEffect(() => {
         fetchAll('/api/v1/categories').then((all) => all.ok && setCategories(all.rows));
         fetchAll('/api/v1/brands').then((all) => all.ok && setBrands(all.rows));
+        fetchAll('/api/v1/menu-groups').then((all) => all.ok && setMenuGroups(all.rows));
     }, []);
 
     useEffect(() => {
@@ -329,7 +332,7 @@ export default function ProductsPage() {
                         <table className="w-full min-w-max text-left text-sm">
                             <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
                                 <tr>
-                                    {['SKU', 'Product', 'Category', 'Brand', 'Unit', 'Cost', 'Price', 'Tax class', 'Status', ''].map((heading, index) => (
+                                    {['SKU', 'Product', 'Category', 'Menu group', 'Brand', 'Unit', 'Cost', 'Price', 'Tax class', 'Status', ''].map((heading, index) => (
                                         <th
                                             key={heading || 'actions'}
                                             className={`border-b border-slate-800 px-3 py-2 font-mono ${['Cost', 'Price'].includes(heading) ? 'text-right' : ''} ${
@@ -352,6 +355,7 @@ export default function ProductsPage() {
                                             <span className="block font-mono text-[11px] text-slate-500">{product.barcode ?? 'No barcode'}</span>
                                         </td>
                                         <td className="px-3 py-2 text-slate-300">{categoryName.get(product.category_id) ?? <span className="text-slate-600">—</span>}</td>
+                                        <td className="px-3 py-2 text-slate-300">{groupPathLabel(menuGroups, product.menu_group_id) ?? <span className="text-slate-600">—</span>}</td>
                                         <td className="px-3 py-2 text-slate-300">{brandName.get(product.brand_id) ?? <span className="text-slate-600">—</span>}</td>
                                         <td className="px-3 py-2 font-mono text-[12px] text-slate-300">{product.unit_of_measure}</td>
                                         <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-300">
@@ -388,6 +392,10 @@ export default function ProductsPage() {
                                         <dd className="text-slate-200">{categoryName.get(product.category_id) ?? '—'}</dd>
                                     </div>
                                     <div className="flex justify-between text-slate-400">
+                                        <dt>Menu group</dt>
+                                        <dd className="text-slate-200">{groupPathLabel(menuGroups, product.menu_group_id) ?? '—'}</dd>
+                                    </div>
+                                    <div className="flex justify-between text-slate-400">
                                         <dt>Tax class</dt>
                                         <dd>
                                             <TaxBadge taxClass={product.tax_class} />
@@ -413,6 +421,7 @@ export default function ProductsPage() {
                     product={panel.product}
                     categories={categories}
                     brands={brands}
+                    menuGroups={menuGroups}
                     onCategoryCreated={(created) => setCategories((prior) => [...prior, created].sort((a, b) => a.name.localeCompare(b.name)))}
                     onBrandCreated={(created) => setBrands((prior) => [...prior, created].sort((a, b) => a.name.localeCompare(b.name)))}
                     onSaved={saved}

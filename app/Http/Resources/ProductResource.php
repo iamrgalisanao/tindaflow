@@ -30,6 +30,7 @@ class ProductResource extends JsonResource
             'description' => $this->resource->description,
             'category_id' => $this->resource->category_id,
             'brand_id' => $this->resource->brand_id,
+            'menu_group_id' => $this->resource->menu_group_id,
             'unit_of_measure' => $this->resource->unit_of_measure,
             'cost' => $this->resource->cost,
             'selling_price' => $this->resource->selling_price,

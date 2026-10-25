@@ -8,6 +8,7 @@ use App\Http\Requests\ProductInputRequest;
 use App\Http\Resources\ProductResource;
 use App\Models\Brand;
 use App\Models\Category;
+use App\Models\MenuGroup;
 use App\Models\Product;
 use App\Models\ProductBarcode;
 use App\Services\Catalog\ProductCsv;
@@ -42,6 +43,14 @@ class ProductController extends Controller
             // A value that is not a UUID can match no row; comparing it to a uuid column is a database error.
             Str::isUuid((string) $request->query('category_id'))
                 ? $query->where('category_id', $request->query('category_id'))
+                : $query->whereRaw('1 = 0');
+        }
+        if ($request->filled('menu_group_id')) {
+            // A top group also matches the products of its sub-groups, so its tab on the till shows everything under it.
+            $groupId = (string) $request->query('menu_group_id');
+            Str::isUuid($groupId)
+                ? $query->whereIn('menu_group_id', MenuGroup::where('store_id', $actor->store_id)
+                    ->where(fn ($q) => $q->where('id', $groupId)->orWhere('parent_id', $groupId))->select('id'))
                 : $query->whereRaw('1 = 0');
         }
         if ($request->filled('active')) {

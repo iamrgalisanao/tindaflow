@@ -28,7 +28,7 @@ class BarcodeLookupHttpTest extends PostgresSchemaTestCase
 
         $response->assertOk();
         $response->assertJson(['id' => $product->id, 'name' => 'Coca Cola 1.5L', 'barcode' => '4800016001234', 'selling_price' => '65.00', 'tax_class' => $product->tax_class, 'active' => true]);
-        $this->assertSame(['id', 'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'unit_of_measure', 'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level', 'active'], array_keys($response->json()));
+        $this->assertSame(['id', 'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'menu_group_id', 'unit_of_measure', 'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level', 'active'], array_keys($response->json()));
 
         // The price is read fresh each time, never remembered.
         $product->update(['selling_price' => '70.00']);
