@@ -23,7 +23,16 @@ class SaleFinalizeRequest extends FormRequest
     {
         return [
             'items' => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'uuid'],
+            // A line is either an ordinary product or, from ADR-016, a meal selection -- never both, and never with a price: the
+            // server prices a meal from the menu (invariants.md MENU-002), so no money field is accepted under `meal`.
+            'items.*.product_id' => ['required_without:items.*.meal', 'nullable', 'uuid'],
+            'items.*.meal' => ['required_without:items.*.product_id', 'nullable', 'array', 'prohibits:items.*.product_id'],
+            'items.*.meal.meal_id' => ['required_with:items.*.meal', 'uuid'],
+            'items.*.meal.choices' => ['nullable', 'array'],
+            'items.*.meal.choices.*.group_id' => ['required', 'uuid'],
+            'items.*.meal.choices.*.option_id' => ['required', 'uuid'],
+            'items.*.meal.addons' => ['nullable', 'array'],
+            'items.*.meal.addons.*' => ['uuid'],
             'items.*.quantity' => ['required', 'regex:/^\d+(\.\d{1,3})?$/'],
             'items.*.line_discount_amount' => ['nullable', 'regex:/^-?\d+\.\d{2}$/'],
             'items.*.order_discount_eligible' => ['nullable', 'boolean'],

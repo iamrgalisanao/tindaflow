@@ -19,10 +19,12 @@ use App\Models\FiscalInstallation;
 use App\Models\FiscalInstallationAccreditation;
 use App\Models\FiscalInstallationPermitToUse;
 use App\Models\Invoice;
+use App\Models\MenuGroup;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleItem;
+use App\Models\SaleItemSelection;
 use App\Models\Terminal;
 use App\Models\User;
 use App\Services\Idempotency\CanonicalRequestHasher;
@@ -31,9 +33,12 @@ use App\Services\Idempotency\IdempotencyService;
 use App\Services\Idempotency\OperationOutcome;
 use App\Services\Inventory\StockLedger;
 use App\Services\InvoiceNumbering\InvoiceSeriesAllocator;
+use App\Services\Menu\MenuGroupPath;
+use App\Services\Menu\MenuPriceResolver;
 use App\Support\GlobalLockOrder;
 use App\Support\LockableResource;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -67,7 +72,10 @@ final class CheckoutService
         private readonly InvoiceSeriesAllocator $invoiceSeriesAllocator,
         private readonly StockLedger $stockLedger,
         private readonly StatutoryDiscountCalculator $statutoryDiscountCalculator = new StatutoryDiscountCalculator,
-    ) {}
+        private ?MealLineResolver $mealLineResolver = null,
+    ) {
+        $this->mealLineResolver ??= new MealLineResolver(new MenuPriceResolver);
+    }
 
     /**
      * @param  array<string, mixed>  $payload  the already-shape-validated request body
@@ -154,7 +162,7 @@ final class CheckoutService
 
         // ADR-003 step 3 (continued): fetch each product's current snapshot.
         $items = array_values($payload['items']);
-        $productIds = collect($items)->pluck('product_id')->unique()->values();
+        $productIds = collect($items)->pluck('product_id')->filter()->unique()->values();
         // Scoped to the terminal's own store (domain-model.md SS2.1): a product from another store is
         // indistinguishable from one that does not exist, never sellable here.
         $products = Product::where('store_id', $storeId)->whereIn('id', $productIds)->get()->keyBy('id');
@@ -162,23 +170,54 @@ final class CheckoutService
             if (! $products->has($productId)) {
                 throw ProductNotFoundException::forId($productId);
             }
-            if (! $products[$productId]->active) {
+            // A meal's hidden backing product is inactive on purpose and is sold only through `items[].meal`; naming it
+            // as a plain product is refused exactly like any inactive product (ADR-016 section 3).
+            if (! $products[$productId]->active || $products[$productId]->menu_hidden) {
                 throw ProductInactiveException::forId($productId);
             }
+        }
+        $groupPaths = $this->menuGroupPaths($products);
+
+        // A plain item is one sale line at the product's own price. A meal item (ADR-016) is resolved by the server into the
+        // meal line plus one line per add-on, priced from the menu at $soldAt; the client never sends a price for either.
+        $specs = [];
+        foreach ($items as $item) {
+            if (isset($item['meal'])) {
+                $resolved = $this->mealLineResolver->resolve($storeId, $item['meal'], (string) $item['quantity'], $soldAt);
+                $mealLineNumber = count($specs) + 1;
+                $specs[] = $this->mealSpec($resolved->meal, $item, $item['line_discount_amount'] ?? '0.00', null);
+                foreach ($resolved->addOns as $addOn) {
+                    $specs[] = $this->mealSpec($addOn, $item, '0.00', $mealLineNumber);
+                }
+
+                continue;
+            }
+
+            $product = $products[$item['product_id']];
+            $specs[] = [
+                'product' => $product,
+                'quantity' => (string) $item['quantity'],
+                'unit_price' => Money::fromApiString((string) $product->selling_price),
+                'line_discount' => (string) ($item['line_discount_amount'] ?? '0.00'),
+                'eligible' => (bool) ($item['order_discount_eligible'] ?? true),
+                'meal' => null,
+                'parent_line_number' => null,
+                'name' => $product->name,
+                'menu_group_path' => $groupPaths[$product->menu_group_id] ?? null,
+            ];
         }
 
         // ADR-003 step 4: FinancialCalculator is the sole authority
         // (ADR-012) -- the client's own totals, if any, are never trusted.
         $lines = [];
-        foreach ($items as $index => $item) {
-            $product = $products[$item['product_id']];
+        foreach ($specs as $index => $spec) {
             $lines[] = new SaleLineInput(
                 lineNumber: $index + 1,
-                quantity: new Quantity((string) $item['quantity']),
-                unitPrice: Money::fromApiString((string) $product->selling_price),
-                lineDiscountAmount: Money::fromApiString((string) ($item['line_discount_amount'] ?? '0.00')),
-                orderDiscountEligible: (bool) ($item['order_discount_eligible'] ?? true),
-                taxClassification: $product->tax_class,
+                quantity: new Quantity($spec['quantity']),
+                unitPrice: $spec['unit_price'],
+                lineDiscountAmount: Money::fromApiString($spec['line_discount']),
+                orderDiscountEligible: $spec['eligible'],
+                taxClassification: $spec['product']->tax_class,
             );
         }
 
@@ -313,13 +352,14 @@ final class CheckoutService
 
         foreach ($lines as $line) {
             $lineResult = $calculation->lines[$line->lineNumber];
-            $product = $products[$items[$line->lineNumber - 1]['product_id']];
+            $spec = $specs[$line->lineNumber - 1];
+            $product = $spec['product'];
 
-            SaleItem::create([
+            $saleItem = SaleItem::create([
                 'sale_id' => $sale->id,
                 'product_id' => $product->id,
                 'line_number' => $lineResult->lineNumber,
-                'product_name_snapshot' => $product->name,
+                'product_name_snapshot' => $spec['name'],
                 'sku_snapshot' => $product->sku,
                 'barcode_snapshot' => $product->barcode,
                 'unit_of_measure_snapshot' => $product->unit_of_measure,
@@ -338,7 +378,25 @@ final class CheckoutService
                 'taxable_base' => $lineResult->taxableBase->toApiString(),
                 'tax_amount' => $lineResult->taxAmount->toApiString(),
                 'unit_cost_snapshot' => $product->cost,
+                // ADR-016 section 3: null on every ordinary line except the menu path of a product placed in a menu group.
+                'menu_group_path_snapshot' => $spec['menu_group_path'],
+                'meal_id' => $spec['meal']?->mealId,
+                'meal_name_snapshot' => $spec['meal']?->mealName,
+                'parent_line_number' => $spec['parent_line_number'],
             ]);
+
+            foreach ($spec['meal']?->selections ?? [] as $selection) {
+                SaleItemSelection::create([
+                    'sale_item_id' => $saleItem->id,
+                    'group_name_snapshot' => $selection['group_name'],
+                    'option_label_snapshot' => $selection['option_label'],
+                    'dish_id' => $selection['dish_id'],
+                    'dish_name_snapshot' => $selection['dish_name'],
+                    'dish_category_snapshot' => $selection['dish_category_name'],
+                    'price_snapshot' => $selection['price']?->toApiString(),
+                    'sort_order' => $selection['sort_order'],
+                ]);
+            }
         }
 
         foreach ($payload['payments'] as $payment) {
@@ -527,6 +585,41 @@ final class CheckoutService
             'accreditation_valid_from' => $accreditation?->effective_from?->toDateString(),
             'accreditation_valid_to' => $accreditation?->effective_to?->toDateString(),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $item  the request item the meal came from
+     * @return array<string, mixed>
+     */
+    private function mealSpec(ResolvedMealLine $line, array $item, string $lineDiscount, ?int $parentLineNumber): array
+    {
+        return [
+            'product' => $line->product,
+            'quantity' => (string) $item['quantity'],
+            'unit_price' => $line->unitPrice,
+            'line_discount' => $lineDiscount,
+            'eligible' => (bool) ($item['order_discount_eligible'] ?? true),
+            'meal' => $line,
+            'parent_line_number' => $parentLineNumber,
+            'name' => $line->description,
+            'menu_group_path' => $line->menuGroupPath,
+        ];
+    }
+
+    /**
+     * The menu path text of every menu group the plain products of this sale sit in, so a line records where it was sold.
+     *
+     * @param  Collection<string, Product>  $products
+     * @return array<string, ?string>
+     */
+    private function menuGroupPaths($products): array
+    {
+        $ids = $products->pluck('menu_group_id')->filter()->unique()->values();
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        return MenuGroup::with('parent')->whereIn('id', $ids)->get()->mapWithKeys(fn (MenuGroup $group) => [$group->id => MenuGroupPath::of($group)])->all();
     }
 
     /** @param  list<array<string, mixed>>  $payments */

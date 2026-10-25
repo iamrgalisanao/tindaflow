@@ -2,8 +2,14 @@
 
 namespace Tests\Database;
 
+use App\Models\MealOptionGroup;
 use App\Models\MenuGroup;
 use App\Models\Product;
+use App\Services\Menu\DishCategoryService;
+use App\Services\Menu\DishService;
+use App\Services\Menu\MealOptionService;
+use App\Services\Menu\MealService;
+use App\Services\Menu\MenuPriceService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Tests\Database\Concerns\BuildsSalesScenario;
@@ -239,6 +245,40 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         }
     }
 
+    public function test_a_meal_sale_works_under_the_restricted_role_and_its_snapshot_cannot_be_changed(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+        $admin = $w['admin'];
+        $dish = app(DishService::class)->create($admin, [
+            'name' => 'Beef nilaga',
+            'dish_category_id' => ($beef = app(DishCategoryService::class)->create($admin, ['name' => 'Beef']))->id,
+        ]);
+        $meal = app(MealService::class)->create($admin, ['name' => 'Standard Meal', 'pricing_group_name' => 'Viand']);
+        $group = MealOptionGroup::where('meal_id', $meal->id)->where('prices_the_meal', true)->sole();
+        $option = app(MealOptionService::class)->create($admin, $group->id, ['dish_id' => $dish->id]);
+        app(MenuPriceService::class)->set($admin, $meal->id, ['dish_category_id' => $beef->id, 'amount' => '68.00']);
+
+        $sale = $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
+            'items' => [['meal' => ['meal_id' => $meal->id, 'choices' => [['group_id' => $group->id, 'option_id' => $option->id]]], 'quantity' => '1']],
+            'payments' => [['method' => 'CASH', 'amount' => '68.00']],
+        ], $this->key())->assertStatus(201)->json();
+
+        $this->assertSame('Beef nilaga', DB::table('sale_item_selections')->where('sale_item_id', $sale['items'][0]['id'])->value('dish_name_snapshot'));
+        $this->assertTrue($this->refuses(fn () => DB::table('sale_item_selections')->update(['dish_name_snapshot' => 'Changed'])), 'a sale selection must not be updatable');
+        $this->assertTrue($this->refuses(fn () => DB::table('sale_item_selections')->delete()), 'a sale selection must not be deletable');
+        foreach (['meal_name_snapshot', 'menu_group_path_snapshot', 'parent_line_number'] as $column) {
+            $this->assertTrue($this->refuses(fn () => DB::table('sale_items')->update([$column => null])), "sale_items.{$column} must not be updatable");
+        }
+        $this->assertTrue($this->refuses(fn () => DB::table('sale_items')->update(['meal_id' => null])), 'sale_items.meal_id must not be updatable');
+
+        // A void and a refund of the meal line still work with only the privileges the script leaves.
+        $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$sale['id']}/refunds", [
+            'items' => [['sale_item_id' => $sale['items'][0]['id'], 'quantity' => '1', 'disposition' => 'DISPOSED']],
+            'settlements' => [['payment_method' => 'CASH', 'amount' => '68.00']],
+            'reason' => 'Dish was cold',
+        ], $this->key())->assertStatus(201)->assertJson(['status' => 'COMPLETED']);
+    }
+
     public function test_the_tables_the_app_is_allowed_to_delete_from_are_exactly_the_ones_that_hold_no_money_or_audit_data(): void
     {
         $this->worldUnderTheHardenedRole();
@@ -248,7 +288,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }

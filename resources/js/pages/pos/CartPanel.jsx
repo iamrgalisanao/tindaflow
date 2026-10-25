@@ -1,5 +1,6 @@
 import { clampedDiscountCents, fromThousandths, lineCents, pesos, toThousandths } from './posMoney';
 import MoneyInput from '../../components/MoneyInput';
+import { mealDetailLines, mealPlates } from './mealMenu';
 
 const STEP = 1000n; // one whole unit
 
@@ -62,7 +63,7 @@ export default function CartPanel({
                 )}
                 {cart.map((line) => {
                     const grossCents = lineCents(line.product.selling_price, line.quantity);
-                    const invalid = grossCents === null;
+                    const invalid = grossCents === null || (line.meal && mealPlates(line.quantity) === null);
                     const lineDiscountCents = invalid || !canDiscount ? 0n : clampedDiscountCents(line.discount, grossCents);
                     const cents = invalid ? null : grossCents - lineDiscountCents;
                     const unit = line.product.unit_of_measure ?? 'unit';
@@ -70,11 +71,19 @@ export default function CartPanel({
                         <li key={line.key} className="flex items-center gap-3 px-4 py-3">
                             <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-medium text-slate-100">{line.product.name}</p>
-                                {line.note && <p className="truncate text-xs text-emerald-300">{line.note}</p>}
+                                {line.meal && (
+                                    <ul aria-label={`${line.product.name} selection`} className="text-xs text-emerald-300">
+                                        {mealDetailLines(line).map((detail) => (
+                                            <li key={detail} className="truncate">
+                                                {detail}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
                                 <p className="font-mono text-xs text-slate-400">
                                     @ ₱{line.product.selling_price} / {unit}
                                 </p>
-                                {canDiscount && (
+                                {canDiscount && !line.meal && (
                                     <div className="mt-1 flex items-center gap-1">
                                         <label htmlFor={`line_discount_${line.key}`} className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-400">
                                             -₱
@@ -144,7 +153,7 @@ export default function CartPanel({
             <div className="border-t border-slate-700 px-4 py-3">
                 {hasInvalidLine && (
                     <p role="alert" className="mb-2 rounded bg-red-500/10 px-3 py-2 text-xs text-red-300">
-                        A quantity is not valid. Use a number above zero, with up to 3 decimals.
+                        A quantity is not valid. Use a number above zero, with up to 3 decimals (a whole number from 1 to 99 for a meal).
                     </p>
                 )}
                 {canDiscount && (

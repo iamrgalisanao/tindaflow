@@ -702,6 +702,18 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /menu:
+    get:
+      operationId: menuGet
+      tags: [Catalog]
+      summary: 'The till''s read-only meal menu (ADR-016 slice 1.3): what the register may offer now, with the price in force now on every priced choice. Any signed-in user of the store (no capability: a cashier needs it). Only what the checkout would accept is listed -- an active meal in a visible menu group; its active option groups; active options whose dish and dish category are active; a choice in the pricing group, or an add-on, with no price in force is left out, and a meal that can no longer be completed (a required group with nothing to offer) is left out. Prices are for display and the cart preview; the server prices the sale again at its own sale instant. Meals follow sort_order; option groups follow step_order (the picker shows them in that order).'
+      responses:
+        '200':
+          description: The till menu
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TillMenu'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
   /menu-groups:
     get:
       operationId: menuGroupList
@@ -4612,11 +4624,104 @@ components:
         zero_rated_sales: {$ref: '#/components/schemas/Money'}
         vat_amount: {$ref: '#/components/schemas/Money'}
         non_vat_sales: {$ref: '#/components/schemas/Money'}
+    TillMenu:
+      type: object
+      required: [as_of, dish_categories, meals]
+      properties:
+        as_of: {type: string, format: date-time, description: The instant the prices are in force for}
+        dish_categories:
+          type: array
+          description: The dish categories of the dishes on offer, in till order
+          items:
+            type: object
+            properties:
+              id: {type: string, format: uuid}
+              code: {type: string}
+              name: {type: string}
+              sort_order: {type: integer}
+        meals:
+          type: array
+          items: {$ref: '#/components/schemas/TillMeal'}
+    TillMeal:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        menu_group_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        menu_group_path:
+          anyOf:
+          - {type: string, example: Lunch > Standard Meal}
+          - {type: 'null'}
+        sort_order: {type: integer}
+        prices:
+          type: array
+          description: The meal's current price for each dish category on offer in its pricing group
+          items:
+            type: object
+            properties:
+              dish_category_id: {type: string, format: uuid}
+              amount: {$ref: '#/components/schemas/Money'}
+        option_groups:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: string, format: uuid}
+              name: {type: string}
+              kind: {type: string, enum: [CHOICE, ADDON]}
+              min_select: {type: integer}
+              max_select: {type: integer}
+              prices_the_meal: {type: boolean}
+              popup_after_choice: {type: boolean, description: 'The till opens this (add-on) group as a pop-up once the choices are complete, e.g. the rice'}
+              step_order: {type: integer}
+              options:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: string, format: uuid}
+                    label: {type: string, description: The dish name (CHOICE) or the add-on label (ADDON)}
+                    sort_order: {type: integer}
+                    dish:
+                      anyOf:
+                      - type: object
+                        properties:
+                          id: {type: string, format: uuid}
+                          name: {type: string}
+                          dish_category_id: {type: string, format: uuid}
+                      - {type: 'null'}
+                    price:
+                      anyOf:
+                      - {$ref: '#/components/schemas/Money'}
+                      - {type: 'null'}
+                      description: 'The meal price when this dish is picked (pricing group), the add-on price (ADDON), otherwise null'
+    MealSelectionInput:
+      type: object
+      required: [meal_id]
+      description: 'A meal line as the till sends it (ADR-016 section 3). Ids only: the server prices the meal from the menu at the sale instant (MENU-002), so there is no price field and none is read. `choices` are the picked options of CHOICE groups, each under the group it belongs to; `addons` are the picked options of ADDON groups. Each group''s pick count must lie within min_select..max_select (MENU-003), an option may be picked once, and the item''s quantity is exactly 1 (a plate each: send N plates as N items).'
+      properties:
+        meal_id: {type: string, format: uuid}
+        choices:
+          type: array
+          items:
+            type: object
+            required: [group_id, option_id]
+            properties:
+              group_id: {type: string, format: uuid}
+              option_id: {type: string, format: uuid}
+        addons:
+          type: array
+          items: {type: string, format: uuid}
     SaleItemInput:
       type: object
-      required: [product_id, quantity]
+      required: [quantity]
+      description: 'Exactly one of product_id (an ordinary product, priced by the catalog) or meal (a meal selection, priced by the menu) -- both or neither is 422 VALIDATION_FAILED. A product_id that names a meal''s hidden backing product is refused as PRODUCT_INACTIVE: those products are sold only through `meal`. A meal item becomes the meal line plus one line per chosen add-on (linked by parent_line_number); a meal quantity other than 1 is 422 MEAL_SELECTION_INVALID.'
       properties:
         product_id: {type: string, format: uuid}
+        meal: {$ref: '#/components/schemas/MealSelectionInput'}
         quantity: {$ref: '#/components/schemas/Quantity'}
         line_discount_amount: {$ref: '#/components/schemas/Money'}
         order_discount_eligible: {type: boolean, default: true}
@@ -4691,6 +4796,41 @@ components:
         tax_rate_snapshot: {type: string}
         taxable_base: {$ref: '#/components/schemas/Money'}
         tax_amount: {$ref: '#/components/schemas/Money'}
+        menu_group_path_snapshot:
+          type: string
+          description: 'Present only on a line that was sold from a menu group (a meal, its add-ons, or a product placed in a group): "Lunch > Standard Meal". A snapshot (MENU-001).'
+        meal_id: {type: string, format: uuid, description: Present only on a meal line and its add-on lines}
+        meal_name_snapshot: {type: string, description: Present with meal_id}
+        parent_line_number:
+          anyOf:
+          - {type: integer}
+          - {type: 'null'}
+          description: 'Present with meal_id. On an add-on line, the line_number of the meal line it was ordered with; null on the meal line. An add-on line can be refunded on its own.'
+        selections:
+          type: array
+          description: 'Present with meal_id. What was chosen, copied when it was sold (MENU-001): a meal line has one entry per chosen dish, an add-on line one entry for its option. Renaming, hiding or repricing the menu later never changes them.'
+          items:
+            type: object
+            properties:
+              group_name_snapshot: {type: string}
+              option_label_snapshot: {type: string}
+              dish_id:
+                anyOf:
+                - {type: string, format: uuid}
+                - {type: 'null'}
+              dish_name_snapshot:
+                anyOf:
+                - {type: string}
+                - {type: 'null'}
+              dish_category_snapshot:
+                anyOf:
+                - {type: string}
+                - {type: 'null'}
+              price_snapshot:
+                anyOf:
+                - {$ref: '#/components/schemas/Money'}
+                - {type: 'null'}
+              sort_order: {type: integer}
     Payment:
       type: object
       properties:

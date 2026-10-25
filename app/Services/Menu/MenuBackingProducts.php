@@ -3,6 +3,7 @@
 namespace App\Services\Menu;
 
 use App\Models\Product;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -12,8 +13,11 @@ use Illuminate\Support\Str;
  * price is a menu_prices row), and created INACTIVE so that, until the checkout learns to resolve meals, a client that names
  * one directly is refused as PRODUCT_INACTIVE instead of selling it at 0.00.
  *
- * The tax class is NON_VAT, the registration type the canteen's calculator supports; which classification the client's meals
- * carry is open item 7 of docs/06-backend/canteen-build-plan.md.
+ * The tax class follows the store's tax registration on the day the product is created (ADR-016 section 3: "tax class from the
+ * store"): VATABLE for a VAT-registered store, NON_VAT for a NON_VAT one or when none is on file yet. The calculator refuses a
+ * NON_VAT line in a VAT store (TAX-NV-002/003), so a fixed NON_VAT would make every meal unsellable there. Which classification
+ * the client's meals finally carry is still open item 7 of docs/06-backend/canteen-build-plan.md; a store that changes its
+ * registration type must re-classify these products like any other product.
  */
 final class MenuBackingProducts
 {
@@ -27,7 +31,7 @@ final class MenuBackingProducts
             'unit_of_measure' => 'order',
             'cost' => null,
             'selling_price' => '0.00',
-            'tax_class' => 'NON_VAT',
+            'tax_class' => $this->taxClassFor($storeId),
             'track_inventory' => false,
             'reorder_level' => 0,
             'active' => false,
@@ -41,6 +45,17 @@ final class MenuBackingProducts
         if ($productId !== null) {
             Product::whereKey($productId)->update(['name' => $name]);
         }
+    }
+
+    private function taxClassFor(string $storeId): string
+    {
+        $today = now()->toDateString();
+        $types = DB::table('tax_registrations')->where('store_id', $storeId)
+            ->where('effective_from', '<=', $today)
+            ->where(fn ($query) => $query->whereNull('effective_to')->orWhere('effective_to', '>=', $today))
+            ->pluck('registration_type');
+
+        return $types->count() === 1 && $types->first() === 'VAT' ? 'VATABLE' : 'NON_VAT';
     }
 
     private function uniqueSku(string $storeId, string $prefix, string $name): string

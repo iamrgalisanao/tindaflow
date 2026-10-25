@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../api';
 import MealPicker from './MealPicker';
-import { mealMenus, mealSkus } from './mealMenus';
+import { fromPriceText, mealsForView } from './mealMenu';
 import { buildMenuTabs, groupFilter } from './menuGroups';
 
 const PAGE_SIZE = 100;
@@ -12,7 +12,7 @@ const PAGE_SIZE = 100;
  * The scan box keeps focus and behaves exactly as before (a scanned barcode adds the product; anything else is a name or
  * SKU search). A search replaces the grid with its results until it is cleared.
  */
-export default function CatalogPanel({ search, onSearchChange, onSearch, onClearSearch, searchRef, scanNotice, results, onAdd }) {
+export default function CatalogPanel({ search, onSearchChange, onSearch, onClearSearch, searchRef, scanNotice, results, onAdd, onAddMeal }) {
     const [categories, setCategories] = useState([]);
     const [categoryId, setCategoryId] = useState(''); // '' = all
     const [menuTabs, setMenuTabs] = useState(null); // null = loading; [] = this store has no active menu groups
@@ -21,22 +21,16 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
     const [tiles, setTiles] = useState(null); // null = loading
     const [loadFailed, setLoadFailed] = useState(false);
     const [total, setTotal] = useState(0);
-    const [mealProducts, setMealProducts] = useState({}); // sku => product, for the meal menus' proteins
-    const [pickingMenu, setPickingMenu] = useState(null);
+    const [menu, setMenu] = useState({ meals: [], dish_categories: [] }); // GET /api/v1/menu; empty when it cannot be read
+    const [pickingMeal, setPickingMeal] = useState(null);
 
     useEffect(() => {
         let cancelled = false;
-        Promise.all(mealSkus.map((sku) => apiFetch(`/api/v1/products?active=1&search=${encodeURIComponent(sku)}`))).then((responses) => {
-            if (cancelled) {
-                return;
+        // A failed read leaves the till selling products without meals rather than blocking it.
+        apiFetch('/api/v1/menu').then((response) => {
+            if (!cancelled && response.ok && Array.isArray(response.body?.meals)) {
+                setMenu({ meals: response.body.meals, dish_categories: response.body.dish_categories ?? [] });
             }
-            const found = {};
-            responses.forEach((response) => {
-                if (response.ok) {
-                    response.body.data.filter((product) => mealSkus.includes(product.sku)).forEach((product) => (found[product.sku] = product));
-                }
-            });
-            setMealProducts(found);
         });
         return () => {
             cancelled = true;
@@ -99,8 +93,8 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
     const categoryName = (id) => categories.find((category) => category.id === id)?.name ?? '';
 
     const searching = results !== null;
-    const shown = searching ? results : tiles === null ? null : tiles.filter((product) => !mealSkus.includes(product.sku));
-    const showMealMenus = !searching && (groupMode ? groupId === '' : categoryId === '') && mealMenus.some((menu) => menu.proteins.some((protein) => mealProducts[protein.sku]));
+    const shown = searching ? results : tiles;
+    const mealTiles = searching || menuTabs === null ? [] : mealsForView(menu.meals, { groupMode, menuTabs: menuTabs ?? [], groupId, subGroupId, categoryId });
 
     return (
         <section aria-label="Products" className="flex min-h-0 flex-1 flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
@@ -187,36 +181,35 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                 </>
             )}
 
-            {pickingMenu && (
+            {pickingMeal && (
                 <div className="min-h-0 flex-1 overflow-y-auto">
                     <MealPicker
-                        menu={pickingMenu}
-                        productsBySku={mealProducts}
-                        onAdd={(product, note) => {
-                            onAdd(product, note);
-                            setPickingMenu(null);
+                        key={pickingMeal.id}
+                        meal={pickingMeal}
+                        categories={menu.dish_categories}
+                        onAdd={(line) => {
+                            onAddMeal(line);
+                            setPickingMeal(null);
                         }}
-                        onCancel={() => setPickingMenu(null)}
+                        onCancel={() => setPickingMeal(null)}
                     />
                 </div>
             )}
 
-            <div className={`min-h-0 flex-1 overflow-y-auto ${pickingMenu ? 'hidden' : ''}`}>
-                {showMealMenus && (
-                    <ul className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
-                        {mealMenus.map((menu) => (
-                            <li key={menu.id}>
+            <div className={`min-h-0 flex-1 overflow-y-auto ${pickingMeal ? 'hidden' : ''}`}>
+                {mealTiles.length > 0 && (
+                    <ul aria-label="Meals" className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                        {mealTiles.map((meal) => (
+                            <li key={meal.id}>
                                 <button
                                     type="button"
-                                    onClick={() => setPickingMenu(menu)}
+                                    onClick={() => setPickingMeal(meal)}
                                     className="flex min-h-28 w-full flex-col rounded-lg border border-emerald-500/40 border-b-2 bg-emerald-500/5 p-3 text-left hover:bg-emerald-500/10 active:bg-emerald-500/15"
                                 >
                                     <span className="font-mono text-[11px] uppercase tracking-wider text-emerald-400">Meal · choose options</span>
-                                    <span className="mt-1 text-sm font-medium text-slate-100">{menu.name}</span>
-                                    <span className="mt-0.5 text-xs text-slate-400">{menu.description}</span>
-                                    <span className="mt-auto pt-2 font-mono text-lg font-bold tabular-nums text-emerald-400">
-                                        from ₱{Math.min(...menu.proteins.map((protein) => Number(mealProducts[protein.sku]?.selling_price ?? Infinity)))}
-                                    </span>
+                                    <span className="mt-1 text-sm font-medium text-slate-100">{meal.name}</span>
+                                    {meal.menu_group_path && <span className="mt-0.5 text-xs text-slate-400">{meal.menu_group_path}</span>}
+                                    <span className="mt-auto pt-2 font-mono text-lg font-bold tabular-nums text-emerald-400">{fromPriceText(meal)}</span>
                                 </button>
                             </li>
                         ))}
@@ -228,7 +221,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                         The products could not be loaded. You can still scan a barcode or search.
                     </p>
                 )}
-                {shown !== null && shown.length === 0 && !loadFailed && (
+                {shown !== null && shown.length === 0 && mealTiles.length === 0 && !loadFailed && (
                     <p className="py-8 text-center text-sm text-slate-400">{searching ? 'No products match.' : groupMode ? 'No products in this group.' : 'No products in this category.'}</p>
                 )}
                 {shown !== null && shown.length > 0 && (

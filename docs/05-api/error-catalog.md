@@ -99,7 +99,9 @@ with the envelope above.
 | `MEAL_NOT_FOUND` | 404 | Referenced meal does not exist, or exists only in a different store | ADR-016 slice 1.2 (2026-10-25) |
 | `MEAL_OPTION_GROUP_NOT_FOUND` | 404 | Referenced meal option group does not exist, or belongs to a meal of a different store | ADR-016 slice 1.2 (2026-10-25) |
 | `MEAL_OPTION_NOT_FOUND` | 404 | Referenced meal option does not exist, or belongs to a meal of a different store | ADR-016 slice 1.2 (2026-10-25) |
-| `PRODUCT_INACTIVE` | 422 | Referenced product is deactivated and cannot be sold | Module C |
+| `PRODUCT_INACTIVE` | 422 | Referenced product is deactivated and cannot be sold. Also returned for a meal's hidden backing product named as a plain `product_id` (those products are sold only through `items[].meal`) | Module C; extended by ADR-016 slice 1.3 |
+| `MEAL_NOT_AVAILABLE` | 409 | A meal line cannot be sold right now: the meal does not exist in this store, or it, its menu group, an option group, a chosen option, dish or dish category is hidden, or no price is in force for the choice. Nothing was recorded; the till re-reads `GET /menu` and the cashier chooses again. `details` names the meal and the option/dish/category | ADR-016 slice 1.3 (2026-10-25) |
+| `MEAL_SELECTION_INVALID` | 422 | A meal line's selection does not satisfy the meal's configuration (MENU-003): a group's pick count outside `min_select..max_select`, an option that is not the meal's or not offered under the group it was sent with, an option picked twice, or a quantity other than 1. `details` carries the group and the counts where they apply | ADR-016 slice 1.3 (2026-10-25) |
 | `BARCODE_NOT_FOUND` | 404 | No product matches the scanned barcode | Module D |
 | `INSUFFICIENT_PAYMENT` | 422 | Sum of payments is less than the server-computed grand total | Stage 2 invariant #8 |
 | `INVALID_PAYMENT_TOTAL` | 422 | Payment total is structurally invalid (e.g. negative, zero with no credit-sale support) | Stage 2 §2.7 (no credit sales in V1) |

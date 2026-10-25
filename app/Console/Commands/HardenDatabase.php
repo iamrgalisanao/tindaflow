@@ -96,6 +96,10 @@ class HardenDatabase extends Command
             'menu_prices must refuse UPDATE (a price change is a new row)' => "select not has_table_privilege('{$role}', 'menu_prices', 'UPDATE')",
             'menu_prices must refuse DELETE' => "select not has_table_privilege('{$role}', 'menu_prices', 'DELETE')",
             'menu_prices must allow INSERT (a price change is a new row)' => "select has_table_privilege('{$role}', 'menu_prices', 'INSERT')",
+            'sale_item_selections must refuse UPDATE (what was chosen on a sold meal never changes)' => "select not has_table_privilege('{$role}', 'sale_item_selections', 'UPDATE')",
+            'sale_item_selections must refuse DELETE' => "select not has_table_privilege('{$role}', 'sale_item_selections', 'DELETE')",
+            'sale_item_selections must allow INSERT (written in the sale transaction)' => "select has_table_privilege('{$role}', 'sale_item_selections', 'INSERT')",
+            'sale_items must refuse UPDATE of the meal snapshot columns' => "select bool_and(not has_column_privilege('{$role}', 'sale_items', c, 'UPDATE')) from unnest(array['menu_group_path_snapshot','meal_id','meal_name_snapshot','parent_line_number']) as c",
             'the meal menu configuration tables must allow UPDATE (rename, reorder, hide) but refuse DELETE (hide, never delete)' => "select bool_and(has_table_privilege('{$role}', t, 'UPDATE') and not has_table_privilege('{$role}', t, 'DELETE')) from unnest(array['dish_categories','dishes','meals','meal_option_groups','meal_options']) as t",
             'sales must allow UPDATE of the status (void and refund)' => "select has_column_privilege('{$role}', 'sales', 'status', 'UPDATE')",
         ];

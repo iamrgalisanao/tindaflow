@@ -83,7 +83,8 @@ REVOKE UPDATE ON
     z_readings,
     audit_events,
     electronic_journal_entries,
-    menu_prices     -- ADR-016 slice 1.2, MENU-004: the menu's price history; a price change is a new row
+    menu_prices,    -- ADR-016 slice 1.2, MENU-004: the menu's price history; a price change is a new row
+    sale_item_selections -- ADR-016 slice 1.3, MENU-001: what was chosen on a meal line, snapshotted at the sale; never changed
 FROM tindaflow_app;
 
 -- voids/refunds are NOT fully append-only (they transition
@@ -120,6 +121,8 @@ GRANT UPDATE (status) ON sales TO tindaflow_app;
 -- are lifecycle/configuration tables like menu_groups: INSERT and UPDATE (rename, reorder, hide with active = false), never
 -- DELETE (covered by the store-wide REVOKE DELETE above). menu_prices is the one append-only table of the menu; it is in the
 -- REVOKE UPDATE list above. products.menu_hidden is an ordinary column of a lifecycle table.
+-- Slice 1.3 adds no lifecycle table: sale_item_selections is append-only (in the list above) and the four meal snapshot columns of
+-- sale_items (menu_group_path_snapshot, meal_id, meal_name_snapshot, parent_line_number) sit under the table-wide UPDATE revoke.
 
 -- shifts/fiscal_days/invoice_series/idempotency_records are lifecycle
 -- aggregates with frozen-domain-required in-place field changes

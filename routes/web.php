@@ -30,6 +30,7 @@ use App\Http\Controllers\StoreSetupController;
 use App\Http\Controllers\TaxRegistrationController;
 use App\Http\Controllers\TerminalController;
 use App\Http\Controllers\TerminalPairingController;
+use App\Http\Controllers\TillMenuController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VoidController;
 use App\Http\Middleware\ComposeAuthoritativeContext;
@@ -256,6 +257,10 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
     Route::post('/menu-groups/{menuGroupId}/deactivate', [MenuGroupController::class, 'deactivate'])->whereUuid('menuGroupId')
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+
+    // The till's read-only meal menu (ADR-016, slice 1.3): any signed-in user of the store, no capability.
+    Route::get('/menu', [TillMenuController::class, 'show'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
 
     // Meal menu configuration (ADR-016, slice 1.2): dish categories, dishes, meals, option groups, options and prices. Every
     // operation, reads included, is CATALOG_MANAGE (the till gets its own read-only payload in slice 1.3). There is no delete:

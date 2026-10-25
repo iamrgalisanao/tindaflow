@@ -89,9 +89,17 @@ The till's two-level navigation tree (`docs/06-backend/canteen-build-plan.md` 1.
 | POST | /menu-groups/{menuGroupId}/activate | menuGroupActivate | session | false | `CATALOG_MANAGE` | no | — | 200 MenuGroup | 403, `MENU_GROUP_NOT_FOUND` |
 | POST | /menu-groups/{menuGroupId}/deactivate | menuGroupDeactivate | session | false | `CATALOG_MANAGE` | no | — | 200 MenuGroup | 403, `MENU_GROUP_NOT_FOUND` |
 
+### Till menu (1) — ADR-016 slice 1.3 (2026-10-25), forward-committed
+
+The till's read-only meal menu (`docs/06-backend/canteen-build-plan.md` 1.3): the active meals with their option groups, options, dish categories and the **current** price per dish category and add-on. Session only, no capability, scoped to the actor's store. It lists only what the checkout would accept (visible meal and menu group, active group/option/dish/category, a price in force). `saleFinalize` gains `items[].meal` (see Sales): the same ids this payload carries, never a price.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /menu | menuGet | session | false | — | no | — | 200 TillMenu | 401 |
+
 ### Meal menu (32) — ADR-016 slice 1.2 (2026-10-25), forward-committed
 
-Configuration behind the till's meal picker (`docs/06-backend/canteen-build-plan.md` 1.2): dish categories, dishes, meals (each with a hidden backing product and a pricing option group), option groups, options, and the append-only price history. Every operation, reads included, is `CATALOG_MANAGE` (the till's own read-only `GET /menu` payload is slice 1.3). Records of another store are `DISH_CATEGORY_NOT_FOUND`, `DISH_NOT_FOUND`, `MEAL_NOT_FOUND`, `MEAL_OPTION_GROUP_NOT_FOUND`, `MEAL_OPTION_NOT_FOUND` (new codes, 404). There is no delete anywhere (MENU-005): hiding is `deactivate`. A price edit appends a `menu_prices` row (MENU-004); there is no price update or delete. Tag in `openapi.yaml`: `Menu`.
+Configuration behind the till's meal picker (`docs/06-backend/canteen-build-plan.md` 1.2): dish categories, dishes, meals (each with a hidden backing product and a pricing option group), option groups, options, and the append-only price history. Every operation, reads included, is `CATALOG_MANAGE` (the till's own read-only `GET /menu` payload is slice 1.3, `menuGet` above). Records of another store are `DISH_CATEGORY_NOT_FOUND`, `DISH_NOT_FOUND`, `MEAL_NOT_FOUND`, `MEAL_OPTION_GROUP_NOT_FOUND`, `MEAL_OPTION_NOT_FOUND` (new codes, 404). There is no delete anywhere (MENU-005): hiding is `deactivate`. A price edit appends a `menu_prices` row (MENU-004); there is no price update or delete. Tag in `openapi.yaml`: `Menu`.
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
 |---|---|---|---|---|---|---|---|---|---|
@@ -172,7 +180,7 @@ All ten need `STOCK_ADJUST` and are scoped to the caller's store (another store'
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
 |---|---|---|---|---|---|---|---|---|---|
 | GET | /sales | saleList | session | false | — | no | filters | 200 paginated | 401 |
-| **POST** | **/sales** | **saleFinalize** | session | **true** | — (any cashier with an open shift) | **yes** | SaleFinalizeRequest | 201 SaleDetail | `SHIFT_REQUIRED`, `FISCAL_DAY_NOT_OPEN`, `PRODUCT_NOT_FOUND`, `PRODUCT_INACTIVE`, `INSUFFICIENT_PAYMENT`, `INVOICE_SERIES_EXHAUSTED`, `IDEMPOTENCY_KEY_REUSED` |
+| **POST** | **/sales** | **saleFinalize** | session | **true** | — (any cashier with an open shift) | **yes** | SaleFinalizeRequest (items: `product_id` or, ADR-016 slice 1.3, `meal`) | 201 SaleDetail | `SHIFT_REQUIRED`, `FISCAL_DAY_NOT_OPEN`, `PRODUCT_NOT_FOUND`, `PRODUCT_INACTIVE`, `MEAL_NOT_AVAILABLE` (409), `MEAL_SELECTION_INVALID` (422), `INSUFFICIENT_PAYMENT`, `INVOICE_SERIES_EXHAUSTED`, `IDEMPOTENCY_KEY_REUSED` |
 | GET | /sales/{saleId} | saleGet | session | false | — | no | — | 200 SaleDetail | 404 |
 | POST | /sales/{saleId}/void | saleVoid | session | **true** | `SALE_VOID` (+`SALE_VOID_APPROVE`) | **yes** | reason | 201 VoidResult | `SALE_NOT_VOIDABLE`, `SALE_ALREADY_VOIDED`, `FISCAL_DAY_CLOSED`, `REFUND_NOT_ALLOWED` (already refunded), 403 |
 | POST | /sales/{saleId}/refunds | saleRefund | session | **true** | `SALE_REFUND` (+`SALE_REFUND_APPROVE`) | **yes** | RefundRequest | 201 RefundResult | `REFUND_EXCEEDS_REMAINING_QUANTITY`, `REFUND_EXCEEDS_REMAINING_AMOUNT`, `REFUND_SETTLEMENT_MISMATCH`, `REFUND_NOT_ALLOWED` (sale voided), `FISCAL_DAY_CLOSED` (processing day), `SHIFT_NOT_OPEN` (processing shift) |

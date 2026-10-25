@@ -15,6 +15,7 @@ import ShiftPanel from './pos/ShiftPanel';
 import TenderPanel from './pos/TenderPanel';
 import XReadingPanel from './pos/XReadingPanel';
 import { attemptKey, failureText, newIdempotencyKey, settleAttempt } from './pos/attempts';
+import { mealPlates, requestItems } from './pos/mealMenu';
 import { apiMoney, clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 import MoneyInput from '../components/MoneyInput';
 import PairingRequestPanel from './pos/PairingRequestPanel';
@@ -294,15 +295,22 @@ export default function Pos() {
         }
     }
 
-    // A line is one product, or one product with the dish the cashier picked (kept only on screen, see mealMenus.js).
-    function addToCart(product, note = '') {
-        const key = note === '' ? product.id : `${product.id}|${note}`;
+    // A line is one product, or one meal (built by the picker from GET /menu: ids and names, never a price the server would use).
+    function addToCart(product) {
+        addLine({ key: product.id, product, quantity: '1', discount: '' });
+    }
+
+    function addMealToCart(mealLine) {
+        addLine({ ...mealLine, quantity: '1', discount: '' });
+    }
+
+    function addLine(line) {
         setCart((prior) => {
-            const existing = prior.find((line) => line.key === key);
+            const existing = prior.find((entry) => entry.key === line.key);
             if (existing) {
-                return prior.map((line) => (line.key === key ? { ...line, quantity: fromThousandths((toThousandths(line.quantity) ?? 0n) + 1000n) } : line));
+                return prior.map((entry) => (entry.key === line.key ? { ...entry, quantity: fromThousandths((toThousandths(entry.quantity) ?? 0n) + 1000n) } : entry));
             }
-            return [...prior, { key, product, note, quantity: '1', discount: '' }];
+            return [...prior, line];
         });
     }
 
@@ -319,7 +327,7 @@ export default function Pos() {
     }
 
     const canDiscount = user.capabilities.includes('DISCOUNT_OVERRIDE');
-    const hasInvalidLine = cart.some((line) => lineCents(line.product.selling_price, line.quantity) === null);
+    const hasInvalidLine = cart.some((line) => lineCents(line.product.selling_price, line.quantity) === null || (line.meal && mealPlates(line.quantity) === null));
     const statutoryDiscountIncomplete =
         statutoryDiscount.enabled &&
         (statutoryDiscount.idNumber.trim() === '' ||
@@ -352,11 +360,8 @@ export default function Pos() {
 
         const path = '/api/v1/sales';
         const payload = {
-            items: cart.map((line, index) => ({
-                product_id: line.product.id,
-                quantity: String(line.quantity),
-                ...(lineDiscountCentsByLine[index] > 0n ? { line_discount_amount: moneyText(lineDiscountCentsByLine[index]) } : {}),
-            })),
+            // A meal line is sent as its selection, one plate per item; the server prices it from the menu.
+            items: cart.flatMap((line, index) => requestItems(line, lineDiscountCentsByLine[index])),
             // A blank/zero row (shown while a split payment is still being entered) is never sent.
             payments: payments
                 .filter((payment) => (toCents(payment.amount) ?? 0n) > 0n)
@@ -743,6 +748,7 @@ export default function Pos() {
                             scanNotice={scanNotice}
                             results={results}
                             onAdd={addToCart}
+                            onAddMeal={addMealToCart}
                         />
                     </div>
                     <div className="flex min-h-0 flex-col lg:order-2">

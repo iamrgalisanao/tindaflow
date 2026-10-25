@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { clampedDiscountCents, lineCents, moneyText, pesos, toCents } from './posMoney';
 import MoneyInput from '../../components/MoneyInput';
+import { mealDetailLines } from './mealMenu';
 
 const METHOD_LABELS = { CASH: 'Cash', GCASH: 'GCash', MAYA: 'Maya', CARD: 'Card', OTHER: 'Other' };
 const QUICK_CASH = [20, 50, 100, 200, 500, 1000];
@@ -86,7 +87,12 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
                             <li key={line.key} className="flex items-start justify-between gap-3 px-4 py-3">
                                 <span className="min-w-0">
                                     <span className="block truncate text-sm font-medium text-slate-100">{line.product.name}</span>
-                                    {line.note && <span className="block truncate text-xs text-emerald-300">{line.note}</span>}
+                                    {line.meal &&
+                                        mealDetailLines(line).map((detail) => (
+                                            <span key={detail} className="block truncate text-xs text-emerald-300">
+                                                {detail}
+                                            </span>
+                                        ))}
                                     <span className="block font-mono text-xs text-slate-400">
                                         {line.quantity} &times; ₱{line.product.selling_price}
                                         {lineDiscountCents > 0n && <span className="text-amber-400"> − ₱{pesos(lineDiscountCents)} discount</span>}

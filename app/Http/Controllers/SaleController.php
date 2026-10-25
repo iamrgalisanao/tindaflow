@@ -113,7 +113,7 @@ class SaleController extends Controller
     public function get(string $saleId): JsonResponse
     {
         $actor = Auth::guard('web')->user();
-        $sale = Sale::where('store_id', $actor->store_id)->with(['items', 'payments', 'invoice'])
+        $sale = Sale::where('store_id', $actor->store_id)->with(['items.selections', 'payments', 'invoice'])
             ->when(! $actor->can('REPORT_VIEW'), fn (Builder $sales) => $sales->where('cashier_id', $actor->id))
             ->find($saleId)
             ?? throw SaleNotFoundException::forId($saleId);

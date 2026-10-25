@@ -24,6 +24,7 @@ class SaleItem extends Model
         'gross_line_amount', 'line_discount_amount', 'order_discount_eligible',
         'allocated_order_discount_amount', 'net_line_amount', 'tax_classification_snapshot',
         'tax_rate_snapshot', 'taxable_base', 'tax_amount', 'unit_cost_snapshot',
+        'menu_group_path_snapshot', 'meal_id', 'meal_name_snapshot', 'parent_line_number',
     ];
 
     protected function casts(): array
@@ -40,6 +41,7 @@ class SaleItem extends Model
             'taxable_base' => 'decimal:2',
             'tax_amount' => 'decimal:2',
             'unit_cost_snapshot' => 'decimal:2',
+            'parent_line_number' => 'integer',
         ];
     }
 
@@ -51,6 +53,12 @@ class SaleItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /** What was chosen on this line (a meal's dishes, or an add-on's option), as snapshotted at the sale. */
+    public function selections(): HasMany
+    {
+        return $this->hasMany(SaleItemSelection::class)->orderBy('sort_order')->orderBy('created_at')->orderBy('id');
     }
 
     public function refundItems(): HasMany
