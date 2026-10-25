@@ -113,16 +113,16 @@ describe('CatalogPanel meal menu', () => {
         const badge = (name) => screen.getByRole('tab', { name }).querySelector('span')?.textContent;
 
         // All: the catalog products plus the three meals.
-        expect(badge(/^All/)).toBe(String(catalog.length + 3));
+        await waitFor(() => expect(badge(/^All/)).toBe(String(catalog.length + 3)));
 
         fireEvent.click(screen.getByRole('tab', { name: 'Lunch' }));
         await waitFor(() => expect(screen.queryByText('Fiesta Meal')).toBeNull());
         // Lunch holds its two meals once each (its sub-groups are not added again).
-        expect(badge(/^Lunch/)).toBe(String(catalog.length + 2));
+        await waitFor(() => expect(badge(/^Lunch/)).toBe(String(catalog.length + 2)));
 
         fireEvent.click(screen.getByRole('tab', { name: 'Combo Meal' }));
         await waitFor(() => expect(screen.queryByText('Standard Meal', { selector: 'span.text-slate-100' })).toBeNull());
-        expect(badge(/^Combo Meal/)).toBe(String(catalog.length + 1));
+        await waitFor(() => expect(badge(/^Combo Meal/)).toBe(String(catalog.length + 1)));
     });
 
     it('with category tabs only, shows the meals on All and not under a category', async () => {
