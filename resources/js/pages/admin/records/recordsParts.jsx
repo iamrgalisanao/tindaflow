@@ -30,6 +30,12 @@ export const AUDIT_TYPES = [
     { id: 'EMPLOYEE_REACTIVATED', label: 'Employee reactivated' },
     { id: 'EMPLOYEES_IMPORTED', label: 'Employees imported' },
     { id: 'CREDIT_LIMIT_CHANGED', label: 'Credit limit changed' },
+    { id: 'CREDIT_OVERRIDE_GRANTED', label: 'Manager approval given' },
+    { id: 'CREDIT_OVERRIDE_USED', label: 'Manager approval used' },
+    { id: 'CREDIT_OVERRIDE_REFUSED', label: 'Manager approval refused' },
+    { id: 'CREDIT_OVERRIDE_LOCKED', label: 'Manager locked out' },
+    { id: 'OVERRIDE_CODE_SET', label: 'Override code set' },
+    { id: 'OVERRIDE_CODE_RESET', label: 'Override code cleared' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -178,6 +184,25 @@ function describeEmployeeChange(before = {}, after = {}) {
         .join(', ');
 }
 
+/** Why a manager approval was refused, for the audit screen. Never shown to the cashier. */
+const OVERRIDE_REASONS = {
+    WRONG_CODE: 'wrong code',
+    APPROVER_LOCKED: 'the manager is locked out',
+    SELF_APPROVAL: 'a person cannot approve their own sale',
+    UNKNOWN_APPROVER: 'no such manager',
+    APPROVER_INACTIVE: 'the manager is inactive',
+    APPROVER_LACKS_CAPABILITY: 'that user cannot approve',
+    NO_CODE: 'the manager has no code',
+    TOKEN_UNKNOWN: 'unknown approval',
+    WRONG_TERMINAL: 'approval was for another till',
+    WRONG_EMPLOYEE: 'approval was for another employee',
+    WRONG_CASHIER: 'approval was for another cashier',
+    ALREADY_USED: 'approval already used',
+    EXPIRED: 'approval expired',
+    AMOUNT_ABOVE_CEILING: 'sale is more than was approved',
+    APPROVER_NO_LONGER_ELIGIBLE: 'the manager can no longer approve',
+};
+
 const MENU_GROUP_FIELDS = { name: 'name', sort_order: 'position', active: 'status' };
 
 /** "name Lunch → Lunch Meals, status active → hidden" from a menu group change's before and after. */
@@ -229,6 +254,18 @@ export function describeAudit(event) {
             return `Employee CSV import: ${after.created ?? 0} created, ${after.skipped ?? 0} skipped as already enrolled${after.failed ? `, ${after.failed} with problems` : ''}`;
         case 'CREDIT_LIMIT_CHANGED':
             return `${EMPLOYEE_TYPE_NAMES[after.employee_type] ?? after.employee_type ?? '—'} credit limit ${money((event.before_metadata ?? {}).limit_per_cutoff)} → ${money(after.limit_per_cutoff)} per cut-off`;
+        case 'CREDIT_OVERRIDE_GRANTED':
+            return `A manager approved one credit sale of up to ${money(after.max_amount)} for ${after.employee_code ?? 'an employee'} (limit ${money(after.limit)}, used ${money(after.used)})`;
+        case 'CREDIT_OVERRIDE_USED':
+            return `A manager approval let a credit sale of ${money(after.amount)} for ${after.employee_code ?? 'an employee'} go past the limit of ${money(after.limit)} (used before: ${money(after.used)})`;
+        case 'CREDIT_OVERRIDE_REFUSED':
+            return `A manager approval was refused (${OVERRIDE_REASONS[event.reason ?? after.reason] ?? event.reason ?? after.reason ?? 'no reason recorded'})${after.employee_code ? ` for ${after.employee_code}` : ''}`;
+        case 'CREDIT_OVERRIDE_LOCKED':
+            return `A manager was locked out of approving for ${after.locked_minutes ?? 15} minutes after too many wrong codes`;
+        case 'OVERRIDE_CODE_SET':
+            return (event.before_metadata ?? {}).has_code ? 'Override code changed by its owner' : 'Override code set by its owner';
+        case 'OVERRIDE_CODE_RESET':
+            return `Override code of ${after.user_name ?? 'a user'}${after.role ? ` (${after.role})` : ''} cleared by an administrator${(event.before_metadata ?? {}).locked ? ' (it was locked)' : ''}`;
         case 'MENU_DISH_CREATED':
             return `Dish "${after.name ?? '—'}" created`;
         case 'MENU_DISH_RENAMED':

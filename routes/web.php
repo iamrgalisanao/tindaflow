@@ -4,6 +4,7 @@ use App\Http\Controllers\AuditEventController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\CreditOverrideController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FiscalDayController;
 use App\Http\Controllers\FiscalInstallationController;
@@ -281,6 +282,24 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // The till's read-only meal menu (ADR-016, slice 1.3): any signed-in user of the store, no capability.
     Route::get('/menu', [TillMenuController::class, 'show'])
         ->middleware(['auth', EnsureUserIsActive::class]);
+
+    // Supervisor override of the credit limit (ADR-016 section 6, slice 3.3). The approver list is for any signed-in till user (names only).
+    // creditOverrideGrant is terminal-scoped like checkout, verifies a NAMED approver's code and issues a single-use grant; it is limited
+    // per terminal and per user (config tindaflow.credit_override.throttle_*) on top of the per-approver lockout. An approver sets their
+    // own code (CREDIT_LIMIT_OVERRIDE, password re-entered, limited per user); an administrator lists who holds one and clears one
+    // (USER_MANAGE, password re-entered). The literal /users/override-codes path is registered before /users/{userId} below.
+    Route::get('/credit-override-approvers', [CreditOverrideController::class, 'approvers'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/credit-overrides', [CreditOverrideController::class, 'grant'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'throttle:credit-override']);
+    Route::get('/credit-override-code', [CreditOverrideController::class, 'codeGet'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CREDIT_LIMIT_OVERRIDE']);
+    Route::put('/credit-override-code', [CreditOverrideController::class, 'codeSet'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:CREDIT_LIMIT_OVERRIDE', 'throttle:override-code']);
+    Route::get('/credit-override-codes', [CreditOverrideController::class, 'codeList'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:USER_MANAGE']);
+    Route::post('/users/{userId}/override-code/reset', [CreditOverrideController::class, 'codeReset'])->whereUuid('userId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:USER_MANAGE', 'throttle:override-code']);
 
     // Employees and credit limits (ADR-016 section 5, slice 3.1). employeeLookup is the one till operation: any signed-in user, one
     // employee by exact code, no listing. Everything else, reads included, is EMPLOYEE_MANAGE (ADMIN only; a cashier or manager gets 403).

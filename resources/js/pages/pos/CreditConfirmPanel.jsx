@@ -1,14 +1,18 @@
+import { useState } from 'react';
+import OverrideApproval from './OverrideApproval';
 import { money, periodText, remainingAfter, typeLabel } from './credit';
 import { lineCents, pesos } from './posMoney';
 
 /**
  * The payment step of a credit sale: no tender, no keypad, no change. It shows what is being charged and to whom, and one button
- * confirms it. A sale the server refuses for the limit shows the figures and offers no override (supervisor override is slice 3.3):
- * remove items or take cash instead.
+ * confirms it. A sale the server refuses for the limit shows the figures and three ways on: remove items, take cash instead, or (ADR-016
+ * section 6, slice 3.3) ask a manager to approve THIS sale -- the manager is picked by name and types their own code, and the till then
+ * sends the sale again with the single-use approval (`grant`, held by the register for this sale only; `onApproved` hands it up).
  */
-export default function CreditConfirmPanel({ cart, totalCents, payer, busy, refusal, onBack, onUseCash, onComplete }) {
+export default function CreditConfirmPanel({ cart, totalCents, payer, busy, refusal, grant = null, onApproved, onBack, onUseCash, onComplete }) {
     const { employee } = payer;
     const after = remainingAfter(employee.credit, totalCents);
+    const [asking, setAsking] = useState(false);
 
     return (
         <form onSubmit={onComplete} aria-label="Charge to employee" className="mx-auto grid max-w-3xl grid-cols-1 gap-4 p-4">
@@ -76,8 +80,28 @@ export default function CreditConfirmPanel({ cart, totalCents, payer, busy, refu
                         ))}
                     </dl>
                     <p className="mt-2 text-xs text-red-300/90">
-                        Period {periodText(refusal.periodStart, refusal.periodEnd)}. Remove items to bring the sale within what is left, or take cash instead.
+                        Period {periodText(refusal.periodStart, refusal.periodEnd)}. Remove items to bring the sale within what is left, take cash instead, or ask a manager to approve this sale.
                     </p>
+                    {!asking && onApproved && (
+                        <button type="button" onClick={() => setAsking(true)} disabled={busy} className="mt-3 min-h-12 rounded-lg border border-amber-400 px-4 text-sm font-bold text-amber-200 hover:bg-amber-400/10 disabled:opacity-50">
+                            Ask a manager to approve
+                        </button>
+                    )}
+                    {asking && (
+                        <OverrideApproval
+                            employee={employee}
+                            amount={refusal.requested}
+                            busy={busy}
+                            onApproved={onApproved}
+                            onCancel={() => setAsking(false)}
+                        />
+                    )}
+                </section>
+            )}
+
+            {grant && (
+                <section aria-label="Manager approval held" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+                    Approved by <span className="font-semibold">{grant.approverName}</span> for this sale, up to {money(grant.maxAmount)}. Press the button to charge it.
                 </section>
             )}
 

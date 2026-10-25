@@ -335,6 +335,21 @@ Tag `Employees`. The people who may be charged on credit (`docs/06-backend/cante
 | GET | /credit-policies | creditPolicyList | session | false | `EMPLOYEE_MANAGE` | no | — | 200 CreditPolicy list | 403 |
 | PUT | /credit-policies/{employeeType} | creditPolicySetLimit | session | false | `EMPLOYEE_MANAGE` | no | `limit_per_cutoff` | 200 CreditPolicy | 403, 422 |
 
+## Supervisor override of the credit limit (6) — ADR-016 section 6, slice 3.3 (2026-10-26), forward-committed
+
+Tag `CreditOverride`. **`CREDIT_LIMIT_OVERRIDE` is held by MANAGER and ADMIN, never CASHIER.** A cashier whose credit sale is refused as `CREDIT_LIMIT_EXCEEDED` asks a manager: the manager is picked BY NAME from `creditOverrideApproverList` and types their own code on the till; `creditOverrideGrant` verifies it and returns a single-use approval token (shown once, stored only as a SHA-256) bound to the terminal, the cashier, the employee and a ceiling amount, valid 5 minutes. `saleFinalize` then accepts that token as `credit_override_token`; it is consumed only if the charge really exceeds the limit, under the employee lock, in the sale's transaction. The code is never returned, logged or audited. Five wrong codes lock that approver for 15 minutes (committed on their own); the verify endpoint is also limited to 10 requests in 15 minutes per terminal and per signed-in user (`RATE_LIMITED` 429, named limiter `credit-override`); setting or clearing a code is limited to 10 in 15 minutes per user (`override-code`). Audit events: `CREDIT_OVERRIDE_GRANTED`, `CREDIT_OVERRIDE_USED`, `CREDIT_OVERRIDE_REFUSED` (with a `reason`), `CREDIT_OVERRIDE_LOCKED`, `OVERRIDE_CODE_SET`, `OVERRIDE_CODE_RESET`.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /credit-override-approvers | creditOverrideApproverList | session | false | — (any signed-in user) | no | — | 200 `{data: [{id, name}]}` (active users of the store who hold the capability and have a code, the caller left out; names only) | 401 |
+| POST | /credit-overrides | creditOverrideGrant | session | **true** | — (any signed-in user on an enrolled till) | no | `approver_id`, `code` (6 to 8 digits), `employee_id`, `amount` (the sale total) | 201 CreditOverrideGrantResult (`token` once, `grant_id`, `expires_at`, `max_amount`, `approver`) | `CREDIT_OVERRIDE_INVALID` (422), `CREDIT_OVERRIDE_LOCKED` (423), `CREDIT_OVERRIDE_NOT_ALLOWED` (403, approver = cashier), `EMPLOYEE_NOT_FOUND`, `EMPLOYEE_INACTIVE`, `TERMINAL_NOT_ENROLLED`, 422, `RATE_LIMITED` (429) |
+| GET | /credit-override-code | creditOverrideCodeGet | session | false | `CREDIT_LIMIT_OVERRIDE` | no | — | 200 OverrideCodeStatus (`has_code`, `locked`, `locked_until`, `set_at`; never the code) | 403 |
+| PUT | /credit-override-code | creditOverrideCodeSet | session | false | `CREDIT_LIMIT_OVERRIDE` | no | `password` (the account password, re-entered), `code` | 200 OverrideCodeStatus | 403, 422 (`password` wrong; `code` malformed, trivial, or equal to the password), `RATE_LIMITED` (429) |
+| GET | /credit-override-codes | creditOverrideCodeList | session | false | `USER_MANAGE` | no | — | 200 `{data: [{user_id, name, role, active, has_code, locked, locked_until, set_at}]}` (users who could hold a code) | 403 |
+| POST | /users/{userId}/override-code/reset | creditOverrideCodeReset | session | false | `USER_MANAGE` | no | `password` (the administrator's own) | 200 OverrideCodeStatus (the code is cleared and any lock lifted; the user sets a new one themselves) | 403, `USER_NOT_FOUND` (404, also another store's), 422 (`password` wrong), `RATE_LIMITED` (429) |
+
+**Changed existing operation (additive, ADR-016 slice 3.3):** `saleFinalize` accepts an optional `credit_override_token` (64 hex characters) on a credit sale; with CASH or any non-credit tender it is `CREDIT_EMPLOYEE_REQUIRED` (422). The token is part of the idempotency hash. New refusals: `CREDIT_OVERRIDE_INVALID` (422), `CREDIT_OVERRIDE_EXPIRED` (409), `CREDIT_OVERRIDE_NOT_ALLOWED` (403). `UserSummary.capabilities` can now include `CREDIT_LIMIT_OVERRIDE`.
+
 ## Shifts (8)
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |

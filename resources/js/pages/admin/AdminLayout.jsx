@@ -248,6 +248,15 @@ const SECTIONS = [
         links: EMPLOYEE_NAV,
     },
     {
+        // ADR-016 section 6: a manager or administrator sets their own credit-override code here (CREDIT_LIMIT_OVERRIDE; never a cashier).
+        id: 'override-code',
+        label: 'My override code',
+        to: '/admin/override-code',
+        icon: 'users',
+        capability: 'CREDIT_LIMIT_OVERRIDE',
+        matches: (path) => path.startsWith('/admin/override-code'),
+    },
+    {
         id: 'users',
         label: 'Users',
         to: '/admin/users',

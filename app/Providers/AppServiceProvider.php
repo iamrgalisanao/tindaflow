@@ -44,6 +44,17 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('employee-lookup', fn (Request $request) => Limit::perMinute((int) config('tindaflow.employee_lookup_throttle.per_minute'))
             ->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
 
+        // ADR-016 slice 3.3: the supervisor override. A code is six to eight digits, so besides the per-approver lockout (five wrong codes, fifteen
+        // minutes) the verify endpoint is limited per terminal AND per signed-in user (ten requests in fifteen minutes each): a stolen cashier
+        // session cannot walk the approvers one after another. Setting or clearing a code re-checks an account password, so it is limited per user.
+        // The 429 is the catalogued RATE_LIMITED.
+        $overrideLimit = fn (string $key) => Limit::perMinutes((int) config('tindaflow.credit_override.throttle_minutes'), (int) config('tindaflow.credit_override.throttle_attempts'))->by($key);
+        RateLimiter::for('credit-override', fn (Request $request) => [
+            $overrideLimit('terminal:'.($request->attributes->get('terminal')?->id ?? $request->ip())),
+            $overrideLimit('user:'.($request->user()?->getAuthIdentifier() ?? $request->ip())),
+        ]);
+        RateLimiter::for('override-code', fn (Request $request) => $overrideLimit('code:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
         // A generous ceiling on the whole API, per signed-in user: far above what a till produces, low enough that
         // a runaway client or a stolen session cannot hammer the database or the import/export endpoints. (Laravel
         // orders `auth` ahead of `throttle`, so a guest is answered 401 before it is counted; the only route a

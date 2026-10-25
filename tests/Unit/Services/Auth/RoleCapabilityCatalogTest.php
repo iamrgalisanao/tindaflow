@@ -12,7 +12,7 @@ class RoleCapabilityCatalogTest extends TestCase
     {
         $capabilities = RoleCapabilityCatalog::forRole('ADMIN');
 
-        $this->assertCount(17, $capabilities);
+        $this->assertCount(18, $capabilities);
         $this->assertContains('USER_MANAGE', $capabilities);
         $this->assertContains('TERMINAL_MANAGE', $capabilities);
         $this->assertContains('STORE_SETTINGS_MANAGE', $capabilities);
@@ -32,6 +32,13 @@ class RoleCapabilityCatalogTest extends TestCase
         $this->assertNotContains('FISCAL_CONFIGURATION_MANAGE', $capabilities);
     }
 
+    public function test_the_credit_limit_override_belongs_to_manager_and_admin_and_never_to_a_cashier(): void
+    {
+        $this->assertContains('CREDIT_LIMIT_OVERRIDE', RoleCapabilityCatalog::forRole('MANAGER'));
+        $this->assertContains('CREDIT_LIMIT_OVERRIDE', RoleCapabilityCatalog::forRole('ADMIN'));
+        $this->assertNotContains('CREDIT_LIMIT_OVERRIDE', RoleCapabilityCatalog::forRole('CASHIER'));
+    }
+
     public function test_cashier_has_only_the_request_only_capabilities(): void
     {
         $this->assertSame(['SALE_VOID', 'SALE_REFUND'], RoleCapabilityCatalog::forRole('CASHIER'));
@@ -42,11 +49,11 @@ class RoleCapabilityCatalogTest extends TestCase
         $this->assertSame([], RoleCapabilityCatalog::forRole('NOT_A_ROLE'));
     }
 
-    // A2: the fixed vocabulary itself -- 18 entries, no duplicates.
-    public function test_capabilities_constant_has_exactly_eighteen_unique_entries(): void
+    // A2: the fixed vocabulary itself -- 19 entries (CREDIT_LIMIT_OVERRIDE added by ADR-016 slice 3.3), no duplicates.
+    public function test_capabilities_constant_has_exactly_nineteen_unique_entries(): void
     {
-        $this->assertCount(18, RoleCapabilityCatalog::CAPABILITIES);
-        $this->assertCount(18, array_unique(RoleCapabilityCatalog::CAPABILITIES));
+        $this->assertCount(19, RoleCapabilityCatalog::CAPABILITIES);
+        $this->assertCount(19, array_unique(RoleCapabilityCatalog::CAPABILITIES));
     }
 
     public function test_admin_is_defined_as_every_capability_but_the_unlock_only_one(): void

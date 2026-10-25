@@ -19,7 +19,7 @@ import ShiftPanel from './pos/ShiftPanel';
 import TenderPanel from './pos/TenderPanel';
 import XReadingPanel from './pos/XReadingPanel';
 import { attemptKey, failureText, newIdempotencyKey, settleAttempt } from './pos/attempts';
-import { creditSaleParts, limitRefusal, lookupFailureText, payerFromLookup } from './pos/credit';
+import { creditSaleParts, isOverrideRefusal, limitRefusal, lookupFailureText, payerFromLookup } from './pos/credit';
 import { mealPlates, requestItems } from './pos/mealMenu';
 import { apiMoney, clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 import MoneyInput from '../components/MoneyInput';
@@ -103,6 +103,9 @@ export default function Pos() {
     const [employeePicker, setEmployeePicker] = useState(false); // the employee box over the register (charge to an employee / change employee)
     const [startOverPending, setStartOverPending] = useState(false);
     const [creditRefusal, setCreditRefusal] = useState(null); // the figures of a CREDIT_LIMIT_EXCEEDED answer
+    // ADR-016 section 6: the single-use manager approval for THIS credit sale ({token, approverName, maxAmount, ...}), held in memory only. It is
+    // never stored, survives nothing (a new sale, another payer, Start over, a refusal all drop it) and is sent with the sale as credit_override_token.
+    const [overrideGrant, setOverrideGrant] = useState(null);
 
     const [payments, setPayments] = useState([{ method: 'CASH', amount: '' }]); // [{method, amount}], split tender is 2+ rows
     const [checkoutBusy, setCheckoutBusy] = useState(false);
@@ -387,6 +390,7 @@ export default function Pos() {
         setPayer({ kind: 'CREDIT', employee });
         setEmployeePicker(false);
         setCreditRefusal(null);
+        setOverrideGrant(null);
         setError(null);
     }
 
@@ -394,6 +398,7 @@ export default function Pos() {
     function switchToCash() {
         setPayer({ kind: 'CASH' });
         setCreditRefusal(null);
+        setOverrideGrant(null);
         setError(null);
         setStep('cart');
     }
@@ -419,6 +424,7 @@ export default function Pos() {
         setEmployeePicker(false);
         setStartOverPending(false);
         setCreditRefusal(null);
+        setOverrideGrant(null);
         setError(null);
         setStep('cart');
     }
@@ -451,8 +457,9 @@ export default function Pos() {
         return () => document.removeEventListener('keydown', onKeyDown);
     }, [employeePicker]);
 
-    async function completeSale(event) {
-        event.preventDefault();
+    async function completeSale(event, approvalToken) {
+        event?.preventDefault();
+        const overrideToken = approvalToken ?? overrideGrant?.token ?? null;
         setCheckoutBusy(true);
         setError(null);
 
@@ -462,7 +469,7 @@ export default function Pos() {
             items: cart.flatMap((line, index) => requestItems(line, lineDiscountCentsByLine[index])),
             ...(creditPayer
                 ? // A credit sale is one CREDIT payment for the whole total plus the employee; the server records the real total.
-                  creditSaleParts(creditPayer.employee.id, totalCents)
+                  { ...creditSaleParts(creditPayer.employee.id, totalCents), ...(overrideToken ? { credit_override_token: overrideToken } : {}) }
                 : {
                       // A blank/zero row (shown while a split payment is still being entered) is never sent.
                       payments: payments
@@ -494,6 +501,7 @@ export default function Pos() {
             setSale(result.body);
             setPayer(null);
             setCreditRefusal(null);
+            setOverrideGrant(null);
             setStep('receipt');
             // `replace`, not push: Back from the receipt should return to the register the cashier
             // started from, never to a checkout step whose cart no longer exists.
@@ -502,7 +510,13 @@ export default function Pos() {
             const refusal = creditPayer ? limitRefusal(result) : null;
             setCreditRefusal(refusal);
             if (refusal) {
-                // The panel shows the figures (no override at the till yet); refresh the balance it was based on.
+                // The panel shows the figures and the way to ask a manager; refresh the balance they were based on.
+                setOverrideGrant(null);
+                refreshCredit();
+            } else if (isOverrideRefusal(result)) {
+                // The approval was refused (used up, expired, for another amount ...): it is spent. The cashier asks again from the figures.
+                setOverrideGrant(null);
+                setError(failureText(result, 'The manager approval could not be used.'));
                 refreshCredit();
             } else {
                 setError(
@@ -577,6 +591,7 @@ export default function Pos() {
         setPayer(null); // a new sale starts on the Cash / Credit screen
         setEmployeePicker(false);
         setCreditRefusal(null);
+        setOverrideGrant(null);
         setResults(null);
         setSearch('');
         // `sale` is NOT cleared here: the address changes a moment after this runs (the router applies it as a
@@ -928,8 +943,15 @@ export default function Pos() {
                     payer={creditPayer}
                     busy={checkoutBusy}
                     refusal={creditRefusal}
+                    grant={overrideGrant}
+                    onApproved={(grant) => {
+                        // A good code: hold the approval for this sale only and send the sale again with it, at once.
+                        setOverrideGrant(grant);
+                        return completeSale(null, grant.token);
+                    }}
                     onBack={() => {
                         setCreditRefusal(null);
+                        setOverrideGrant(null);
                         setStep('cart');
                     }}
                     onUseCash={switchToCash}

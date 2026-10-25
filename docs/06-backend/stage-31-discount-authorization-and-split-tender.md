@@ -24,7 +24,7 @@ every cashier a working discount box would have made the gap immediately exploit
 client's raw request fields — a client cannot dodge the check by lying about which line produced it): if it is
 non-zero, `Gate::forUser($actor)->authorize('DISCOUNT_OVERRIDE')`. This is the exact pattern
 `CashMovementService::create()` already uses for `CASH_OUT` above its threshold — the acting user must personally hold
-the capability, there is no "manager PIN" mechanism anywhere in this contract to authorize on someone else's behalf.
+the capability, there is no "manager PIN" mechanism for discounts (or for anything but one thing) in this contract to authorize on someone else's behalf. *Amended 2026-10-26, ADR-016 slice 3.3:* the single scoped exception is the supervisor override of a CREDIT LIMIT (a named approver's personal code gives a single-use approval for one over-limit credit sale). It approves nothing else; a discount still needs the acting user to hold `DISCOUNT_OVERRIDE`, unchanged.
 A denial throws the same `AuthorizationException` every other capability check throws, rendered by the existing
 `bootstrap/app.php` handler as `403 AUTHORIZATION_DENIED` — no new error code.
 

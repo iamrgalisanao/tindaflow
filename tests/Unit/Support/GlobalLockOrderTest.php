@@ -137,10 +137,21 @@ class GlobalLockOrderTest extends TestCase
         $order->acquire(LockableResource::FiscalDay);
     }
 
+    public function test_the_override_grant_is_locked_after_the_employee_and_before_the_sale(): void
+    {
+        $order = new GlobalLockOrder;
+        $order->acquire(LockableResource::Employee);
+        $order->acquire(LockableResource::OverrideGrant);
+        $order->acquire(LockableResource::Sale);
+
+        $this->expectException(LogicException::class);
+        $order->acquire(LockableResource::OverrideGrant);
+    }
+
     public function test_the_order_values_are_the_documented_ones(): void
     {
         $this->assertSame(
-            ['shift' => 0, 'fiscal_day' => 1, 'employee' => 2, 'sale' => 3, 'sale_item' => 4, 'invoice_series' => 5, 'slip_counter' => 6],
+            ['shift' => 0, 'fiscal_day' => 1, 'employee' => 2, 'override_grant' => 3, 'sale' => 4, 'sale_item' => 5, 'invoice_series' => 6, 'slip_counter' => 7],
             collect(LockableResource::cases())->mapWithKeys(fn (LockableResource $resource) => [$resource->value => $resource->order()])->all(),
         );
     }

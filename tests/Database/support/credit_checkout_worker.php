@@ -10,7 +10,7 @@
  * `pause_ms` (optional) sleeps between the limit check and the ledger insert, inside the checkout transaction, so the two-till race
  * window is wide enough to be hit every time rather than occasionally: without the employee lock both workers would pass the check.
  *
- * job: {"action": "charge", "terminal_id", "cashier_id", "key", "product_id", "employee_id", "amount"}
+ * job: {"action": "charge", "terminal_id", "cashier_id", "key", "product_id", "employee_id", "amount", "override_token" (optional)}
  *      {"action": "void", "terminal_id", "user_id", "sale_id", "key"}
  */
 
@@ -77,7 +77,7 @@ try {
         'items' => [['product_id' => $job['product_id'], 'quantity' => '1']],
         'payments' => [['method' => 'CREDIT', 'amount' => $job['amount']]],
         'employee_id' => $job['employee_id'],
-    ]);
+    ] + (isset($job['override_token']) ? ['credit_override_token' => $job['override_token']] : []));
 
     file_put_contents($outputFile, json_encode(['outcome' => 'success', 'sale_id' => $sale->id]));
 } catch (Throwable $e) {

@@ -12,6 +12,7 @@ tags:
 - {name: Catalog}
 - {name: Menu}
 - {name: Employees}
+- {name: CreditOverride}
 - {name: Inventory}
 - {name: Sales}
 - {name: Invoices}
@@ -2194,6 +2195,139 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # ----------------------------------------------------------- Supervisor override of the credit limit (ADR-016 section 6, slice 3.3)
+  /credit-override-approvers:
+    get:
+      operationId: creditOverrideApproverList
+      tags: [CreditOverride]
+      summary: 'The managers a cashier can ask to approve an over-limit credit sale (any signed-in user): active users of the caller''s store who hold CREDIT_LIMIT_OVERRIDE and have set a code, by name, the caller left out. No code, status or role is returned.'
+      responses:
+        '200':
+          description: Approvers by name
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string, format: uuid}
+                        name: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /credit-overrides:
+    post:
+      operationId: creditOverrideGrant
+      tags: [CreditOverride]
+      summary: 'A NAMED approver''s code -> a single-use approval for ONE over-limit credit sale (terminal-scoped: session and enrolled terminal; the cashier and terminal come from the authoritative context, never the body). One generic CREDIT_OVERRIDE_INVALID (422) covers a wrong code, an unknown, inactive or other-store approver, one without a code and one without CREDIT_LIMIT_OVERRIDE; only a wrong code counts toward the lockout (5 wrong codes lock that approver 15 minutes: CREDIT_OVERRIDE_LOCKED, 423). The approver being the cashier is CREDIT_OVERRIDE_NOT_ALLOWED (403). The wrong-code count is committed on its own, before the refusal. Limited to 10 requests per 15 minutes per terminal and per user (RATE_LIMITED 429). The token is returned once; only its SHA-256 is stored. It is bound to this terminal, cashier and employee, valid 5 minutes, and consumed by the first saleFinalize that needs it. Neither the code nor the token is ever logged or audited.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreditOverrideGrantRequest'}
+      responses:
+        '201':
+          description: The approval
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CreditOverrideGrantResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '423':
+          description: CREDIT_OVERRIDE_LOCKED. details.retry_after_minutes
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /credit-override-code:
+    get:
+      operationId: creditOverrideCodeGet
+      tags: [CreditOverride]
+      x-capability: CREDIT_LIMIT_OVERRIDE
+      summary: 'Whether the signed-in approver has an override code, whether it is locked, and when it was set. Never the code.'
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OverrideCodeStatus'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      operationId: creditOverrideCodeSet
+      tags: [CreditOverride]
+      x-capability: CREDIT_LIMIT_OVERRIDE
+      summary: 'The approver sets or changes their OWN code after re-entering their account password. 6 to 8 digits; not one repeated digit, a straight run or a repeated short block; different from the account password. Stored only as a slow hash. Clears a lockout and the wrong-code count. Audit OVERRIDE_CODE_SET (no code, no hash). Limited to 10 requests per 15 minutes per user (RATE_LIMITED 429).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OverrideCodeSetRequest'}
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OverrideCodeStatus'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /credit-override-codes:
+    get:
+      operationId: creditOverrideCodeList
+      tags: [CreditOverride]
+      x-capability: USER_MANAGE
+      summary: 'For an administrator: the store''s ADMIN and MANAGER users with whether each holds a code or is locked. Never a code.'
+      responses:
+        '200':
+          description: Statuses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      allOf:
+                      - {$ref: '#/components/schemas/OverrideCodeStatus'}
+                      - type: object
+                        properties:
+                          name: {type: string}
+                          role: {$ref: '#/components/schemas/UserRole'}
+                          active: {type: boolean}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /users/{userId}/override-code/reset:
+    parameters:
+    - {name: userId, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      operationId: creditOverrideCodeReset
+      tags: [CreditOverride]
+      x-capability: USER_MANAGE
+      summary: 'An administrator CLEARS a user''s override code (and any lockout) after re-entering their own account password; the user then sets a new code themselves, so the administrator never knows it. Audit OVERRIDE_CODE_RESET. A user of another store is USER_NOT_FOUND (404); a user with no code row changes nothing.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OverrideCodeResetRequest'}
+      responses:
+        '200':
+          description: Status after the clear
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OverrideCodeStatus'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
   # ----------------------------------------------------------- Inventory
   /inventory/stock:
     get:
@@ -4568,7 +4702,7 @@ components:
       description: 'The full Stage 2 capability catalog (domain-model.md §2.2), including the six additions synced back into Stage 2 during Stage 4 remediation pass 2 (2026-09-16) — CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE — so this enum and Stage 2''s canonical list never drift again. This is a fixed enum of string constants, not a dynamic/configurable permission system — see api-design.md §4 for the role→capability mapping and rationale.
 
         '
-      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE, EMPLOYEE_MANAGE]
+      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE, EMPLOYEE_MANAGE, CREDIT_LIMIT_OVERRIDE]
     UserSummary:
       type: object
       properties:
@@ -4661,6 +4795,46 @@ components:
         employee_type: {$ref: '#/components/schemas/EmployeeType'}
         name: {type: string}
         active: {type: boolean}
+    CreditOverrideGrantRequest:
+      type: object
+      required: [approver_id, code, employee_id, amount]
+      properties:
+        approver_id: {type: string, format: uuid, description: 'The approver the cashier picked by name (from creditOverrideApproverList).'}
+        code: {type: string, pattern: '^\d{6,8}$', writeOnly: true, description: 'The approver''s own code, typed by them. Never stored, logged or audited.'}
+        employee_id: {type: string, format: uuid}
+        amount: {type: string, pattern: '^\d{1,10}\.\d{2}$', description: 'The sale total being approved (the figure CREDIT_LIMIT_EXCEEDED reported as `requested`): the approval''s ceiling. Must be more than zero.'}
+    CreditOverrideGrantResult:
+      type: object
+      properties:
+        grant_id: {type: string, format: uuid}
+        token: {type: string, pattern: '^[0-9a-f]{64}$', description: 'Shown once. Send as saleFinalize.credit_override_token. Only its SHA-256 is stored.'}
+        expires_at: {type: string, format: date-time}
+        max_amount: {$ref: '#/components/schemas/Money'}
+        employee_id: {type: string, format: uuid}
+        approver:
+          type: object
+          properties:
+            id: {type: string, format: uuid}
+            name: {type: string}
+    OverrideCodeStatus:
+      type: object
+      properties:
+        user_id: {type: string, format: uuid}
+        has_code: {type: boolean}
+        locked: {type: boolean}
+        locked_until: {type: [string, 'null'], format: date-time}
+        set_at: {type: [string, 'null'], format: date-time}
+    OverrideCodeSetRequest:
+      type: object
+      required: [password, code]
+      properties:
+        password: {type: string, format: password, writeOnly: true}
+        code: {type: string, pattern: '^\d{6,8}$', writeOnly: true}
+    OverrideCodeResetRequest:
+      type: object
+      required: [password]
+      properties:
+        password: {type: string, format: password, writeOnly: true, description: 'The administrator''s own password.'}
     EmployeeCreditLookupResult:
       description: 'EmployeeLookupResult plus the credit status of the CURRENT cut-off (1st-15th, or 16th to the end of the month, in the store''s timezone).'
       allOf:
@@ -5230,6 +5404,10 @@ components:
         employee_id:
           anyOf:
           - {type: string, format: uuid, description: 'ADR-016 slice 3.2. The employee a CREDIT sale is charged to (the id from employeeLookup). Required with a CREDIT payment, refused without one.'}
+          - {type: 'null'}
+        credit_override_token:
+          anyOf:
+          - {type: string, pattern: '^[0-9a-f]{64}$', description: 'ADR-016 section 6, slice 3.3. The single-use manager approval from creditOverrideGrant. Used (consumed, under the employee lock, in the sale''s transaction) ONLY if this credit sale would exceed the limit; a sale within the limit leaves it unused. Refused on a sale that is not paid with credit (CREDIT_EMPLOYEE_REQUIRED). Part of the idempotency hash. Refusals: CREDIT_OVERRIDE_INVALID (422), CREDIT_OVERRIDE_EXPIRED (409), CREDIT_OVERRIDE_NOT_ALLOWED (403).'}
           - {type: 'null'}
         buyer_name:
           anyOf:

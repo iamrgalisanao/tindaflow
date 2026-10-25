@@ -45,6 +45,9 @@ class SaleFinalizeRequest extends FormRequest
             // ADR-016 section 5: the employee a CREDIT sale is charged to (the id the till got from employeeLookup). Whether it is allowed
             // with these payments is a domain rule (CREDIT_MIXED_TENDER / CREDIT_EMPLOYEE_REQUIRED), not a shape rule.
             'employee_id' => ['nullable', 'uuid'],
+            // ADR-016 section 6: the single-use supervisor approval token (64 hex characters) the till got from creditOverrideGrant. Used only
+            // when this credit sale would go past the limit; a domain rule decides whether it is allowed (CREDIT_OVERRIDE_*).
+            'credit_override_token' => ['nullable', 'string', 'regex:/^[0-9a-f]{64}$/D'],
             'buyer_name' => ['nullable', 'string'],
             'buyer_address' => ['nullable', 'string'],
             'buyer_tin' => ['nullable', 'string'],

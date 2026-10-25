@@ -90,8 +90,22 @@ REVOKE UPDATE ON
     employees,      -- ADR-016 slice 3.1: lifecycle -- UPDATE is revoked here and re-granted by column below (not employee_code / employee_type)
     employee_code_sequences, -- ADR-016 slice 3.1: lifecycle -- the counters; re-granted by column below
     credit_policies, -- ADR-016 slice 3.1: lifecycle -- the current limit; re-granted by column below
-    employee_credit_entries -- ADR-016 slice 3.2, CREDIT-004: the credit ledger (CHARGE / REVERSAL); never changed, the balance is derived
+    employee_credit_entries, -- ADR-016 slice 3.2, CREDIT-004: the credit ledger (CHARGE / REVERSAL); never changed, the balance is derived
+    user_override_codes,   -- ADR-016 slice 3.3: lifecycle -- UPDATE is revoked here and re-granted by column below (not user_id / store_id)
+    credit_override_grants -- ADR-016 slice 3.3, OVR-001: an approval of one over-limit sale; append-only except consumed_at (re-granted below)
 FROM tindaflow_app;
+
+-- user_override_codes (ADR-016 slice 3.3) is an approver's override code: a lifecycle row, set, changed, cleared by an administrator and
+-- counted for wrong attempts, never deleted (the store-wide REVOKE DELETE). The UPDATE is narrowed to exactly the columns those operations
+-- change, so the application role cannot move a code to another user or store whatever a bug or a stray query tries. The history of sets,
+-- resets and lockouts is the append-only audit log.
+GRANT UPDATE (code_hash, failed_attempts, locked_until, set_at, set_by, updated_at) ON user_override_codes TO tindaflow_app;
+
+-- credit_override_grants (ADR-016 slice 3.3) is append-only except for ONE column: checkout stamps `consumed_at` (under the employee's row
+-- lock, in the sale's transaction) when the approval is used. The terminal, employee, cashier, approver, ceiling, token hash and expiry of a
+-- grant can never be changed, so a used or expired approval cannot be revived and an approval cannot be widened. This grant is also what
+-- lets checkout take its SELECT ... FOR UPDATE on the grant row (PostgreSQL needs UPDATE on at least one column for a row lock).
+GRANT UPDATE (consumed_at) ON credit_override_grants TO tindaflow_app;
 
 -- slip_counters is the running slip number of each terminal. The checkout transaction increments `last_number` (and stamps
 -- `updated_at`) and inserts a terminal's first row; nothing else about a counter ever changes, so the UPDATE is narrowed to those two
@@ -153,6 +167,8 @@ GRANT UPDATE (status) ON sales TO tindaflow_app;
 -- slip_footer are ordinary columns of a lifecycle table (the store settings and the mode switch update them), and idempotency_records
 -- gained one allowed operation type, which is a CHECK change only.
 
+-- Slice 3.3: employee_credit_entries gained the nullable override_grant_id (written only by the CHARGE's INSERT, under the table-wide UPDATE
+-- revoke); user_override_codes and credit_override_grants are above.
 -- Slice 3.2: employee_credit_entries is append-only (in the list above); sales.employee_id sits under the table-wide UPDATE revoke of
 -- `sales` (written once at INSERT); the payments / refund_settlements method CHECKs gained CREDIT, which is a constraint change only.
 

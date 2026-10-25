@@ -22,6 +22,7 @@ import EmployeesPage from './pages/admin/employees/EmployeesPage';
 import DishesPage from './pages/admin/menu/DishesPage';
 import MealPricesPage from './pages/admin/menu/MealPricesPage';
 import MealsPage from './pages/admin/menu/MealsPage';
+import OverrideCodePage from './pages/admin/overrides/OverrideCodePage';
 import UsersPage from './pages/admin/users/UsersPage';
 import StockPage from './pages/admin/inventory/StockPage';
 import SalesPage from './pages/admin/sales/SalesPage';
@@ -172,6 +173,14 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <UsersPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/override-code"
+                    element={
+                        <RequireAuth>
+                            <OverrideCodePage />
                         </RequireAuth>
                     }
                 />

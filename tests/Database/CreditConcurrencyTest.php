@@ -3,6 +3,7 @@
 namespace Tests\Database;
 
 use App\Domain\Financial\FinancialCalculator;
+use App\Domain\Money;
 use App\Models\Employee;
 use App\Models\FiscalDay;
 use App\Models\InventoryLocation;
@@ -19,6 +20,8 @@ use App\Services\Idempotency\CanonicalRequestHasher;
 use App\Services\Idempotency\IdempotencyService;
 use App\Services\Inventory\StockLedger;
 use App\Services\InvoiceNumbering\InvoiceSeriesAllocator;
+use App\Services\Overrides\CreditOverrideService;
+use App\Services\Overrides\OverrideCodeService;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Process;
@@ -212,6 +215,70 @@ class CreditConcurrencyTest extends TestCase
             $this->assertSame('0.00', $this->net(), 'the charge went first and was refused; the void then took the old charge back');
         }
         $this->assertSame(1, DB::table('employee_credit_entries')->where('entry_type', 'REVERSAL')->count());
+    }
+
+    /** A real grant for till $till's cashier from the store's manager, through the real service (committed, so the worker processes see it). */
+    private function grantToken(int $till, string $amount, string $code = '482916'): string
+    {
+        $manager = User::findOrFail($this->managerId);
+        if (! DB::table('user_override_codes')->where('user_id', $manager->id)->exists()) {
+            app(OverrideCodeService::class)->setOwn($manager, 'password', $code);
+        }
+
+        return app(CreditOverrideService::class)->grant(
+            User::findOrFail($this->tills[$till]['cashier']), Terminal::findOrFail($this->tills[$till]['terminal']), $manager->id, $code, $this->employeeId, new Money($amount),
+        )['token'];
+    }
+
+    public function test_one_supervisor_grant_used_by_two_racing_sales_is_consumed_by_exactly_one(): void
+    {
+        $product = $this->product('1600.00');
+        $token = $this->grantToken(0, '1600.00');
+
+        // Both over the 1,500 limit, same till, same token, different keys (so neither is an idempotent replay of the other). The employee
+        // lock queues them: the first consumes the grant and charges; the second finds the grant consumed (and the balance already past the limit).
+        $jobs = [$this->chargeJob(0, $product, '1600.00'), $this->chargeJob(0, $product, '1600.00')];
+        foreach ($jobs as &$job) {
+            $job['override_token'] = $token;
+        }
+        unset($job);
+        $outcomes = $this->race($jobs);
+
+        $this->assertCount(1, array_filter($outcomes, fn ($o) => $o['outcome'] === 'success'), json_encode($outcomes));
+        $refused = array_values(array_filter($outcomes, fn ($o) => $o['outcome'] === 'exception'));
+        $this->assertCount(1, $refused, json_encode($outcomes));
+        $this->assertSame('CREDIT_OVERRIDE_EXPIRED', $refused[0]['code'], json_encode($refused));
+
+        $this->assertSame(1, DB::table('sales')->where('employee_id', $this->employeeId)->count());
+        $this->assertSame(1, DB::table('employee_credit_entries')->whereNotNull('override_grant_id')->count());
+        $this->assertSame('1600.00', $this->net());
+        $this->assertNotNull(DB::table('credit_override_grants')->value('consumed_at'));
+        $this->assertSame(1, DB::table('audit_events')->where('event_type', 'CREDIT_OVERRIDE_USED')->count());
+        $this->assertSame(['ALREADY_USED'], DB::table('audit_events')->where('event_type', 'CREDIT_OVERRIDE_REFUSED')->pluck('reason')->all(), 'the loser is audited although its sale rolled back');
+    }
+
+    public function test_the_same_grant_raced_by_a_sale_that_needs_it_and_one_that_does_not_is_consumed_only_by_the_one_that_needs_it(): void
+    {
+        $small = $this->product('100.00');
+        $big = $this->product('1600.00');
+        $token = $this->grantToken(0, '1600.00');
+
+        $jobs = [$this->chargeJob(0, $small, '100.00'), $this->chargeJob(0, $big, '1600.00')];
+        $jobs[0]['override_token'] = $token;
+        $jobs[1]['override_token'] = $token;
+        $outcomes = $this->race($jobs);
+
+        // Whichever sale got the lock first: the small one is within the limit and never touches the grant. If it ran first the big one
+        // (100 used + 1,600) still needs the grant and gets it; if the big one ran first the small one then exceeds (1,600 used) and finds the
+        // grant gone. Either way the grant is consumed at most once and the limit is only ever passed by the sale that holds it.
+        $this->assertLessThanOrEqual(1, DB::table('employee_credit_entries')->whereNotNull('override_grant_id')->count());
+        $this->assertSame(
+            DB::table('employee_credit_entries')->whereNotNull('override_grant_id')->count(),
+            DB::table('credit_override_grants')->whereNotNull('consumed_at')->count(),
+        );
+        foreach (array_filter($outcomes, fn ($o) => $o['outcome'] !== 'success') as $refused) {
+            $this->assertContains($refused['code'], ['CREDIT_OVERRIDE_EXPIRED', 'CREDIT_LIMIT_EXCEEDED'], json_encode($refused));
+        }
     }
 
     private function checkout(int $till, string $productId, string $amount): string

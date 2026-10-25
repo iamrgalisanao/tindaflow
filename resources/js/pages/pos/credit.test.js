@@ -57,3 +57,32 @@ describe('credit helpers', () => {
         expect(limitRefusal({ status: 0, body: null })).toBeNull();
     });
 });
+
+describe('supervisor override helpers (slice 3.3)', () => {
+    it('cleans a typed or pasted code to at most eight digits', async () => {
+        const { cleanOverrideCode } = await import('./credit');
+        expect(cleanOverrideCode('48 29-16')).toBe('482916');
+        expect(cleanOverrideCode('1234567890')).toBe('12345678');
+        expect(cleanOverrideCode(null)).toBe('');
+    });
+
+    it('turns the answers into words that never say why a code failed or how many tries are left', async () => {
+        const { overrideFailureText, isOverrideRefusal } = await import('./credit');
+        const failure = (status, code, message) => ({ ok: false, status, body: { error: { code, message } } });
+
+        expect(overrideFailureText(failure(422, 'CREDIT_OVERRIDE_INVALID', 'That code did not work.'))).toBe('That code did not work.');
+        expect(overrideFailureText(failure(423, 'CREDIT_OVERRIDE_LOCKED', 'Locked for 15 minutes.'))).toBe('Locked for 15 minutes.');
+        expect(overrideFailureText(failure(403, 'CREDIT_OVERRIDE_NOT_ALLOWED', 'You cannot approve your own sale.'))).toBe('You cannot approve your own sale.');
+        expect(overrideFailureText({ ok: false, status: 429, body: { error: { code: 'RATE_LIMITED' } } })).toMatch(/Too many tries/);
+        expect(overrideFailureText({ ok: false, status: 0, body: null })).toMatch(/connection dropped/);
+        expect(isOverrideRefusal(failure(409, 'CREDIT_OVERRIDE_EXPIRED', 'x'))).toBe(true);
+        expect(isOverrideRefusal(failure(409, 'CREDIT_LIMIT_EXCEEDED', 'x'))).toBe(false);
+        expect(isOverrideRefusal(null)).toBe(false);
+    });
+
+    it('keeps only what the till needs of a grant', async () => {
+        const { grantFromResponse } = await import('./credit');
+        expect(grantFromResponse({ token: 't', grant_id: 'g', max_amount: '15.00', expires_at: 'x', employee_id: 'e', approver: { id: 'm', name: 'Mia' } }))
+            .toEqual({ token: 't', grantId: 'g', maxAmount: '15.00', expiresAt: 'x', approverName: 'Mia' });
+    });
+});

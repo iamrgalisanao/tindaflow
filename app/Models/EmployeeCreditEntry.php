@@ -24,7 +24,7 @@ class EmployeeCreditEntry extends Model
 
     protected $fillable = [
         'store_id', 'employee_id', 'entry_type', 'amount', 'period_start', 'period_end', 'sale_id', 'refund_id', 'void_id',
-        'employee_code', 'employee_name', 'employee_type', 'billing_party_id', 'recorded_at',
+        'employee_code', 'employee_name', 'employee_type', 'billing_party_id', 'recorded_at', 'override_grant_id',
     ];
 
     protected function casts(): array

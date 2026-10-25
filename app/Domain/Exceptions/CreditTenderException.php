@@ -25,6 +25,11 @@ final class CreditTenderException extends DomainException
         return new self('CREDIT_EMPLOYEE_REQUIRED', 'An employee can be named only on a sale paid with credit.');
     }
 
+    public static function overrideWithoutCredit(): self
+    {
+        return new self('CREDIT_EMPLOYEE_REQUIRED', 'A supervisor approval can be used only on a sale paid with credit.');
+    }
+
     public function errorCode(): string
     {
         return $this->errorKey;

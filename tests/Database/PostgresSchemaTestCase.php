@@ -41,6 +41,8 @@ abstract class PostgresSchemaTestCase extends TestCase
         }
 
         DB::beginTransaction();
+        // This base class holds one transaction around the whole test; the override-code guard (CreditOverrideService) must tolerate exactly that.
+        config(['tindaflow.credit_override.base_transaction_level' => 1]);
     }
 
     /** An ADMIN in a store whose fiscal configuration is unlocked (ADR-014), as during installation. */

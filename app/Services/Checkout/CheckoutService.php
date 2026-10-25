@@ -2,6 +2,8 @@
 
 namespace App\Services\Checkout;
 
+use App\Domain\Exceptions\CreditLimitExceededException;
+use App\Domain\Exceptions\CreditOverrideException;
 use App\Domain\Exceptions\CreditTenderException;
 use App\Domain\Exceptions\FiscalDayNotOpenException;
 use App\Domain\Exceptions\InsufficientPaymentException;
@@ -41,6 +43,8 @@ use App\Services\Inventory\StockLedger;
 use App\Services\InvoiceNumbering\InvoiceSeriesAllocator;
 use App\Services\Menu\MenuGroupPath;
 use App\Services\Menu\MenuPriceResolver;
+use App\Services\Overrides\CreditOverrideService;
+use App\Services\Overrides\OverrideAuditor;
 use App\Services\Slips\SlipNumberAllocator;
 use App\Services\Slips\SlipSnapshotBuilder;
 use App\Support\GlobalLockOrder;
@@ -84,11 +88,13 @@ final class CheckoutService
         private ?SlipNumberAllocator $slipNumberAllocator = null,
         private ?SlipSnapshotBuilder $slipSnapshotBuilder = null,
         private ?CreditLedger $creditLedger = null,
+        private ?CreditOverrideService $creditOverrides = null,
     ) {
         $this->mealLineResolver ??= new MealLineResolver(new MenuPriceResolver);
         $this->slipNumberAllocator ??= new SlipNumberAllocator;
         $this->slipSnapshotBuilder ??= new SlipSnapshotBuilder;
         $this->creditLedger ??= new CreditLedger(new CreditPolicyService(new EmployeeAuditor));
+        $this->creditOverrides ??= new CreditOverrideService(new OverrideAuditor, $this->creditLedger);
     }
 
     /**
@@ -102,13 +108,21 @@ final class CheckoutService
     {
         $requestHash = $this->requestHasher->hash($payload);
 
-        $result = $this->idempotencyService->execute(
-            $terminalId,
-            $idempotencyKey,
-            IdempotencyOperationType::Checkout,
-            $requestHash,
-            fn () => $this->performCheckout($terminalId, $cashierId, $idempotencyKey, $payload),
-        );
+        try {
+            $result = $this->idempotencyService->execute(
+                $terminalId,
+                $idempotencyKey,
+                IdempotencyOperationType::Checkout,
+                $requestHash,
+                fn () => $this->performCheckout($terminalId, $cashierId, $idempotencyKey, $payload),
+            );
+        } catch (CreditOverrideException $refusal) {
+            // The sale's transaction has rolled back (so the grant is still unused and nothing was charged). The refusal is audited NOW,
+            // outside it, because an event written inside would have rolled back with it (ADR-016 section 6, CREDIT_OVERRIDE_REFUSED).
+            $this->creditOverrides->recordCheckoutRefusal($refusal, Terminal::findOrFail($terminalId)->store_id, $cashierId, $terminalId);
+
+            throw $refusal;
+        }
 
         return Sale::findOrFail($result->resultResourceId);
     }
@@ -168,6 +182,8 @@ final class CheckoutService
         // Global Lock Order position 2 (after shift and fiscal day, before anything of the sale): the employee row, so two tills
         // charging one employee queue here and the second reads the balance the first left (CREDIT-003). Active and in this store, or refused.
         $creditEmployee = $creditEmployeeId === null ? null : $this->creditLedger->lockEmployeeForCharge($lockOrder, $storeId, $creditEmployeeId);
+        $overrideGrant = null; // set below only when a supervisor approval is consumed to go past the limit
+        $overrideLimit = [];
 
         // ADR-016 section 7: the store's document mode decides which of two paths this sale takes. INVOICE (every store until it
         // is switched) is the unchanged fiscal path below; SLIP skips the fiscal installation, the invoice series, the invoice row
@@ -269,8 +285,10 @@ final class CheckoutService
         // (RoleCapabilityCatalog grants it to MANAGER/ADMIN only, never CASHIER; openapi.yaml's own
         // `override_reason` field description already says the capability check applies here). Mirrors
         // CashMovementService's Gate::forUser() pattern for CASH_OUT: the acting cashier must personally
-        // hold the capability, there is no separate "manager PIN" mechanism in this contract to authorize
-        // on someone else's behalf. Checked against the server-computed total, never the client's raw
+        // hold the capability. There is no manager-PIN mechanism for discounts, and none to authorize
+        // on someone else's behalf. The ONE scoped exception in the system is ADR-016 slice 3.3's supervisor
+        // override of the CREDIT LIMIT (a named approver's code -> a single-use grant, consumed below); it
+        // approves nothing else, least of all a discount. Checked against the server-computed total, never the client's raw
         // request fields, so a client cannot dodge the check by lying about which line produced it.
         //
         // Deliberately checked against THIS pass -- manual discounts only, before any statutory discount
@@ -352,7 +370,20 @@ final class CheckoutService
             // The till previews the total before a Senior Citizen / PWD discount, which only the server works out, so the amount it sent may be
             // higher than the real total. A credit payment is always exactly the grand total (CREDIT-001): it is recorded as such, and there is
             // no change on credit. The limit is checked against the real total, under the employee lock taken above.
-            $this->creditLedger->assertWithinLimit($creditEmployee, $calculation->grandTotal, $soldAt);
+            try {
+                $this->creditLedger->assertWithinLimit($creditEmployee, $calculation->grandTotal, $soldAt);
+            } catch (CreditLimitExceededException $exceeded) {
+                // ADR-016 section 6: only a sale that would really go over the limit uses a supervisor approval, and then only that sale.
+                // The grant is consumed here, under the employee lock taken above and in this same transaction, so one approval can
+                // never cover two sales and a rolled-back sale leaves it unused. Without a token the refusal stands, as before.
+                $overrideToken = $payload['credit_override_token'] ?? null;
+                if ($overrideToken === null) {
+                    throw $exceeded;
+                }
+                $lockOrder->acquire(LockableResource::OverrideGrant); // after the employee, before anything of the sale
+                $overrideGrant = $this->creditOverrides->consume($overrideToken, $terminal, $cashierId, $creditEmployee, $calculation->grandTotal, $soldAt);
+                $overrideLimit = ['limit' => $exceeded->details()['limit'], 'used' => $exceeded->details()['used']];
+            }
             $payload['payments'] = [[
                 'method' => 'CREDIT',
                 'amount' => $calculation->grandTotal->toApiString(),
@@ -465,7 +496,13 @@ final class CheckoutService
 
         // CREDIT-004: the charge is written in the sale's own transaction, in the period the sale's local calendar date falls in.
         if ($creditEmployee !== null) {
-            $this->creditLedger->recordCharge($creditEmployee, $sale, $calculation->grandTotal, $soldAt);
+            $this->creditLedger->recordCharge($creditEmployee, $sale, $calculation->grandTotal, $soldAt, $overrideGrant?->id);
+            if ($overrideGrant !== null) {
+                $this->creditOverrides->recordUsed($storeId, $cashierId, $terminalId, $overrideGrant, $overrideLimit + [
+                    'sale_id' => $sale->id, 'employee_code' => $creditEmployee->employee_code, 'amount' => $calculation->grandTotal->toApiString(),
+                    'max_amount' => (string) $overrideGrant->max_amount,
+                ]);
+            }
         }
 
         $saleItems = $sale->items()->get();
@@ -666,6 +703,10 @@ final class CheckoutService
         $credit = array_values(array_filter($payments, fn (array $payment) => $payment['method'] === 'CREDIT'));
 
         if ($credit === []) {
+            if (($payload['credit_override_token'] ?? null) !== null) {
+                throw CreditTenderException::overrideWithoutCredit();
+            }
+
             return $employeeId === null ? null : throw CreditTenderException::employeeWithoutCredit();
         }
         if (count($payments) !== 1) {

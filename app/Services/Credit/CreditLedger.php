@@ -96,8 +96,9 @@ final class CreditLedger
     }
 
     /**
-     * CREDIT-003 (override not yet built, slice 3.3): used + this charge must not exceed the limit. Exactly meeting it is allowed.
-     * Call under the employee lock.
+     * CREDIT-003: used + this charge must not exceed the limit. Exactly meeting it is allowed. Call under the employee lock. A caller
+     * holding a valid supervisor override (OVR-001, OVR-002, CreditOverrideService) catches the exception and carries on; the
+     * rule itself is unchanged and nothing here knows about overrides.
      *
      * @throws CreditLimitExceededException
      */
@@ -114,7 +115,8 @@ final class CreditLedger
         }
     }
 
-    public function recordCharge(Employee $employee, Sale $sale, Money $amount, CarbonInterface $at): EmployeeCreditEntry
+    /** $overrideGrantId names the supervisor override grant when the charge went past the limit (OVR-001); null for every ordinary charge. */
+    public function recordCharge(Employee $employee, Sale $sale, Money $amount, CarbonInterface $at, ?string $overrideGrantId = null): EmployeeCreditEntry
     {
         $period = $this->cutOffAt($at);
 
@@ -131,6 +133,7 @@ final class CreditLedger
             'employee_type' => $employee->employee_type->value,
             'billing_party_id' => $employee->billing_party_id,
             'recorded_at' => $at,
+            'override_grant_id' => $overrideGrantId,
         ]);
     }
 

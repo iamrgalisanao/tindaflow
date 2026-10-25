@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import SlideOver from '../SlideOver';
+import OverrideCodeReset from '../overrides/OverrideCodeReset';
 import { failureMessage, fieldErrors, request } from '../catalog/catalogApi';
 
 export const ROLES = [
@@ -275,6 +276,8 @@ export default function UserFormPanel({
                         <p className="mt-1 text-[11px] text-slate-500">Access follows the role and updates after you save a role change.</p>
                     </div>
                 )}
+
+                {editing && <OverrideCodeReset user={user} />}
 
                 {editing && (
                     <div className="border-t border-slate-800 pt-4">

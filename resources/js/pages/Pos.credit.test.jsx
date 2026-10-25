@@ -238,7 +238,7 @@ describe('ringing a credit sale', () => {
         expect(screen.queryByLabelText('Payer')).toBeNull();
     });
 
-    it('shows the limit, used, remaining and the sale amount when the server refuses, offers no override, and lets the cashier take cash', async () => {
+    it('shows the limit, used, remaining and the sale amount when the server refuses, offers a manager approval, and lets the cashier take cash', async () => {
         saleResponse = () => ({
             ok: false,
             status: 409,
@@ -255,7 +255,7 @@ describe('ringing a credit sale', () => {
         expect(refusal.textContent).toContain('₱1,490.00');
         expect(refusal.textContent).toContain('₱10.00');
         expect(refusal.textContent).toContain('₱15.00');
-        expect(refusal.textContent).not.toMatch(/override|supervisor/i);
+        expect(within(refusal).getByRole('button', { name: 'Ask a manager to approve' })).toBeTruthy(); // slice 3.3
         expect(screen.queryByText('Sale complete')).toBeNull();
 
         fireEvent.click(screen.getByRole('button', { name: 'Pay with cash instead' }));

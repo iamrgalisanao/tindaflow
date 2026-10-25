@@ -383,6 +383,44 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $this->assertTrue($this->refuses(fn () => DB::table('sales')->where('id', $first['id'])->update(['employee_id' => null])), 'the employee of a sale is written once');
     }
 
+    public function test_the_supervisor_override_works_as_the_restricted_role_and_the_grant_and_the_ledger_cannot_be_altered(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+        $employeeId = $this->asUser($w['admin'])->postJson('/api/v1/employees', ['employee_type' => 'DIRECT', 'first_name' => 'Ana', 'last_name' => 'Reyes'])->assertStatus(201)->json('id');
+
+        // INSERT then column-level UPDATE of user_override_codes (set, change, wrong-code counter, lock, admin reset), all as the restricted role.
+        $this->asUser($w['manager'])->putJson('/api/v1/credit-override-code', ['password' => 'password', 'code' => '482916'])->assertOk();
+        $this->asUser($w['manager'])->putJson('/api/v1/credit-override-code', ['password' => 'password', 'code' => '739152'])->assertOk();
+        $cashier = $this->asUser($w['cashier'], $w['enroll1']);
+        $cashier->postJson('/api/v1/credit-overrides', ['approver_id' => $w['manager']->id, 'code' => '000001', 'employee_id' => $employeeId, 'amount' => '1600.00'])->assertStatus(422);
+        $this->assertSame(1, (int) DB::table('user_override_codes')->where('user_id', $w['manager']->id)->value('failed_attempts'));
+        $token = $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/credit-overrides', ['approver_id' => $w['manager']->id, 'code' => '739152', 'employee_id' => $employeeId, 'amount' => '1600.00'])
+            ->assertStatus(201)->json('token');
+
+        // Checkout locks the grant row FOR UPDATE and stamps consumed_at (needs the column-level UPDATE), then inserts the CHARGE with the link.
+        $big = Product::factory()->create(['store_id' => $w['storeId'], 'selling_price' => '1600.00', 'cost' => '1.00']);
+        $sale = $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
+            'items' => [['product_id' => $big->id, 'quantity' => '1']],
+            'payments' => [['method' => 'CREDIT', 'amount' => '1600.00']],
+            'employee_id' => $employeeId, 'credit_override_token' => $token,
+        ], $this->key())->assertStatus(201)->json();
+        $this->assertNotNull(DB::table('credit_override_grants')->value('consumed_at'));
+        $this->assertNotNull(DB::table('employee_credit_entries')->where('sale_id', $sale['id'])->value('override_grant_id'));
+        $this->asUser($w['admin'])->postJson("/api/v1/users/{$w['manager']->id}/override-code/reset", ['password' => 'password'])->assertOk();
+
+        // A grant can be consumed and nothing more: its binding, ceiling, token hash and expiry never change, and it is never deleted.
+        foreach ([['terminal_id', $w['t2']->id], ['employee_id', $employeeId], ['cashier_id', $w['manager']->id], ['approver_id', $w['cashier']->id], ['max_amount', '9999.00'], ['token_hash', str_repeat('a', 64)], ['expires_at', now()->addYear()]] as [$column, $value]) {
+            $this->assertTrue($this->refuses(fn () => DB::table('credit_override_grants')->update([$column => $value])), "{$column} of a grant must not be updatable");
+        }
+        $this->assertTrue($this->refuses(fn () => DB::table('credit_override_grants')->delete()), 'a grant must not be deletable');
+        // A code row moves to nobody else and is never deleted.
+        $this->assertTrue($this->refuses(fn () => DB::table('user_override_codes')->update(['user_id' => $w['cashier']->id])), 'a code row stays with its user');
+        $this->assertTrue($this->refuses(fn () => DB::table('user_override_codes')->update(['store_id' => $w['storeId']])), 'a code row stays in its store');
+        $this->assertTrue($this->refuses(fn () => DB::table('user_override_codes')->delete()), 'a code row must not be deletable');
+        // The ledger link of a charge is written once, at INSERT.
+        $this->assertTrue($this->refuses(fn () => DB::table('employee_credit_entries')->update(['override_grant_id' => null])), 'the override link of a charge must not be updatable');
+    }
+
     public function test_the_tables_the_app_is_allowed_to_delete_from_are_exactly_the_ones_that_hold_no_money_or_audit_data(): void
     {
         $this->worldUnderTheHardenedRole();

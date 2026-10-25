@@ -31,6 +31,19 @@ return [
         'per_minute' => env('EMPLOYEE_LOOKUP_THROTTLE_PER_MINUTE', 30),
     ],
 
+    // ADR-016 slice 3.3 (supervisor override of the credit limit). Technical safeguards agreed in the ADR: five wrong codes lock that
+    // approver for fifteen minutes; a grant is good for five minutes; a terminal (and a signed-in user) may submit ten override requests
+    // in fifteen minutes; the code and the account password are re-entered to set a code, ten tries in fifteen minutes per user.
+    'credit_override' => [
+        'max_wrong_codes' => (int) env('CREDIT_OVERRIDE_MAX_WRONG_CODES', 5),
+        'lock_minutes' => (int) env('CREDIT_OVERRIDE_LOCK_MINUTES', 15),
+        'grant_ttl_minutes' => (int) env('CREDIT_OVERRIDE_GRANT_TTL_MINUTES', 5),
+        'throttle_attempts' => (int) env('CREDIT_OVERRIDE_THROTTLE_ATTEMPTS', 10),
+        'throttle_minutes' => (int) env('CREDIT_OVERRIDE_THROTTLE_MINUTES', 15),
+        // Transactions the process already holds when a code is verified. Always 0 outside tests; see CreditOverrideService.
+        'base_transaction_level' => 0,
+    ],
+
     // A3: the tindaflow_terminal credential cookie's lifetime. ADR-011
     // calls for a "long-lived" credential; the exact duration is an
     // internal Stage 6 operational choice, not part of the frozen
