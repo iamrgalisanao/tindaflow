@@ -53,6 +53,8 @@ Keep `docker/letsencrypt/` (certbot's account and keys; git ignores it) and neve
 
 **Sample products for beta testers.** A production server starts with an empty catalog (the demo data is never loaded there). To give testers something to sell: `docker compose exec app php artisan tindaflow:load-sample-data`. It asks before changing anything, then adds five categories and 28 products whose SKUs start with `SAMPLE-`, through the same import the catalog screen uses (so each is in the audit log). It creates no user, till, tax registration, stock or barcode. Running it again puts the sample products back to their original values and touches nothing else. Do not run it on a shop that is really trading.
 
+**The canteen menu.** A canteen server starts with no menu groups, dishes or meals (the seeders refuse production). To load the starting menu: `docker compose exec app php artisan tindaflow:load-canteen-menu`. It asks before changing anything, then adds the 7 menu groups and their sub-groups, the dish categories and dishes, Standard Meal and Combo Meal with their choices, the rice add-ons (whole 15, half 10) and the opening prices (Standard: beef 68, chicken/pork/fish 60, vegetable 60; Combo: beef 85, chicken/pork/fish 80, **an assumption until the client confirms**). It creates menu rows only, attributed to the store's first administrator, and records a `CANTEEN_MENU_LOADED` audit event. Running it again adds nothing that already exists and never undoes an admin's change, but it matches by name, so load it once and then manage the menu on the Meal menu admin screens. `--store="<name>"` only if the server has more than one store.
+
 ## Upgrading
 
 ```bash

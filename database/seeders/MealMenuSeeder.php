@@ -66,7 +66,12 @@ class MealMenuSeeder extends Seeder
             return;
         }
 
-        $store ??= Store::firstOrCreate(['name' => env('TINDAFLOW_INITIAL_STORE_NAME', 'My Sari-Sari Store')]);
+        $this->seed($store ?? Store::firstOrCreate(['name' => env('TINDAFLOW_INITIAL_STORE_NAME', 'My Sari-Sari Store')]));
+    }
+
+    /** The seeding itself, without the production guard: `tindaflow:load-canteen-menu` calls it after asking the operator. */
+    public function seed(Store $store): void
+    {
         $actor = User::where('store_id', $store->id)->where('role', 'ADMIN')->orderBy('created_at')->first()
             ?? User::where('store_id', $store->id)->orderBy('created_at')->first();
         if ($actor === null) {

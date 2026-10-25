@@ -35,8 +35,12 @@ class MenuGroupSeeder extends Seeder
             return;
         }
 
-        $store ??= Store::firstOrCreate(['name' => env('TINDAFLOW_INITIAL_STORE_NAME', 'My Sari-Sari Store')]);
+        $this->seed($store ?? Store::firstOrCreate(['name' => env('TINDAFLOW_INITIAL_STORE_NAME', 'My Sari-Sari Store')]));
+    }
 
+    /** The seeding itself, without the production guard: `tindaflow:load-canteen-menu` calls it after asking the operator. */
+    public function seed(Store $store): void
+    {
         $position = 0;
         foreach (self::TREE as $topName => $subNames) {
             $top = MenuGroup::firstOrCreate(
