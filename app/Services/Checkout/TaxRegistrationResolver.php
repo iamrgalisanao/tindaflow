@@ -3,6 +3,7 @@
 namespace App\Services\Checkout;
 
 use App\Domain\Exceptions\TaxRegistrationResolutionException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -29,18 +30,40 @@ final class TaxRegistrationResolver
 {
     public function resolveForStore(string $storeId, string $soldAtDate): string
     {
-        $matches = DB::table('tax_registrations')
-            ->where('store_id', $storeId)
-            ->where('effective_from', '<=', $soldAtDate)
-            ->where(function ($query) use ($soldAtDate) {
-                $query->whereNull('effective_to')->orWhere('effective_to', '>=', $soldAtDate);
-            })
-            ->pluck('registration_type');
+        $matches = $this->activeRegistrationTypes($storeId, $soldAtDate);
 
         return match ($matches->count()) {
             0 => throw TaxRegistrationResolutionException::noActiveRegistrationForStore($storeId, $soldAtDate),
             1 => $matches->first(),
             default => throw TaxRegistrationResolutionException::ambiguousRegistrationForStore($storeId, $soldAtDate, $matches->count()),
         };
+    }
+
+    /**
+     * The same resolution for a store in SLIP mode (ADR-016 section 7), which prints no tax breakdown and may never have registered
+     * a tax status: no active registration is a normal state there and answers null (the caller then treats the sale as non-VAT).
+     * Two or more overlapping registrations are still a data defect and still throw.
+     */
+    public function resolveForStoreIfAny(string $storeId, string $soldAtDate): ?string
+    {
+        $matches = $this->activeRegistrationTypes($storeId, $soldAtDate);
+
+        return match ($matches->count()) {
+            0 => null,
+            1 => $matches->first(),
+            default => throw TaxRegistrationResolutionException::ambiguousRegistrationForStore($storeId, $soldAtDate, $matches->count()),
+        };
+    }
+
+    /** @return Collection<int, string> */
+    private function activeRegistrationTypes(string $storeId, string $soldAtDate): Collection
+    {
+        return DB::table('tax_registrations')
+            ->where('store_id', $storeId)
+            ->where('effective_from', '<=', $soldAtDate)
+            ->where(function ($query) use ($soldAtDate) {
+                $query->whereNull('effective_to')->orWhere('effective_to', '>=', $soldAtDate);
+            })
+            ->pluck('registration_type');
     }
 }

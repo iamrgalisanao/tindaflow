@@ -610,3 +610,9 @@ applying to the business day in slip mode.
     A slip sale never consumes an invoice number; a slip number is a per-terminal running integer allocated in the finalize transaction (no gap
     from a rolled-back sale), formatted so it cannot be mistaken for an invoice number. The store's `sale_document_mode` changes only under
     `FISCAL_CONFIGURATION_MANAGE`, while no shift or fiscal day is open, with an audit event.
+    *Built in slice 2.2a (2026-10-25):* enforced by `CheckoutService` (one document per sale, in the mode read inside the checkout
+    transaction), `slip_counters` (the number rolls back with the sale; `UNIQUE (terminal_id, slip_sequence)` and `UNIQUE (sale_id)` back it),
+    `SaleDocumentSettingsService` (capability, nothing open, audit; a shared lock in `ShiftOpenService` closes the open-shift race) and
+    `CHECK (document_mode IN ('INVOICE','SLIP'))`. There is no database trigger tying `sales.document_mode` to the presence of an `invoices`
+    or `sale_slips` row; `tests/Database/SlipModeHttpTest` and `InvoiceModeUnchangedTest` pin it. The slip carries no invoice wording (it
+    never says "invoice" or "official receipt"; the store's footer line is the only free text).

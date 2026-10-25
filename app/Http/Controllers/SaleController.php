@@ -65,7 +65,7 @@ class SaleController extends Controller
     public function list(Request $request): JsonResponse
     {
         $actor = Auth::guard('web')->user();
-        $query = Sale::query()->where('store_id', $actor->store_id)->with('invoice')
+        $query = Sale::query()->where('store_id', $actor->store_id)->with(['invoice', 'slip'])
             ->when(! $actor->can('REPORT_VIEW'), fn (Builder $sales) => $sales->where('cashier_id', $actor->id));
 
         if ($request->filled('transaction_number')) {
@@ -73,6 +73,16 @@ class SaleController extends Controller
         }
         if ($request->filled('invoice_number')) {
             $query->whereHas('invoice', fn (Builder $invoice) => $invoice->where('invoice_number', (string) $request->query('invoice_number')));
+        }
+        if ($request->filled('slip_number')) {
+            $query->whereHas('slip', fn (Builder $slip) => $slip->where('slip_number', (string) $request->query('slip_number')));
+        }
+        // One box for the number on the paper, whichever document the sale got: its invoice number, or its slip number (ADR-016).
+        if ($request->filled('document_number')) {
+            $number = (string) $request->query('document_number');
+            $query->where(fn (Builder $either) => $either
+                ->whereHas('invoice', fn (Builder $invoice) => $invoice->where('invoice_number', $number))
+                ->orWhereHas('slip', fn (Builder $slip) => $slip->where('slip_number', $number)));
         }
         foreach (['cashier_id', 'terminal_id'] as $column) {
             if ($request->filled($column)) {
@@ -113,7 +123,7 @@ class SaleController extends Controller
     public function get(string $saleId): JsonResponse
     {
         $actor = Auth::guard('web')->user();
-        $sale = Sale::where('store_id', $actor->store_id)->with(['items.selections', 'payments', 'invoice'])
+        $sale = Sale::where('store_id', $actor->store_id)->with(['items.selections', 'payments', 'invoice', 'slip'])
             ->when(! $actor->can('REPORT_VIEW'), fn (Builder $sales) => $sales->where('cashier_id', $actor->id))
             ->find($saleId)
             ?? throw SaleNotFoundException::forId($saleId);

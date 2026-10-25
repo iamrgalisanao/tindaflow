@@ -7,6 +7,8 @@ import { ErrorAlert, Toast } from '../catalog/CatalogParts';
 import { RETURN_KEY, failureMessage, request } from '../catalog/catalogApi';
 import { formatDateTime, formatMoney, formatQuantity, shortId } from '../reports/formatters';
 import InvoicePanel from './InvoicePanel';
+import SlipPanel from './SlipPanel';
+import { documentEndpoints, documentLabel, documentTitle } from '../../../lib/saleDocument';
 import RefundPanel from './RefundPanel';
 import { fromCents, toCents } from './refundMath';
 import VoidSalePanel from './VoidSalePanel';
@@ -127,7 +129,7 @@ export default function SaleDetailPage() {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                             <div className="flex flex-wrap items-center gap-3">
-                                <h2 className="text-xl font-semibold text-slate-100">Invoice {sale.invoice_number ?? '—'}</h2>
+                                <h2 className="text-xl font-semibold text-slate-100">{documentTitle(sale)}</h2>
                                 <StatusBadge status={sale.status} />
                             </div>
                             <p className="mt-1 font-mono text-[12px] text-slate-500">
@@ -135,13 +137,13 @@ export default function SaleDetailPage() {
                             </p>
                         </div>
                         <div className="flex gap-2">
-                            {sale.invoice && (
+                            {documentEndpoints(sale) && (
                                 <button
                                     type="button"
                                     onClick={() => setPanel('invoice')}
                                     className="min-h-11 rounded-md border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800 lg:min-h-0"
                                 >
-                                    Invoice
+                                    {documentLabel(sale)}
                                 </button>
                             )}
                             {canRefund && (
@@ -295,6 +297,9 @@ export default function SaleDetailPage() {
 
             {panel === 'invoice' && sale?.invoice && (
                 <InvoicePanel invoiceId={sale.invoice.id} invoiceNumber={sale.invoice.invoice_number} canPrint={canRecord} onClose={closePanel} onUnauthorized={signIn} />
+            )}
+            {panel === 'invoice' && sale?.slip && (
+                <SlipPanel slipId={sale.slip.id} slipNumber={sale.slip.slip_number} canPrint={canRecord} onClose={closePanel} onUnauthorized={signIn} />
             )}
             {panel === 'void' && sale && (
                 <VoidSalePanel sale={sale} executesImmediately={can('SALE_VOID_APPROVE')} onDone={voidDone} onClose={closePanel} onUnauthorized={signIn} />

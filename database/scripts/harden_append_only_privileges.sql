@@ -84,8 +84,15 @@ REVOKE UPDATE ON
     audit_events,
     electronic_journal_entries,
     menu_prices,    -- ADR-016 slice 1.2, MENU-004: the menu's price history; a price change is a new row
-    sale_item_selections -- ADR-016 slice 1.3, MENU-001: what was chosen on a meal line, snapshotted at the sale; never changed
+    sale_item_selections, -- ADR-016 slice 1.3, MENU-001: what was chosen on a meal line, snapshotted at the sale; never changed
+    sale_slips,     -- ADR-016 slice 2.2a, SLIP-001: the document of a slip-mode sale and its print snapshot; never changed
+    slip_counters   -- ADR-016 slice 2.2a: lifecycle, not append-only -- UPDATE is revoked here and re-granted by column below
 FROM tindaflow_app;
+
+-- slip_counters is the running slip number of each terminal. The checkout transaction increments `last_number` (and stamps
+-- `updated_at`) and inserts a terminal's first row; nothing else about a counter ever changes, so the UPDATE is narrowed to those two
+-- columns. Like every table it is never deleted (the store-wide REVOKE DELETE above). A sale that rolls back rolls its increment back.
+GRANT UPDATE (last_number, updated_at) ON slip_counters TO tindaflow_app;
 
 -- voids/refunds are NOT fully append-only (they transition
 -- REQUESTED -> APPROVED/REJECTED/VOIDED|COMPLETED, Stage 4 pass 5's
@@ -123,6 +130,10 @@ GRANT UPDATE (status) ON sales TO tindaflow_app;
 -- REVOKE UPDATE list above. products.menu_hidden is an ordinary column of a lifecycle table.
 -- Slice 1.3 adds no lifecycle table: sale_item_selections is append-only (in the list above) and the four meal snapshot columns of
 -- sale_items (menu_group_path_snapshot, meal_id, meal_name_snapshot, parent_line_number) sit under the table-wide UPDATE revoke.
+-- Slice 2.2a (slip mode): sale_slips is append-only (in the list above); slip_counters is lifecycle with a column-level UPDATE (above);
+-- sales.document_mode sits under the table-wide UPDATE revoke of `sales` (written once at INSERT); store_settings.sale_document_mode and
+-- slip_footer are ordinary columns of a lifecycle table (the store settings and the mode switch update them), and idempotency_records
+-- gained one allowed operation type, which is a CHECK change only.
 
 -- shifts/fiscal_days/invoice_series/idempotency_records are lifecycle
 -- aggregates with frozen-domain-required in-place field changes

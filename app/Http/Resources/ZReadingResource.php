@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\ZReading;
+use App\Services\FiscalDay\DayDocumentMode;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -28,6 +29,8 @@ class ZReadingResource extends JsonResource
             'generated_at' => $this->resource->generated_at?->toJSON(),
             'generated_by' => $this->resource->generated_by,
             'totals_snapshot' => $this->resource->totals_snapshot,
+            // ADR-016: SLIP when the day's sales were slips, so the screens call this reading the internal end-of-day report.
+            'document_mode' => DayDocumentMode::of($this->resource->fiscal_day_id, $this->resource->terminal->store_id)->value,
             // null until the original has been printed; then when, and by whom (copies are in the audit log).
             'original_printed_at' => $this->resource->originalPrint?->printed_at?->toJSON(),
             'original_printed_by' => $this->resource->originalPrint?->printed_by,

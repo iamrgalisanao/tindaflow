@@ -35,6 +35,8 @@ class SaleDetailResource extends JsonResource
             'uuid' => $this->resource->id,
             'transaction_number' => $this->resource->transaction_number,
             'invoice_number' => $this->resource->invoice?->invoice_number,
+            'document_mode' => $this->resource->document_mode,
+            'document_reference' => $this->resource->documentReference(),
             'store_id' => $this->resource->store_id,
             'terminal_id' => $this->resource->terminal_id,
             'fiscal_day_id' => $this->resource->fiscal_day_id,
@@ -63,6 +65,7 @@ class SaleDetailResource extends JsonResource
             'amount_tendered' => $amountTendered->toApiString(),
             'change' => $change->toApiString(),
             'invoice' => $this->resource->invoice ? new InvoiceSummaryResource($this->resource->invoice) : null,
+            'slip' => $this->resource->slip ? new SaleSlipSummaryResource($this->resource->slip) : null,
             'void' => $this->currentVoid(),
             'refunds' => RefundSummaryResource::collection($this->resource->refunds()->orderBy('requested_at')->get()),
         ];

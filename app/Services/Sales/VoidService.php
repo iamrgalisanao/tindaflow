@@ -257,6 +257,8 @@ final class VoidService
                 'sale_id' => $sale->id,
                 'transaction_number' => $sale->transaction_number,
                 'invoice_number' => $sale->invoice()->value('invoice_number'),
+                // A slip sale has no invoice (ADR-016); its payload names the slip so the entry still says which sale document it reverses.
+                ...($sale->document_mode === 'SLIP' ? ['slip_number' => $sale->slip()->value('slip_number')] : []),
                 'grand_total' => $sale->grand_total,
                 'reason' => $void->reason,
                 'requested_by' => $void->requested_by,

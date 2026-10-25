@@ -721,7 +721,7 @@ mechanism V1 actually supports.
 ### 2.13 Canteen extension: meal menu, employee credit, slip mode, billing (ADR-016, proposed 2026-10-25)
 
 Additive only: no existing entity changes meaning. Full rationale, alternatives and the client decision on invoicing are in
-[ADR-016](../03-architecture/decisions/ADR-016-configurable-meal-menu-employee-credit-and-slip-mode.md). Not yet built, except `menu_group` and `product.menu_group_id` (slice 1.1), the meal menu configuration (`dish_category`, `dish`, `meal`, `meal_option_group`, `meal_option`, `menu_price`, and `product.menu_hidden` for the hidden backing products; slice 1.2) and the sale-line snapshot (`sale_item.menu_group_path_snapshot` / `meal_id` / `meal_name_snapshot` / `parent_line_number` and `sale_item_selection`; slice 1.3), all built 2026-10-25.
+[ADR-016](../03-architecture/decisions/ADR-016-configurable-meal-menu-employee-credit-and-slip-mode.md). Not yet built, except `sale_slip`, `slip_counter` and the document mode (slice 2.2a), `menu_group` and `product.menu_group_id` (slice 1.1), the meal menu configuration (`dish_category`, `dish`, `meal`, `meal_option_group`, `meal_option`, `menu_price`, and `product.menu_hidden` for the hidden backing products; slice 1.2) and the sale-line snapshot (`sale_item.menu_group_path_snapshot` / `meal_id` / `meal_name_snapshot` / `parent_line_number` and `sale_item_selection`; slice 1.3), all built 2026-10-25.
 
 **Configuration (mutable, never deleted, `active` flag):** `menu_group` (two levels; `product.menu_group_id`), `dish_category`,
 `dish` (own id, the future inventory attach point), `meal` (has a hidden backing `product`), `meal_option_group` (min/max,
@@ -743,6 +743,8 @@ also the QR value), `name`, `billing_party_id`, `active`. Created only by a user
 **Capabilities added** (catalog grows from 17 to 20): `EMPLOYEE_MANAGE` (ADMIN), `CREDIT_LIMIT_OVERRIDE` (MANAGER, ADMIN),
 `BILLING_MANAGE` (MANAGER, ADMIN). Menu editing reuses `CATALOG_MANAGE`; billing read reuses `REPORT_VIEW`; changing the sale document
 mode reuses `FISCAL_CONFIGURATION_MANAGE` (vendor unlock, ADR-014). The V1 roles stay ADMIN/MANAGER/CASHIER: the client's "supervisor" is a MANAGER.
+
+**`sale_slip` / `slip_counter` (slice 2.2a, built 2026-10-25).** `sale_slip`: `store_id`, `sale_id` (unique), `terminal_id`, `slip_number` (`<terminal code>-<6 digits>`, unique per store), `slip_sequence` (unique per terminal), `slip_snapshot_json`, `created_at`; append-only. `slip_counter`: `terminal_id` (key), `last_number`; lifecycle, incremented inside the checkout transaction. `store_settings` gains `sale_document_mode` and `slip_footer`; `sale.document_mode` is written once at the sale. A slip sale has no `invoice` and no `INVOICE` journal entry.
 
 **Slip mode and the fiscal day.** Entity names `fiscal_day` and `z_reading` stay; in slip mode they mean business day and internal
 end-of-day report. Shift open/close, cash count and X-reading are unchanged.

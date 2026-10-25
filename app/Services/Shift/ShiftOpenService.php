@@ -91,6 +91,12 @@ final class ShiftOpenService
             throw ShiftAlreadyOpenException::make();
         }
 
+        // ADR-016 section 7: how the store documents a sale (invoice or slip) only changes while no shift is open
+        // (SaleDocumentSettingsService, which locks this same store row exclusively before it counts open shifts). A shared lock
+        // here means a shift cannot open in the instant between that count and the switch, and once the switch commits the shift
+        // that waited opens in the new mode. Nothing is read from the row; no shift prerequisite changes, in either mode.
+        DB::table('stores')->where('id', DB::table('terminals')->where('id', $terminalId)->value('store_id'))->sharedLock()->first();
+
         // Invariant #32: at most one OPEN fiscal_day per terminal --
         // reuse it if one already exists, otherwise open a new one
         // atomically in this same transaction (api-design.md SS10).

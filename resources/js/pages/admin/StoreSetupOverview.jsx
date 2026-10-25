@@ -51,6 +51,13 @@ export default function StoreSetupOverview() {
 
             {checks === null && !error && <p className="text-sm text-slate-500">Loading…</p>}
 
+            {overview?.document_mode === 'SLIP' && (
+                <p role="note" className="mb-4 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300">
+                    This store is on slip mode, so the fiscal installation, invoice series and tax registration are not needed to sell and show as ready. Only a
+                    default inventory location is required. <Link to="/admin/store-setup/sale-documents" className="text-emerald-400 hover:underline">Sale documents</Link>
+                </p>
+            )}
+
             {checks && !canConfigure && Object.entries(checks).some(([key, ready]) => !ready && key !== 'inventory_location') && (
                 <p role="note" className="mb-4 rounded-md border border-amber-800/60 bg-amber-950/30 px-3 py-2 text-sm text-amber-300">
                     The tax and invoice items below are locked and set during installation. If one is incomplete, ask your TindaFlow provider to finish it.

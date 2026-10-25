@@ -23,6 +23,9 @@ class SaleSummaryResource extends JsonResource
             'uuid' => $this->resource->id,
             'transaction_number' => $this->resource->transaction_number,
             'invoice_number' => $this->resource->invoice?->invoice_number,
+            // ADR-016 SLIP-001: the one number to show for this sale, whichever document it got (the invoice number, or the slip number).
+            'document_mode' => $this->resource->document_mode,
+            'document_reference' => $this->resource->documentReference(),
             'store_id' => $this->resource->store_id,
             'terminal_id' => $this->resource->terminal_id,
             'fiscal_day_id' => $this->resource->fiscal_day_id,

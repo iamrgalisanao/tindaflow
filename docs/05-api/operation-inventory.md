@@ -303,6 +303,17 @@ what `GET /invoices/{invoiceId}` returns; the operation never allocates a
 number, never alters `Sale` totals or `invoice_series` state, never
 touches a Z-Reading counter.
 
+## Sale slips (2) — ADR-016 slice 2.2a (2026-10-25), forward-committed, no prior draft at any stage
+
+The slip-mode twin of Invoices: the document of a sale finalized in `SLIP` mode, with the same two rules (`saleSlipGet` is always the plain original; `saleSlipReprint` is the only way to print another copy, and it is marked and recorded). No `x-capability`, like the invoice pair. A reprint writes a `SLIP_REPRINTED` audit event (its id is the reprint occurrence) and **no** electronic journal entry (the journal is an invoice-mode artifact). Idempotent per (terminal, key) via the new `SLIP_REPRINT` operation type.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /sale-slips/{slipId} | saleSlipGet | session | false | — | no | — | 200 SaleSlipDetail | `SLIP_NOT_FOUND` |
+| POST | /sale-slips/{slipId}/reprints | saleSlipReprint | session | true | — (any store staff, like invoiceReprint) | **yes** | — | 201 SaleSlipReprintResult | 400, 403, `SLIP_NOT_FOUND` |
+
+**Changed existing operations (additive, ADR-016 slice 2.2a):** `saleFinalize`, `saleGet`, `saleList`, `saleVoid` and `saleRefund` results carry `document_mode` (`INVOICE`|`SLIP`) and `document_reference` (the invoice number, or the slip number) on the sale; `SaleDetail` also carries `slip` (null for an invoice sale; `invoice` is null for a slip sale). `saleList` gains the `slip_number` and `document_number` filters (`document_number` matches either kind of number). `storeSetupReadinessGet` and `storeSetupOverviewGet` carry `document_mode`; in `SLIP` mode `fiscal_installation`, `invoice_series` and `tax_registration` read `true` (they do not apply). `fiscalDayClose` and `fiscalDayZReadingGet` carry `document_mode` on the reading (`SLIP`: the internal end-of-day report). `saleVoid`/`saleRefund` of a slip sale write their `VOID`/`REFUND` journal entry as before with `slip_number` in the payload and `invoice_number` null.
+
 ## Shifts (8)
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
@@ -417,6 +428,16 @@ remediation pass rather than left to Stage 5/6 to invent independently.
 | GET | /tax-registrations | taxRegistrationList | session | false | — | no | — | 200 array | 401 |
 | POST | /tax-registrations | taxRegistrationCreate | session | false | `FISCAL_CONFIGURATION_MANAGE` | no | type+effective_from | 201 TaxRegistration | 403, 422 |
 
+## SaleDocumentSettings (3) — ADR-016 slice 2.2a (2026-10-25), forward-committed, no prior draft at any stage
+
+How the store documents a sale. The mode switch is the ADR-014 vendor unlock; the footer is ordinary store configuration. The settings live beside `StoreSettings` but in their own resource so the existing `StoreSettings` response is unchanged.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /sale-document-settings | saleDocumentSettingsGet | session | false | — | no | — | 200 SaleDocumentSettings | 401 |
+| PUT | /sale-document-settings/mode | saleDocumentModeSet | session | false | `FISCAL_CONFIGURATION_MANAGE` | no (naturally idempotent: the same mode again changes nothing) | SaleDocumentModeInput | 200 SaleDocumentSettings | 403, 409 `SALE_DOCUMENT_MODE_CHANGE_BLOCKED`, 422 |
+| PUT | /sale-document-settings/slip-footer | slipFooterSet | session | false | `STORE_SETTINGS_MANAGE` | no (naturally idempotent) | SlipFooterInput | 200 SaleDocumentSettings | 403, 422 |
+
 ## FiscalInstallation (3)
 
 **HTTP shape (see api-design.md §16 for the full crosswalk):** `Accreditation`
@@ -507,6 +528,7 @@ hand):
 | `saleVoid` | POST | /sales/{saleId}/void |
 | `saleRefund` | POST | /sales/{saleId}/refunds |
 | `invoiceReprint` | POST | /invoices/{invoiceId}/reprints |
+| `saleSlipReprint` | POST | /sale-slips/{slipId}/reprints |
 | `shiftOpen` | POST | /shifts/open |
 | `shiftCashMovementCreate` | POST | /shifts/{shiftId}/cash-movements |
 | `shiftClose` | POST | /shifts/{shiftId}/close |
@@ -519,6 +541,8 @@ hand):
 | `refundReject` | POST | /refunds/{refundId}/reject |
 
 **+2 in stage 25 (2026-09-20), so 16 in total:** `stockCountPost` (POST /inventory/counts/{stockCountId}/post) and `stockTransferCreate` (POST /inventory/transfers). The `idempotency_records_operation_type_check` constraint and `IdempotencyOperationType` were extended to match (`STOCK_COUNT_POST`, `STOCK_TRANSFER`); the 14 original values are unchanged.
+
+**+1 in ADR-016 slice 2.2a, so 17 in total:** `saleSlipReprint`. The constraint and `IdempotencyOperationType` gained `SLIP_REPRINT`; every earlier value is unchanged.
 
 For each, all four required properties hold (verified against openapi.yaml
 directly, not asserted narratively): `Idempotency-Key` required (parameter
@@ -588,14 +612,14 @@ ran the reverse check too:
 | `STOCK_ADJUST` | `inventoryReceiptCreate`, `inventoryAdjustmentCreate`, and (stage 25) the 10 stock count and transfer operations |
 | `CASH_OUT` | *(none directly)* — conditional inside `shiftCashMovementCreate` ("above a configurable threshold"), pre-existing |
 | `REPORT_VIEW` | all 15 report operations |
-| `STORE_SETTINGS_MANAGE` | `storeSettingsUpdate` |
+| `STORE_SETTINGS_MANAGE` | `storeSettingsUpdate`, `slipFooterSet` (ADR-016) |
 | `FISCAL_DAY_CLOSE` | `fiscalDayClose` |
 | `CATALOG_MANAGE` | 7 catalog-mutation operations, plus (stage 26) `productBarcodeCreate` and `productBarcodeDelete` |
 | `AUDIT_VIEW` | `auditEventList`, `auditEventGet` |
 | `JOURNAL_VIEW` | `journalEntryList`, `journalEntryGet` |
 | `USER_MANAGE` | 6 user-management operations (5 original + `userActivate`) |
 | `TERMINAL_MANAGE` | 5 terminal-management operations |
-| `FISCAL_CONFIGURATION_MANAGE` | 4 fiscal-configuration operations |
+| `FISCAL_CONFIGURATION_MANAGE` | 4 fiscal-configuration operations, plus `saleDocumentModeSet` (ADR-016) |
 
 Three capabilities show "(none directly)" for a documented reason, not an
 oversight — see api-design.md §4 for why a capability that only gates

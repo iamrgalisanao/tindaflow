@@ -30,10 +30,13 @@ class SalesHistoryHttpTest extends PostgresSchemaTestCase
         $this->assertSame([$second['id'], $first['id']], collect($response->json('data'))->pluck('id')->all());
         $this->assertSame(2, $response->json('meta.total'));
         $this->assertSame(
-            ['id', 'uuid', 'transaction_number', 'invoice_number', 'store_id', 'terminal_id', 'fiscal_day_id', 'shift_id', 'cashier_id', 'sold_at', 'grand_total', 'status'],
+            ['id', 'uuid', 'transaction_number', 'invoice_number', 'document_mode', 'document_reference', 'store_id', 'terminal_id', 'fiscal_day_id', 'shift_id', 'cashier_id', 'sold_at', 'grand_total', 'status'],
             array_keys($response->json('data.0')),
         );
         $this->assertSame($second['invoice_number'], $response->json('data.0.invoice_number'));
+        // ADR-016 slice 2.2a added the two document keys (additive); an invoice sale's reference is its invoice number.
+        $this->assertSame('INVOICE', $response->json('data.0.document_mode'));
+        $this->assertSame($second['invoice_number'], $response->json('data.0.document_reference'));
     }
 
     public function test_filters(): void

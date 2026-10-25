@@ -10,6 +10,7 @@ use App\Services\Menu\DishService;
 use App\Services\Menu\MealOptionService;
 use App\Services\Menu\MealService;
 use App\Services\Menu\MenuPriceService;
+use App\Services\StoreSetup\FiscalConfigurationLock;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Tests\Database\Concerns\BuildsSalesScenario;
@@ -279,6 +280,46 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         ], $this->key())->assertStatus(201)->assertJson(['status' => 'COMPLETED']);
     }
 
+    public function test_a_slip_sale_its_reprint_a_new_shift_and_the_mode_switch_work_as_the_restricted_role_and_a_slip_cannot_be_changed(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+        $w['t1']->update(['terminal_code' => 'T-01']);
+        DB::table('store_settings')->insert([
+            'store_id' => $w['storeId'], 'business_name' => 'Canteen One', 'registered_name' => '', 'tin' => '', 'sale_document_mode' => 'SLIP',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        // Two slip sales: the first inserts the terminal's counter row, the second updates it (column-level UPDATE).
+        $first = $this->ring($w);
+        $second = $this->ring($w);
+        $this->assertSame(['T-01-000001', 'T-01-000002'], [$first['document_reference'], $second['document_reference']]);
+        $this->assertSame(2, (int) DB::table('slip_counters')->where('terminal_id', $w['t1']->id)->value('last_number'));
+
+        $this->asUser($w['cashier'], $w['enroll1'])->postJson("/api/v1/sale-slips/{$first['slip']['id']}/reprints", [], $this->key())
+            ->assertStatus(201)->assertJson(['is_reprint' => true]);
+        $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$second['id']}/void", ['reason' => 'Wrong item'], $this->key())
+            ->assertStatus(201)->assertJson(['sale' => ['document_reference' => 'T-01-000002']]);
+
+        $this->assertTrue($this->refuses(fn () => DB::table('sale_slips')->update(['slip_number' => 'X-1'])), 'a slip must not be updatable');
+        $this->assertTrue($this->refuses(fn () => DB::table('sale_slips')->update(['slip_snapshot_json' => '{}'])), 'a slip snapshot must not be updatable');
+        $this->assertTrue($this->refuses(fn () => DB::table('sale_slips')->delete()), 'a slip must not be deletable');
+        $this->assertTrue($this->refuses(fn () => DB::table('slip_counters')->update(['terminal_id' => $w['t2']->id])), 'a counter may not move to another terminal');
+        $this->assertTrue($this->refuses(fn () => DB::table('slip_counters')->delete()), 'a counter must not be deletable');
+        $this->assertTrue($this->refuses(fn () => DB::table('sales')->where('id', $first['id'])->update(['document_mode' => 'INVOICE'])), 'a sale keeps the document it was made with');
+
+        // The mode switch and the footer (both write store_settings; the switch takes the store row lock a shift open shares).
+        $this->asUser($w['admin'])->putJson('/api/v1/sale-document-settings/slip-footer', ['slip_footer' => 'Salamat po!'])->assertOk();
+        app(FiscalConfigurationLock::class)->unlock($w['storeId'], 60);
+        $this->asUser($w['admin'])->putJson('/api/v1/sale-document-settings/mode', ['sale_document_mode' => 'INVOICE'])->assertStatus(409);
+        foreach ([[$w['cashier'], 'enroll1', $w['cashierShift']], [$w['manager'], 'enroll2', $w['managerShift']]] as [$user, $enroll, $shift]) {
+            $this->asUser($user, $w[$enroll])->postJson("/api/v1/shifts/{$shift->id}/close", ['declared_cash' => (string) $shift->opening_cash], $this->key())->assertOk();
+            $this->asUser($w['manager'], $w[$enroll])->postJson("/api/v1/fiscal-days/{$shift->fiscal_day_id}/close", [], $this->key())->assertOk();
+        }
+        $this->asUser($w['admin'])->putJson('/api/v1/sale-document-settings/mode', ['sale_document_mode' => 'INVOICE'])->assertOk()->assertJson(['sale_document_mode' => 'INVOICE']);
+        $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/shifts/open', ['opening_cash' => '500.00'], $this->key())->assertStatus(201);
+        $this->assertSame('INVOICE', $this->ring($w)['document_mode']);
+    }
+
     public function test_the_tables_the_app_is_allowed_to_delete_from_are_exactly_the_ones_that_hold_no_money_or_audit_data(): void
     {
         $this->worldUnderTheHardenedRole();
@@ -288,7 +329,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }

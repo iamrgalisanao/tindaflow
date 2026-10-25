@@ -6,6 +6,8 @@ export const AUDIT_TYPES = [
     { id: 'SALE_FINALIZED', label: 'Sale finalized' },
     { id: 'DISCOUNT_APPLIED', label: 'Discount applied' },
     { id: 'INVOICE_REPRINTED', label: 'Invoice reprinted' },
+    { id: 'SLIP_REPRINTED', label: 'Slip reprinted' },
+    { id: 'SALE_DOCUMENT_MODE_CHANGED', label: 'Sale document mode changed' },
     { id: 'SETTINGS_CHANGED', label: 'Business details changed' },
     { id: 'PRODUCT_CREATED', label: 'Product created' },
     { id: 'PRODUCT_UPDATED', label: 'Product changed' },
@@ -177,9 +179,13 @@ export function describeAudit(event) {
     const after = event.after_metadata ?? {};
     switch (event.event_type) {
         case 'SALE_FINALIZED':
-            return `Sale finalized${after.invoice_number ? `, invoice ${after.invoice_number}` : ''}`;
+            return `Sale finalized${after.invoice_number ? `, invoice ${after.invoice_number}` : ''}${after.slip_number ? `, slip ${after.slip_number}` : ''}`;
         case 'DISCOUNT_APPLIED':
-            return `Discount of ${money(after.discount_total)} applied${after.invoice_number ? ` to invoice ${after.invoice_number}` : ''}`;
+            return `Discount of ${money(after.discount_total)} applied${after.invoice_number ? ` to invoice ${after.invoice_number}` : ''}${after.slip_number ? ` to slip ${after.slip_number}` : ''}`;
+        case 'SLIP_REPRINTED':
+            return `Slip ${after.slip_number ?? '—'} reprinted; no new number was issued`;
+        case 'SALE_DOCUMENT_MODE_CHANGED':
+            return `Sales are now documented by ${after.sale_document_mode === 'SLIP' ? 'slip' : 'invoice'} (was ${(event.before_metadata ?? {}).sale_document_mode === 'SLIP' ? 'slip' : 'invoice'})`;
         case 'INVOICE_REPRINTED':
             return `Invoice ${after.invoice_number ?? '—'} reprinted; no new number was issued`;
         case 'SETTINGS_CHANGED':
@@ -320,9 +326,9 @@ export function describeJournal(entry) {
         case 'INVOICE':
             return `${payload.is_reprint ? 'Reprint of invoice' : 'Invoice'} ${payload.invoice_number ?? '—'} · ${money(payload.grand_total)}`;
         case 'VOID':
-            return `Void of invoice ${payload.invoice_number ?? '—'} · ${money(payload.grand_total)}`;
+            return `Void of ${payload.slip_number ? `slip ${payload.slip_number}` : `invoice ${payload.invoice_number ?? '—'}`} · ${money(payload.grand_total)}`;
         case 'REFUND':
-            return `Refund ${money(payload.refund_total)} on invoice ${payload.invoice_number ?? '—'}`;
+            return `Refund ${money(payload.refund_total)} on ${payload.slip_number ? `slip ${payload.slip_number}` : `invoice ${payload.invoice_number ?? '—'}`}`;
         case 'STOCK_ADJUSTED':
             return `${movementLabel(payload.movement_type)} ${payload.quantity ? formatQuantity(payload.quantity) : '—'}${payload.sku ? ` · ${payload.sku}` : ''}`;
         case 'CASH_IN':

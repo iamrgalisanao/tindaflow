@@ -3,6 +3,7 @@ import SlideOver from '../SlideOver';
 import { fieldErrors, request } from '../catalog/catalogApi';
 import { formatMoney } from '../reports/formatters';
 import { reversalMessage } from './salesParts';
+import { documentReference } from '../../../lib/saleDocument';
 
 /**
  * Slide-over for saleVoid. A void cancels the whole sale and puts every item back in stock, and only works
@@ -70,7 +71,7 @@ export default function VoidSalePanel({ sale, executesImmediately, onDone, onClo
     );
 
     return (
-        <SlideOver titleId="void_panel_title" title="Void sale" badge={sale.invoice_number ? `#${sale.invoice_number}` : null} onClose={onClose} footer={footer}>
+        <SlideOver titleId="void_panel_title" title="Void sale" badge={documentReference(sale) ? `#${documentReference(sale)}` : null} onClose={onClose} footer={footer}>
             <form id="void_form" onSubmit={submit} noValidate className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
                 {formError && (
                     <p role="alert" className="rounded-md border border-rose-800 bg-rose-950/40 px-3 py-2 text-sm text-slate-100">

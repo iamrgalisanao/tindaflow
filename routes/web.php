@@ -22,6 +22,8 @@ use App\Http\Controllers\Reports\SalesReportController;
 use App\Http\Controllers\Reports\ShiftReportController;
 use App\Http\Controllers\Reports\VoidRefundReportController;
 use App\Http\Controllers\SaleController;
+use App\Http\Controllers\SaleDocumentSettingsController;
+use App\Http\Controllers\SaleSlipController;
 use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\StockCountController;
 use App\Http\Controllers\StockTransferController;
@@ -149,6 +151,23 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/invoices/{invoiceId}/reprints', [InvoiceController::class, 'reprint'])->whereUuid('invoiceId')
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+
+    // openapi.yaml SaleSlips tag (ADR-016 slice 2.2a), the slip-mode twin of Invoices above. saleSlipGet: session only, store-scoped,
+    // the plain original rendered from the immutable snapshot. saleSlipReprint: enrolled terminal + Idempotency-Key, no dedicated
+    // capability; it never allocates a number and writes a SLIP_REPRINTED audit event.
+    Route::get('/sale-slips/{slipId}', [SaleSlipController::class, 'get'])->whereUuid('slipId')
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/sale-slips/{slipId}/reprints', [SaleSlipController::class, 'reprint'])->whereUuid('slipId')
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+
+    // openapi.yaml SaleDocumentSettings tag: how the store documents a sale (invoice or slip) and the slip footer line. The mode switch
+    // is the ADR-014 vendor unlock (FISCAL_CONFIGURATION_MANAGE); the footer is ordinary store configuration.
+    Route::get('/sale-document-settings', [SaleDocumentSettingsController::class, 'get'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::put('/sale-document-settings/mode', [SaleDocumentSettingsController::class, 'setMode'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:FISCAL_CONFIGURATION_MANAGE']);
+    Route::put('/sale-document-settings/slip-footer', [SaleDocumentSettingsController::class, 'setSlipFooter'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
 
     // openapi.yaml Audit and ElectronicJournal tags: read-only lists, session only (no terminal), gated by
     // AUDIT_VIEW / JOURNAL_VIEW. No create, update or delete exists for either log. auditEventGet and

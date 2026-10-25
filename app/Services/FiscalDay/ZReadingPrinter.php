@@ -16,6 +16,10 @@ use Carbon\CarbonInterface;
  *
  * The first printout (at the moment the day closes) is the plain original; every later one carries REPRINT -- COPY and the time,
  * so no unmarked duplicate can be made from history. Deliberately says nothing about legal wording (BIR-006 is parked).
+ *
+ * A day whose sales were slips (ADR-016 section 7) is the store's business day and this is its internal END OF DAY REPORT: the same
+ * stored totals, but no Z-reading title or number, no tax lines (a slip sale carries no tax breakdown) and no accumulated-sales
+ * counters. The reading itself is not touched; only what is printed from it changes.
  */
 final class ZReadingPrinter
 {
@@ -30,6 +34,9 @@ final class ZReadingPrinter
         'refund_total' => 'Refunds',
     ];
 
+    /** The lines that are tax figures; an end-of-day report (slip mode) leaves them out. */
+    private const TAX_LINES = ['taxable_sales', 'vat_exempt_sales', 'zero_rated_sales', 'non_vat_sales', 'vat_amount'];
+
     public function render(ZReading $reading, ?CarbonInterface $reprintedAt = null): string
     {
         $totals = $reading->totals_snapshot ?? [];
@@ -38,11 +45,12 @@ final class ZReadingPrinter
         $shop = $till?->store?->name;
         $terminal = $till?->terminal_code;
         $closedBy = $reading->generated_by ? User::find($reading->generated_by)?->name : null;
+        $endOfDay = $till !== null && DayDocumentMode::of($reading->fiscal_day_id, $till->store_id)->isSlip();
 
         $html = [];
         $html[] = '<!doctype html><html lang="en"><head><meta charset="utf-8">';
         $html[] = '<meta name="viewport" content="width=device-width, initial-scale=1">';
-        $html[] = "<title>Z-Reading {$number}</title>";
+        $html[] = $endOfDay ? "<title>End of day report {$number}</title>" : "<title>Z-Reading {$number}</title>";
         $html[] = '<style>'.$this->stylesheet().'</style></head><body><div class="doc">';
 
         if ($reprintedAt !== null) {
@@ -53,9 +61,9 @@ final class ZReadingPrinter
         if ($shop !== null && trim($shop) !== '') {
             $html[] = '<div class="b wrap">'.$this->text($shop).'</div>';
         }
-        $html[] = '<div class="c b title">Z-READING</div></div><div class="sep"></div>';
+        $html[] = $endOfDay ? '<div class="c b title">END OF DAY REPORT</div></div><div class="sep"></div>' : '<div class="c b title">Z-READING</div></div><div class="sep"></div>';
 
-        $html[] = $this->row('Z-Reading No.', $number);
+        $html[] = $this->row($endOfDay ? 'Report No.' : 'Z-Reading No.', $number);
         $html[] = $this->row('Business date', $this->text($reading->business_date?->toDateString() ?? ''));
         if ($terminal !== null) {
             $html[] = $this->row('Terminal', $this->text($terminal));
@@ -66,10 +74,15 @@ final class ZReadingPrinter
         if ($closedBy !== null) {
             $html[] = $this->row('Closed by', $this->text($closedBy));
         }
-        $html[] = $this->row('Reset counter', $this->text((string) ($totals['reset_counter'] ?? 0)));
+        if (! $endOfDay) {
+            $html[] = $this->row('Reset counter', $this->text((string) ($totals['reset_counter'] ?? 0)));
+        }
 
         $html[] = '<div class="sep"></div>';
         foreach (self::SALES_LINES as $key => $label) {
+            if ($endOfDay && in_array($key, self::TAX_LINES, true)) {
+                continue;
+            }
             $html[] = $this->row($label, $this->money((string) ($totals[$key] ?? '0.00')));
         }
 
@@ -83,9 +96,11 @@ final class ZReadingPrinter
             $html[] = $this->row((string) $method, $this->money((string) $amount));
         }
 
-        $html[] = '<div class="sep"></div>';
-        $html[] = $this->row('Accumulated sales before', $this->money((string) ($totals['accumulated_grand_total_sales_before'] ?? '0.00')));
-        $html[] = '<div class="row b"><span>Accumulated sales after</span><span>'.$this->money((string) ($totals['accumulated_grand_total_sales_after'] ?? '0.00')).'</span></div>';
+        if (! $endOfDay) {
+            $html[] = '<div class="sep"></div>';
+            $html[] = $this->row('Accumulated sales before', $this->money((string) ($totals['accumulated_grand_total_sales_before'] ?? '0.00')));
+            $html[] = '<div class="row b"><span>Accumulated sales after</span><span>'.$this->money((string) ($totals['accumulated_grand_total_sales_after'] ?? '0.00')).'</span></div>';
+        }
         $html[] = '<div class="sep"></div>';
         $html[] = '<div class="c legend">These figures were fixed when the business day closed.</div>';
 

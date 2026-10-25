@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { formatBusinessDate, isStaleBusinessDay } from '../lib/businessDay';
+import { documentEndpoints, documentLabel, documentReference } from '../lib/saleDocument';
 import { usePrintFrame } from '../lib/usePrintFrame';
 import { request } from './admin/catalog/catalogApi';
 import { ConfirmDialog } from './admin/catalog/CatalogParts';
@@ -46,6 +47,7 @@ export default function Pos() {
     const [error, setError] = useState(null);
     const [shift, setShift] = useState(null);
     const [readinessChecks, setReadinessChecks] = useState(null);
+    const [documentMode, setDocumentMode] = useState('INVOICE'); // the store's way of documenting a sale (ADR-016), from the readiness check
     /**
      * The till's three destinations are addressable (sitemap.md /pos, /pos/lookup): `view` is derived
      * from the URL rather than held in state, so the browser's Back button and a reload both land where
@@ -95,8 +97,9 @@ export default function Pos() {
 
     const [sale, setSale] = useState(null);
 
-    // Printing the invoice after checkout. The first print is the plain original (a read); every print after
-    // that is a reprint -- marked REPRINT/COPY and recorded -- so no unmarked duplicate can come from here.
+    // Printing the sale's document after checkout -- the invoice, or in slip mode the slip (ADR-016). The first print is the plain
+    // original (a read); every print after that is a reprint -- marked REPRINT/COPY and recorded -- so no unmarked duplicate can
+    // come from here.
     const { print: printDocument, frame: printFrame } = usePrintFrame();
     const [originalPrinted, setOriginalPrinted] = useState(false);
     const [printBusy, setPrintBusy] = useState(false);
@@ -134,6 +137,9 @@ export default function Pos() {
     // seeded store hit during this feature's own verification).
     const checkReadiness = useCallback(async () => {
         const { ok, body } = await apiFetch('/api/v1/store-setup/readiness');
+        if (ok && body.document_mode) {
+            setDocumentMode(body.document_mode);
+        }
         if (ok && !body.ready) {
             setReadinessChecks(body.checks);
             setStep('setup-incomplete');
@@ -424,16 +430,17 @@ export default function Pos() {
         setZPrintBusy(false);
     }
 
-    async function printInvoice() {
+    async function printSaleDocument() {
         setPrintBusy(true);
         setPrintError(null);
         try {
-            const invoiceId = sale.invoice.id;
+            const doc = documentEndpoints(sale);
+            const label = documentLabel(sale).toLowerCase();
             const response = originalPrinted
-                ? await apiFetch(`/api/v1/invoices/${invoiceId}/reprints`, { method: 'POST', headers: { 'Idempotency-Key': copyKey } })
-                : await apiFetch(`/api/v1/invoices/${invoiceId}`);
+                ? await apiFetch(doc.reprint, { method: 'POST', headers: { 'Idempotency-Key': copyKey } })
+                : await apiFetch(doc.original);
             if (response.ok) {
-                printDocument(originalPrinted ? response.body.invoice.render_html : response.body.render_html);
+                printDocument(originalPrinted ? response.body[doc.key].render_html : response.body.render_html, `${documentLabel(sale)} to print`);
                 setOriginalPrinted(true);
                 setCopyKey(newIdempotencyKey()); // the next copy is a new copy, not a retry
             } else {
@@ -441,7 +448,7 @@ export default function Pos() {
                 setPrintError(
                     response.body?.error?.code === 'TERMINAL_NOT_ENROLLED'
                         ? 'This browser is not enrolled as a terminal, so it cannot record a printed copy.'
-                        : 'The invoice could not be prepared for printing. The sale is complete; you can print it from Sales history.',
+                        : `The ${label} could not be prepared for printing. The sale is complete; you can print it from Sales history.`,
                 );
             }
         } catch {
@@ -678,7 +685,7 @@ export default function Pos() {
             {isStaleBusinessDay(businessDate) && (
                 <p role="status" className="mx-4 mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
                     Business day <strong>{formatBusinessDate(businessDate)}</strong> is still open, so sales are being recorded under that date. A manager
-                    needs to close it (Z-reading) after the last shift, unless you are trading past midnight.
+                    needs to close it ({documentMode === 'SLIP' ? 'end-of-day report' : 'Z-reading'}) after the last shift, unless you are trading past midnight.
                 </p>
             )}
 
@@ -794,8 +801,8 @@ export default function Pos() {
                             <dd className="font-mono">{sale.transaction_number}</dd>
                         </div>
                         <div className="flex justify-between">
-                            <dt className="text-slate-400">Invoice #</dt>
-                            <dd className="font-mono">{sale.invoice_number}</dd>
+                            <dt className="text-slate-400">{documentLabel(sale)} #</dt>
+                            <dd className="font-mono">{documentReference(sale)}</dd>
                         </div>
                         <div className="flex justify-between">
                             <dt className="text-slate-400">Grand total</dt>
@@ -820,15 +827,15 @@ export default function Pos() {
                             </li>
                         ))}
                     </ul>
-                    {sale.invoice && (
+                    {documentEndpoints(sale) && (
                         <div className="space-y-1">
                             <button
                                 type="button"
                                 disabled={printBusy}
-                                onClick={printInvoice}
+                                onClick={printSaleDocument}
                                 className="w-full rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-800 disabled:opacity-50"
                             >
-                                {printBusy ? 'Preparing…' : originalPrinted ? 'Print another copy' : 'Print invoice'}
+                                {printBusy ? 'Preparing…' : originalPrinted ? 'Print another copy' : `Print ${documentLabel(sale).toLowerCase()}`}
                             </button>
                             {originalPrinted && <p className="text-xs text-slate-400">Another copy is marked REPRINT — COPY and recorded.</p>}
                             {printError && (
@@ -926,17 +933,19 @@ export default function Pos() {
                     <h2 className="text-sm font-medium text-slate-300">Business day closed</h2>
                     <dl className="space-y-1 text-sm">
                         <div className="flex justify-between">
-                            <dt className="text-slate-400">Z-Reading #</dt>
+                            <dt className="text-slate-400">{fiscalDayCloseResult.z_reading.document_mode === 'SLIP' ? 'Report #' : 'Z-Reading #'}</dt>
                             <dd className="font-mono">{fiscalDayCloseResult.z_reading.totals_snapshot.z_counter}</dd>
                         </div>
                         <div className="flex justify-between">
                             <dt className="text-slate-400">Gross sales</dt>
                             <dd className="font-mono font-semibold">₱{fiscalDayCloseResult.z_reading.totals_snapshot.gross_sales}</dd>
                         </div>
-                        <div className="flex justify-between">
-                            <dt className="text-slate-400">VAT</dt>
-                            <dd className="font-mono">₱{fiscalDayCloseResult.z_reading.totals_snapshot.vat_amount}</dd>
-                        </div>
+                        {fiscalDayCloseResult.z_reading.document_mode !== 'SLIP' && (
+                            <div className="flex justify-between">
+                                <dt className="text-slate-400">VAT</dt>
+                                <dd className="font-mono">₱{fiscalDayCloseResult.z_reading.totals_snapshot.vat_amount}</dd>
+                            </div>
+                        )}
                         <div className="flex justify-between">
                             <dt className="text-slate-400">Void total</dt>
                             <dd className="font-mono">₱{fiscalDayCloseResult.z_reading.totals_snapshot.void_total}</dd>
@@ -953,7 +962,7 @@ export default function Pos() {
                             onClick={printZReading}
                             className="w-full rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-800 disabled:opacity-50"
                         >
-                            {zPrintBusy ? 'Preparing…' : zOriginalPrinted ? 'Print another copy' : 'Print Z-reading'}
+                            {zPrintBusy ? 'Preparing…' : zOriginalPrinted ? 'Print another copy' : fiscalDayCloseResult.z_reading.document_mode === 'SLIP' ? 'Print end-of-day report' : 'Print Z-reading'}
                         </button>
                         {zOriginalPrinted && (
                             <p className="text-xs text-slate-400">

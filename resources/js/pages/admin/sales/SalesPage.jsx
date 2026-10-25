@@ -6,6 +6,7 @@ import { ErrorAlert, Pager } from '../catalog/CatalogParts';
 import { RETURN_KEY, failureMessage, request } from '../catalog/catalogApi';
 import { formatDateTime, formatMoney, shortId } from '../reports/formatters';
 import { PAYMENT_METHODS, StatusBadge } from './salesParts';
+import { documentReference, documentTitle } from '../../../lib/saleDocument';
 
 const PER_PAGE = 25;
 const STATUSES = ['COMPLETED', 'VOIDED', 'PARTIALLY_REFUNDED', 'REFUNDED'];
@@ -15,7 +16,7 @@ const SORTS = [
     { id: '-grand_total', label: 'Highest total' },
     { id: 'grand_total', label: 'Lowest total' },
 ];
-const EMPTY = { status: '', payment_method: '', from: '', to: '', invoice_number: '', transaction_number: '', sort: '-sold_at' };
+const EMPTY = { status: '', payment_method: '', from: '', to: '', document_number: '', transaction_number: '', sort: '-sold_at' };
 
 const fieldClass = 'min-h-11 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 lg:min-h-0';
 
@@ -75,7 +76,7 @@ export default function SalesPage() {
         if (event.type === 'keydown' && event.key !== 'Enter') {
             return;
         }
-        change({ invoice_number: draftInvoice.trim(), transaction_number: draftTransaction.trim() });
+        change({ document_number: draftInvoice.trim(), transaction_number: draftTransaction.trim() });
     }
 
     function clear() {
@@ -105,12 +106,11 @@ export default function SalesPage() {
             </div>
 
             <div className="mb-3 grid grid-cols-1 gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Field id="sales_invoice" label="Invoice no.">
+                <Field id="sales_invoice" label="Invoice or slip no.">
                     <input
                         id="sales_invoice"
                         type="search"
-                        inputMode="numeric"
-                        placeholder="000123"
+                        placeholder="000123 or T-01-000004"
                         value={draftInvoice}
                         onChange={(event) => setDraftInvoice(event.target.value)}
                         onBlur={commitText}
@@ -207,7 +207,7 @@ export default function SalesPage() {
                         <table className="w-full min-w-max text-left text-sm">
                             <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
                                 <tr>
-                                    {['Invoice', 'Transaction', 'Sold', 'Cashier', 'Total', 'Status'].map((heading) => (
+                                    {['Invoice / slip', 'Transaction', 'Sold', 'Cashier', 'Total', 'Status'].map((heading) => (
                                         <th key={heading} className={`border-b border-slate-800 px-3 py-2 font-mono ${heading === 'Total' ? 'text-right' : ''}`}>
                                             {heading}
                                         </th>
@@ -219,7 +219,7 @@ export default function SalesPage() {
                                     <tr key={sale.id} className="odd:bg-slate-950/40 hover:bg-slate-900">
                                         <td className="px-3 py-2 font-mono">
                                             <Link to={`/admin/sales/${sale.id}`} className="text-emerald-400 hover:underline">
-                                                {sale.invoice_number ?? '—'}
+                                                {documentReference(sale) ?? '—'}
                                             </Link>
                                         </td>
                                         <td className="px-3 py-2 font-mono text-[12px] text-slate-400" title={sale.transaction_number}>
@@ -245,7 +245,7 @@ export default function SalesPage() {
                             <li key={sale.id}>
                                 <Link to={`/admin/sales/${sale.id}`} className="block rounded-lg border border-slate-800 bg-slate-900 p-3 hover:bg-slate-800/60">
                                     <div className="flex items-center justify-between gap-2">
-                                        <span className="font-mono text-sm text-emerald-400">Invoice {sale.invoice_number ?? '—'}</span>
+                                        <span className="font-mono text-sm text-emerald-400">{documentTitle(sale)}</span>
                                         <StatusBadge status={sale.status} />
                                     </div>
                                     <div className="mt-1 flex items-center justify-between text-sm">

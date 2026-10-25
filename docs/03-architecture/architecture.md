@@ -694,11 +694,13 @@ needs):
 
 | Operation | Locks taken (in order) | Notes |
 |---|---|---|
-| **Checkout (Sale finalization)** | `shift` (the sale's own, currently-open shift) → `fiscal_day` (the sale's own, currently-open fiscal day) → `invoice_series` | Unchanged from the original design (ADR-003/004); no `sale`/`sale_item` lock needed since the row doesn't exist until this transaction creates it |
+| **Checkout (Sale finalization)** | `shift` (the sale's own, currently-open shift) → `fiscal_day` (the sale's own, currently-open fiscal day) → `invoice_series` (INVOICE mode) or, in SLIP mode (ADR-016 slice 2.2a), → `slip_counter` (the terminal's own counter row, order 5, never taken together with `invoice_series`) | Unchanged from the original design (ADR-003/004); no `sale`/`sale_item` lock needed since the row doesn't exist until this transaction creates it |
 | **Void completion** | `shift` (the void's own **processing** shift — Stage 2 `void.shift_id`, resolved from the ADR-011 terminal context) → `fiscal_day` (the void's own processing fiscal day — `void.fiscal_day_id`) → `sale` (the **original** sale, to check/flip `status`) | The `shift`/`fiscal_day` locked here are the *processing* context (Stage 2 invariants #67–#69), never the original sale's own `shift_id`/`fiscal_day_id` — those are read, not locked, since a void never mutates the original sale's fiscal attribution |
 | **Refund completion** | `shift` (processing) → `fiscal_day` (processing) → `sale` (original) → `sale_item` (every referenced line, locked in **ascending `id`/`line_number` order** — never in request-payload order, to prevent two refunds touching an overlapping set of lines from deadlocking on each other) | Same processing-context distinction as Void; `sale_item` sits last among Refund's locks per the global order |
 | **Shift close** | `shift` (own) | Does not need to lock individual `sale` rows — the race with an in-flight checkout is already resolved by both operations taking the same `shift` lock first |
 | **Z-Reading / fiscal day closure** | `fiscal_day` (own) | Does not need to lock individual `shift` rows — the open-shift check is a read verified while holding the `fiscal_day` lock, and each `shift`'s own close operation already serializes against concurrent checkout via the `shift` lock independently |
+
+**Slip counter and the store row (ADR-016 slice 2.2a).** `LockableResource::SlipCounter` is the last resource of the order (5): the SLIP-mode checkout takes it after `shift` and `fiscal_day`, instead of `invoice_series`. The `stores` row is a leaf lock outside the enum: `SaleDocumentSettingsService` takes it `FOR UPDATE` first and then only reads; `ShiftOpenService` takes it `FOR SHARE` after `shift`. Neither waits on anything that waits on the other, so they cannot deadlock.
 
 **Why `sale`/`sale_item` sit between `fiscal_day` and `invoice_series`:**
 Checkout never touches an existing `sale` row (it creates one), so this

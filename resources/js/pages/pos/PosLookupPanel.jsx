@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { saleLineName } from '../../lib/saleLines';
+import { documentEndpoints, documentLabel, documentReference } from '../../lib/saleDocument';
 import InvoicePanel from '../admin/sales/InvoicePanel';
+import SlipPanel from '../admin/sales/SlipPanel';
 import RefundPanel from '../admin/sales/RefundPanel';
 import VoidSalePanel from '../admin/sales/VoidSalePanel';
 import { failureMessage, request } from '../admin/catalog/catalogApi';
@@ -20,7 +22,7 @@ import { formatMoney } from '../admin/reports/formatters';
  * provides them. The mockup's HOLD status is not a real sale status either (the enum is COMPLETED,
  * VOIDED, PARTIALLY_REFUNDED, REFUNDED), and its hardware/e-receipt/CAS-log actions have no endpoints.
  *
- * Printing is delegated to the admin InvoicePanel rather than reimplemented: reprint semantics are
+ * Printing is delegated to the admin InvoicePanel (or SlipPanel, for a sale from a store on slip mode) rather than reimplemented: reprint semantics are
  * subtle (one Idempotency-Key per attempt, every copy separately audited and visibly marked) and a
  * third copy of that logic would be a third chance to get it wrong.
  */
@@ -74,7 +76,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
     const [selectedId, setSelectedId] = useState(null);
     const [detail, setDetail] = useState(null);
     const [detailFailure, setDetailFailure] = useState(null);
-    const [invoice, setInvoice] = useState(null); // { id, number } while the receipt panel is open
+    const [invoice, setInvoice] = useState(null); // { id, number, kind } while the receipt panel is open (kind: 'invoice' | 'slip')
     const [panel, setPanel] = useState(null); // 'void' | 'refund'
     const [notice, setNotice] = useState(null);
 
@@ -103,9 +105,10 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
             setListFailure(null);
             const params = new URLSearchParams({ per_page: '25', sort: '-sold_at' });
             if (term !== '') {
-                // transaction_number is "T-" + ULID (Stage 6C ruling); anything else is treated as an
-                // invoice number. Two separate filters exist server-side, so the box has to pick one.
-                params.set(/^t-/i.test(term) ? 'transaction_number' : 'invoice_number', term);
+                // transaction_number is "T-" + ULID (Stage 6C ruling); anything else is treated as the number on the paper --
+                // an invoice number, or in slip mode a slip number ("T-01-000004" also starts with T-, so it is asked as both).
+                // document_number matches either kind; transaction_number is an exact match on its own column.
+                params.set(/^t-[0-9a-z]{26}$/i.test(term) ? 'transaction_number' : 'document_number', term);
             }
             if (status !== '') {
                 params.set('status', status);
@@ -173,8 +176,8 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                             type="text"
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Transaction or invoice number"
-                            aria-label="Search by transaction or invoice number"
+                            placeholder="Transaction, invoice or slip number"
+                            aria-label="Search by transaction, invoice or slip number"
                             className="min-h-12 w-full rounded border border-slate-700 bg-slate-950 px-3 font-mono text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                         />
                         <button type="submit" className="min-h-12 shrink-0 rounded bg-emerald-500 px-4 text-sm font-bold uppercase tracking-wider text-slate-950 hover:bg-emerald-400">
@@ -251,7 +254,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                                             <span className="min-w-0 flex-1">
                                                 <span className="block truncate font-mono text-[12px] text-slate-100">{sale.transaction_number}</span>
                                                 <span className="block truncate font-mono text-[11px] text-slate-500">
-                                                    {sale.invoice_number ?? 'no invoice'} · {timeOf(sale.sold_at)}
+                                                    {documentReference(sale) ?? `no ${documentLabel(sale).toLowerCase()}`} · {timeOf(sale.sold_at)}
                                                 </span>
                                             </span>
                                             <StatusBadge status={sale.status} />
@@ -293,7 +296,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                             <div className="min-w-0">
                                 <p className="font-mono text-sm text-slate-100">{detail.transaction_number}</p>
                                 <p className="font-mono text-[11px] text-slate-500">
-                                    {detail.invoice_number ?? 'no invoice number'} · {new Date(detail.sold_at).toLocaleString()}
+                                    {documentReference(detail) ?? `no ${documentLabel(detail).toLowerCase()} number`} · {new Date(detail.sold_at).toLocaleString()}
                                 </p>
                             </div>
                             <StatusBadge status={detail.status} />
@@ -357,8 +360,8 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                         <div className="mt-4 flex flex-wrap gap-2">
                             <button
                                 type="button"
-                                disabled={!detail.invoice}
-                                onClick={() => setInvoice({ id: detail.invoice.id, number: detail.invoice_number })}
+                                disabled={!documentEndpoints(detail)}
+                                onClick={() => setInvoice({ id: documentEndpoints(detail).id, number: documentReference(detail), kind: documentEndpoints(detail).key })}
                                 className="min-h-12 rounded bg-emerald-500 px-5 text-sm font-bold uppercase tracking-wider text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
                             >
                                 Receipt
@@ -412,7 +415,11 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                 />
             )}
 
-            {invoice && (
+            {invoice?.kind === 'slip' && (
+                <SlipPanel slipId={invoice.id} slipNumber={invoice.number} canPrint onClose={() => setInvoice(null)} onUnauthorized={() => setInvoice(null)} />
+            )}
+
+            {invoice?.kind === 'invoice' && (
                 <InvoicePanel
                     invoiceId={invoice.id}
                     invoiceNumber={invoice.number}

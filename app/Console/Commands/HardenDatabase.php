@@ -101,6 +101,13 @@ class HardenDatabase extends Command
             'sale_item_selections must allow INSERT (written in the sale transaction)' => "select has_table_privilege('{$role}', 'sale_item_selections', 'INSERT')",
             'sale_items must refuse UPDATE of the meal snapshot columns' => "select bool_and(not has_column_privilege('{$role}', 'sale_items', c, 'UPDATE')) from unnest(array['menu_group_path_snapshot','meal_id','meal_name_snapshot','parent_line_number']) as c",
             'the meal menu configuration tables must allow UPDATE (rename, reorder, hide) but refuse DELETE (hide, never delete)' => "select bool_and(has_table_privilege('{$role}', t, 'UPDATE') and not has_table_privilege('{$role}', t, 'DELETE')) from unnest(array['dish_categories','dishes','meals','meal_option_groups','meal_options']) as t",
+            'sale_slips must refuse UPDATE (a slip never changes)' => "select not has_table_privilege('{$role}', 'sale_slips', 'UPDATE')",
+            'sale_slips must refuse DELETE' => "select not has_table_privilege('{$role}', 'sale_slips', 'DELETE')",
+            'sale_slips must allow INSERT (written in the sale transaction)' => "select has_table_privilege('{$role}', 'sale_slips', 'INSERT')",
+            'slip_counters must allow UPDATE of the running number only (last_number, updated_at)' => "select has_column_privilege('{$role}', 'slip_counters', 'last_number', 'UPDATE') and has_column_privilege('{$role}', 'slip_counters', 'updated_at', 'UPDATE') and not has_column_privilege('{$role}', 'slip_counters', 'terminal_id', 'UPDATE')",
+            'slip_counters must allow INSERT (a terminal\'s first slip) but refuse DELETE' => "select has_table_privilege('{$role}', 'slip_counters', 'INSERT') and not has_table_privilege('{$role}', 'slip_counters', 'DELETE')",
+            'sales must refuse UPDATE of the document mode (written once at the sale)' => "select not has_column_privilege('{$role}', 'sales', 'document_mode', 'UPDATE')",
+            'store_settings must allow UPDATE (the document mode and the slip footer)' => "select has_table_privilege('{$role}', 'store_settings', 'UPDATE')",
             'sales must allow UPDATE of the status (void and refund)' => "select has_column_privilege('{$role}', 'sales', 'status', 'UPDATE')",
         ];
 

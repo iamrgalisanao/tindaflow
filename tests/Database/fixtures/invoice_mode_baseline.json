@@ -1,0 +1,210 @@
+{
+    "invoice_snapshot": {
+        "items": [
+            {
+                "quantity": "2.000",
+                "tax_amount": "21.43",
+                "unit_price": "100.00",
+                "line_number": 1,
+                "product_name": "Fixed Product A",
+                "net_line_amount": "200.00",
+                "tax_classification": "VATABLE"
+            },
+            {
+                "quantity": "1.000",
+                "tax_amount": "5.36",
+                "unit_price": "50.00",
+                "line_number": 2,
+                "product_name": "Fixed Product B",
+                "net_line_amount": "50.00",
+                "tax_classification": "VATABLE"
+            }
+        ],
+        "change": "50.00",
+        "sale_id": "<SALE>",
+        "payments": [
+            {
+                "amount": "200.00",
+                "method": "CASH"
+            },
+            {
+                "amount": "100.00",
+                "method": "GCASH"
+            }
+        ],
+        "subtotal": "250.00",
+        "buyer_tin": null,
+        "issued_at": "2026-10-26T09:30:00+08:00",
+        "buyer_name": "Juan Dela Cruz",
+        "seller_tin": "123-456-789-000",
+        "vat_amount": "26.79",
+        "grand_total": "250.00",
+        "registration": {
+            "min": null,
+            "ptu_date": null,
+            "ptu_number": null,
+            "software_version": "1.0.0",
+            "accreditation_date": null,
+            "accreditation_number": null,
+            "machine_serial_number": "SN-0001",
+            "accreditation_valid_to": null,
+            "accreditation_valid_from": null
+        },
+        "buyer_address": null,
+        "non_vat_sales": "0.00",
+        "taxable_sales": "223.21",
+        "terminal_code": "T-01",
+        "discount_total": "0.00",
+        "invoice_footer": "Footer line",
+        "invoice_header": "Header line",
+        "invoice_number": "000001",
+        "schema_version": 2,
+        "seller_address": "1 Fixed St",
+        "amount_tendered": "300.00",
+        "vat_exempt_sales": "0.00",
+        "zero_rated_sales": "0.00",
+        "seller_branch_code": "00000",
+        "buyer_business_style": null,
+        "discount_beneficiary": null,
+        "tax_registration_type": "VAT",
+        "seller_registered_name": "Fixed Store Inc."
+    },
+    "invoice_row": {
+        "invoice_number": "000001",
+        "seller_registered_name_snapshot": "Fixed Store Inc.",
+        "tax_registration_type_snapshot": "VAT",
+        "terminal_code_snapshot": "T-01"
+    },
+    "invoice_html": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Invoice 000001</title><style>@page{size:80mm auto;margin:3mm}*{box-sizing:border-box}body{margin:0;background:#fff;color:#000;font:12px/1.35 \"Courier New\",Courier,monospace}.doc{width:72mm;max-width:100%;margin:0 auto;padding:2mm 0}.c{text-align:center}.b{font-weight:bold}.title{letter-spacing:.2em;margin:2px 0}.row{display:flex;justify-content:space-between;gap:8px}.row span:last-child{text-align:right;white-space:nowrap}.wrap{overflow-wrap:anywhere}.pre{white-space:pre-line;overflow-wrap:anywhere}.item{margin-bottom:3px;break-inside:avoid}.sep{border-top:1px dashed #000;margin:6px 0}.total{font-size:14px}.legend{font-size:10px}.mark{border:2px solid #000;text-align:center;font-weight:bold;letter-spacing:.15em;padding:3px 0;margin:6px 0}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body><div class=\"doc\"><div class=\"c\"><div class=\"b\">Fixed Store Inc.</div><div class=\"wrap\">1 Fixed St</div><div class=\"wrap\">TIN: 123-456-789-000 &middot; Branch: 00000</div><div>VAT REGISTERED</div><div class=\"c wrap\">S/N: SN-0001</div><div class=\"pre\">Header line</div></div><div class=\"sep\"></div><div class=\"c b title\">INVOICE</div><div class=\"row\"><span>Invoice No.</span><span>000001</span></div><div class=\"row\"><span>Date</span><span>2026-10-26 09:30:00</span></div><div class=\"row\"><span>Terminal</span><span>T-01</span></div><div class=\"sep\"></div><div class=\"wrap\">Sold to: Juan Dela Cruz</div><div class=\"sep\"></div><div class=\"item\"><div class=\"wrap\">Fixed Product A</div><div class=\"row\"><span>2 x PHP 100.00</span><span>PHP 200.00 V</span></div></div><div class=\"item\"><div class=\"wrap\">Fixed Product B</div><div class=\"row\"><span>1 x PHP 50.00</span><span>PHP 50.00 V</span></div></div><div class=\"sep\"></div><div class=\"row\"><span>Subtotal</span><span>PHP 250.00</span></div><div class=\"row\"><span>VATable Sales</span><span>PHP 223.21</span></div><div class=\"row\"><span>VAT-Exempt Sales</span><span>PHP 0.00</span></div><div class=\"row\"><span>Zero-Rated Sales</span><span>PHP 0.00</span></div><div class=\"row\"><span>VAT Amount</span><span>PHP 26.79</span></div><div class=\"sep\"></div><div class=\"row b total\"><span>TOTAL</span><span>PHP 250.00</span></div><div class=\"sep\"></div><div class=\"row\"><span>CASH</span><span>PHP 200.00</span></div><div class=\"row\"><span>GCASH</span><span>PHP 100.00</span></div><div class=\"row\"><span>Change</span><span>PHP 50.00</span></div><div class=\"sep\"></div><div class=\"legend\">V VATable &middot; E VAT-exempt &middot; Z Zero-rated &middot; N Non-VAT</div><div class=\"sep\"></div><div class=\"c pre\">Footer line</div></div></body></html>",
+    "journal_payload": {
+        "items": [
+            {
+                "quantity": "2.000",
+                "tax_amount": "21.43",
+                "unit_price": "100.00",
+                "line_number": 1,
+                "product_name": "Fixed Product A",
+                "net_line_amount": "200.00",
+                "tax_classification": "VATABLE"
+            },
+            {
+                "quantity": "1.000",
+                "tax_amount": "5.36",
+                "unit_price": "50.00",
+                "line_number": 2,
+                "product_name": "Fixed Product B",
+                "net_line_amount": "50.00",
+                "tax_classification": "VATABLE"
+            }
+        ],
+        "change": "50.00",
+        "sale_id": "<SALE>",
+        "payments": [
+            {
+                "amount": "200.00",
+                "method": "CASH"
+            },
+            {
+                "amount": "100.00",
+                "method": "GCASH"
+            }
+        ],
+        "subtotal": "250.00",
+        "buyer_tin": null,
+        "issued_at": "2026-10-26T09:30:00+08:00",
+        "buyer_name": "Juan Dela Cruz",
+        "seller_tin": "123-456-789-000",
+        "vat_amount": "26.79",
+        "grand_total": "250.00",
+        "registration": {
+            "min": null,
+            "ptu_date": null,
+            "ptu_number": null,
+            "software_version": "1.0.0",
+            "accreditation_date": null,
+            "accreditation_number": null,
+            "machine_serial_number": "SN-0001",
+            "accreditation_valid_to": null,
+            "accreditation_valid_from": null
+        },
+        "buyer_address": null,
+        "non_vat_sales": "0.00",
+        "taxable_sales": "223.21",
+        "terminal_code": "T-01",
+        "discount_total": "0.00",
+        "invoice_footer": "Footer line",
+        "invoice_header": "Header line",
+        "invoice_number": "000001",
+        "schema_version": 2,
+        "seller_address": "1 Fixed St",
+        "amount_tendered": "300.00",
+        "vat_exempt_sales": "0.00",
+        "zero_rated_sales": "0.00",
+        "seller_branch_code": "00000",
+        "buyer_business_style": null,
+        "discount_beneficiary": null,
+        "tax_registration_type": "VAT",
+        "seller_registered_name": "Fixed Store Inc."
+    },
+    "audit_after_metadata": {
+        "sale_id": "<SALE>",
+        "invoice_number": "000001"
+    },
+    "sale": {
+        "sold_at": "2026-10-26 09:30:00+08",
+        "subtotal": "250.00",
+        "order_level_discount_amount": "0.00",
+        "discount_total": "0.00",
+        "taxable_sales": "223.21",
+        "vat_exempt_sales": "0.00",
+        "zero_rated_sales": "0.00",
+        "vat_amount": "26.79",
+        "grand_total": "250.00",
+        "status": "COMPLETED",
+        "buyer_name": "Juan Dela Cruz",
+        "non_vat_sales": "0.00"
+    },
+    "sale_items": [
+        {
+            "line_number": 1,
+            "product_name_snapshot": "Fixed Product A",
+            "sku_snapshot": "FIX-A",
+            "quantity": "2.000",
+            "unit_price_snapshot": "100.00",
+            "gross_line_amount": "200.00",
+            "net_line_amount": "200.00",
+            "tax_classification_snapshot": "VATABLE",
+            "tax_rate_snapshot": "0.1200",
+            "taxable_base": "178.57",
+            "tax_amount": "21.43"
+        },
+        {
+            "line_number": 2,
+            "product_name_snapshot": "Fixed Product B",
+            "sku_snapshot": "FIX-B",
+            "quantity": "1.000",
+            "unit_price_snapshot": "50.00",
+            "gross_line_amount": "50.00",
+            "net_line_amount": "50.00",
+            "tax_classification_snapshot": "VATABLE",
+            "tax_rate_snapshot": "0.1200",
+            "taxable_base": "44.64",
+            "tax_amount": "5.36"
+        }
+    ],
+    "payments": [
+        {
+            "method": "CASH",
+            "amount": "200.00",
+            "reference_note": null
+        },
+        {
+            "method": "GCASH",
+            "amount": "100.00",
+            "reference_note": "REF-1"
+        }
+    ],
+    "stock_movements": 2,
+    "electronic_journal_rows_for_the_sale": 1,
+    "sale_response_invoice_number": "000001"
+}

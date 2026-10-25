@@ -13,6 +13,7 @@ use App\Domain\Financial\SaleLineInput;
 use App\Domain\Financial\StatutoryDiscountCalculator;
 use App\Domain\Money;
 use App\Domain\Quantity;
+use App\Enums\SaleDocumentMode;
 use App\Models\AuditEvent;
 use App\Models\ElectronicJournalEntry;
 use App\Models\FiscalInstallation;
@@ -25,6 +26,7 @@ use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SaleItemSelection;
+use App\Models\SaleSlip;
 use App\Models\Terminal;
 use App\Models\User;
 use App\Services\Idempotency\CanonicalRequestHasher;
@@ -35,6 +37,8 @@ use App\Services\Inventory\StockLedger;
 use App\Services\InvoiceNumbering\InvoiceSeriesAllocator;
 use App\Services\Menu\MenuGroupPath;
 use App\Services\Menu\MenuPriceResolver;
+use App\Services\Slips\SlipNumberAllocator;
+use App\Services\Slips\SlipSnapshotBuilder;
 use App\Support\GlobalLockOrder;
 use App\Support\LockableResource;
 use Illuminate\Support\Carbon;
@@ -73,8 +77,12 @@ final class CheckoutService
         private readonly StockLedger $stockLedger,
         private readonly StatutoryDiscountCalculator $statutoryDiscountCalculator = new StatutoryDiscountCalculator,
         private ?MealLineResolver $mealLineResolver = null,
+        private ?SlipNumberAllocator $slipNumberAllocator = null,
+        private ?SlipSnapshotBuilder $slipSnapshotBuilder = null,
     ) {
         $this->mealLineResolver ??= new MealLineResolver(new MenuPriceResolver);
+        $this->slipNumberAllocator ??= new SlipNumberAllocator;
+        $this->slipSnapshotBuilder ??= new SlipSnapshotBuilder;
     }
 
     /**
@@ -148,9 +156,16 @@ final class CheckoutService
         $terminal = Terminal::findOrFail($terminalId);
         $storeId = $terminal->store_id;
 
+        // ADR-016 section 7: the store's document mode decides which of two paths this sale takes. INVOICE (every store until it
+        // is switched) is the unchanged fiscal path below; SLIP skips the fiscal installation, the invoice series, the invoice row
+        // and the journal entry and writes one sale_slips row instead. The mode cannot change while a shift is open
+        // (SaleDocumentSettingsService), so it is stable for the whole life of the shift this checkout just locked.
+        $documentMode = SaleDocumentMode::forStore($storeId);
+        $slipMode = $documentMode->isSlip();
+
         // Stage 6C ruling, Gap 1: resolve the terminal's effective fiscal
         // installation at sold_at, [effective_from, effective_to).
-        $fiscalInstallationId = $this->fiscalInstallationResolver->resolveForTerminal($terminalId, $soldAt->toDateTimeString());
+        $fiscalInstallationId = $slipMode ? null : $this->fiscalInstallationResolver->resolveForTerminal($terminalId, $soldAt->toDateTimeString());
 
         // Stage 6C ruling, Gap 2: V1 always deducts from the store's
         // single default inventory location.
@@ -158,7 +173,19 @@ final class CheckoutService
 
         // Stage 5 migration's own instruction: "no active row = finalization
         // must fail, a Stage 6 application check" (tax_registrations).
-        $taxRegistrationType = $this->taxRegistrationResolver->resolveForStore($storeId, $soldAt->toDateString());
+        //
+        // SLIP mode prints no tax breakdown, and a canteen that issues its own invoices may never have registered a tax status:
+        // with no registration on file the sale is computed as NON_VAT with every line NON_VAT (no VAT is invented), recorded in the
+        // sale's own columns and in the audit event (open item 7, canteen-build-plan.md). A registration that does exist is used
+        // exactly as in INVOICE mode.
+        $taxRegistrationAssumed = false;
+        if ($slipMode) {
+            $registered = $this->taxRegistrationResolver->resolveForStoreIfAny($storeId, $soldAt->toDateString());
+            $taxRegistrationAssumed = $registered === null;
+            $taxRegistrationType = $registered ?? 'NON_VAT';
+        } else {
+            $taxRegistrationType = $this->taxRegistrationResolver->resolveForStore($storeId, $soldAt->toDateString());
+        }
 
         // ADR-003 step 3 (continued): fetch each product's current snapshot.
         $items = array_values($payload['items']);
@@ -217,7 +244,7 @@ final class CheckoutService
                 unitPrice: $spec['unit_price'],
                 lineDiscountAmount: Money::fromApiString($spec['line_discount']),
                 orderDiscountEligible: $spec['eligible'],
-                taxClassification: $spec['product']->tax_class,
+                taxClassification: $taxRegistrationAssumed ? 'NON_VAT' : $spec['product']->tax_class,
             );
         }
 
@@ -348,6 +375,7 @@ final class CheckoutService
             'buyer_address' => $payload['buyer_address'] ?? null,
             'buyer_tin' => $payload['buyer_tin'] ?? null,
             'buyer_business_style' => $payload['buyer_business_style'] ?? null,
+            'document_mode' => $documentMode->value,
         ]);
 
         foreach ($lines as $line) {
@@ -411,72 +439,99 @@ final class CheckoutService
 
         $saleItems = $sale->items()->get();
 
-        // ADR-003 step 6: allocate the invoice number, insert invoice.
-        $allocated = $this->invoiceSeriesAllocator->allocateForFiscalInstallation($storeId, $fiscalInstallationId, $lockOrder);
+        if ($slipMode) {
+            // ADR-016 section 7: no fiscal installation, no invoice series, no invoice row. One sale_slips row, numbered from the
+            // terminal's own counter in this same transaction, so a rolled-back sale leaves no gap in the committed slips.
+            $slipNumber = $this->slipNumberAllocator->allocate($terminalId, $terminal->terminal_code, $lockOrder);
+            $storeSettings = DB::table('store_settings')->where('store_id', $storeId)->first();
+            $slip = SaleSlip::create([
+                'store_id' => $storeId,
+                'sale_id' => $sale->id,
+                'terminal_id' => $terminalId,
+                'slip_number' => $slipNumber['number'],
+                'slip_sequence' => $slipNumber['sequence'],
+                'slip_snapshot_json' => $this->slipSnapshotBuilder->build(
+                    $sale,
+                    $saleItems,
+                    $payload['payments'],
+                    $slipNumber['number'],
+                    $terminal->terminal_code,
+                    ($storeSettings->business_name ?? '') !== '' ? $storeSettings->business_name : (string) DB::table('stores')->where('id', $storeId)->value('name'),
+                    (string) User::whereKey($cashierId)->value('name'),
+                    $storeSettings->slip_footer ?? null,
+                ),
+            ]);
+            $documentMetadata = ['slip_number' => $slip->slip_number, 'document_mode' => 'SLIP'] + ($taxRegistrationAssumed ? ['tax_registration_assumed' => 'NON_VAT'] : []);
+        } else {
+            // ADR-003 step 6: allocate the invoice number, insert invoice.
+            $allocated = $this->invoiceSeriesAllocator->allocateForFiscalInstallation($storeId, $fiscalInstallationId, $lockOrder);
 
-        $storeSettings = DB::table('store_settings')->where('store_id', $storeId)->first();
+            $storeSettings = DB::table('store_settings')->where('store_id', $storeId)->first();
 
-        $invoiceSnapshot = [
-            'schema_version' => 2,
-            'sale_id' => $sale->id,
-            'invoice_number' => $allocated->formattedNumber,
-            'issued_at' => $soldAt->toIso8601String(),
-            'seller_registered_name' => $storeSettings->registered_name ?? null,
-            'seller_tin' => $storeSettings->tin ?? null,
-            'seller_address' => $storeSettings->business_address ?? null,
-            // Optional, additive keys of schema_version 1: an invoice issued before these existed simply lacks
-            // them and its renderer prints nothing for them (ADR-006). Header and footer are the store's own
-            // free text (Module B); the branch code is part of the seller's identity.
-            'seller_branch_code' => $storeSettings->branch_code ?? null,
-            'invoice_header' => $storeSettings->invoice_header ?? null,
-            'invoice_footer' => $storeSettings->invoice_footer ?? null,
-            'tax_registration_type' => $taxRegistrationType,
-            'terminal_code' => $terminal->terminal_code,
-            'buyer_name' => $sale->buyer_name,
-            'buyer_address' => $sale->buyer_address,
-            'buyer_tin' => $sale->buyer_tin,
-            'buyer_business_style' => $sale->buyer_business_style,
-            'items' => $saleItems->map(fn (SaleItem $i) => [
-                'line_number' => $i->line_number,
-                'product_name' => $i->product_name_snapshot,
-                'quantity' => $i->quantity,
-                'unit_price' => $i->unit_price_snapshot,
-                'net_line_amount' => $i->net_line_amount,
-                'tax_classification' => $i->tax_classification_snapshot,
-                'tax_amount' => $i->tax_amount,
-            ])->all(),
-            'subtotal' => $sale->subtotal,
-            'discount_total' => $sale->discount_total,
-            'taxable_sales' => $sale->taxable_sales,
-            'vat_exempt_sales' => $sale->vat_exempt_sales,
-            'zero_rated_sales' => $sale->zero_rated_sales,
-            'vat_amount' => $sale->vat_amount,
-            'non_vat_sales' => $sale->non_vat_sales,
-            'grand_total' => $sale->grand_total,
-            // Schema version 2 (docs/06-backend/stage-24-owner-decisions.md, decision 4): everything above is version
-            // 1's shape. These four are new and nullable. The registration data is copied from the terminal's
-            // fiscal installation as it stood at the moment of sale, so a later change never rewrites an issued
-            // invoice; nothing is invented for a terminal that has none on file.
-            'registration' => $this->registrationSnapshot($fiscalInstallationId, $soldAt->toDateString()),
-            'payments' => array_map(fn (array $payment) => ['method' => $payment['method'], 'amount' => (string) $payment['amount']], $payload['payments']),
-            'amount_tendered' => $tendered = $this->sumAmounts($payload['payments']),
-            'change' => bccomp($tendered, $sale->grand_total, 2) === 1 ? bcsub($tendered, $sale->grand_total, 2) : '0.00',
-            'discount_beneficiary' => $discountBeneficiary,
-        ];
+            $invoiceSnapshot = [
+                'schema_version' => 2,
+                'sale_id' => $sale->id,
+                'invoice_number' => $allocated->formattedNumber,
+                'issued_at' => $soldAt->toIso8601String(),
+                'seller_registered_name' => $storeSettings->registered_name ?? null,
+                'seller_tin' => $storeSettings->tin ?? null,
+                'seller_address' => $storeSettings->business_address ?? null,
+                // Optional, additive keys of schema_version 1: an invoice issued before these existed simply lacks
+                // them and its renderer prints nothing for them (ADR-006). Header and footer are the store's own
+                // free text (Module B); the branch code is part of the seller's identity.
+                'seller_branch_code' => $storeSettings->branch_code ?? null,
+                'invoice_header' => $storeSettings->invoice_header ?? null,
+                'invoice_footer' => $storeSettings->invoice_footer ?? null,
+                'tax_registration_type' => $taxRegistrationType,
+                'terminal_code' => $terminal->terminal_code,
+                'buyer_name' => $sale->buyer_name,
+                'buyer_address' => $sale->buyer_address,
+                'buyer_tin' => $sale->buyer_tin,
+                'buyer_business_style' => $sale->buyer_business_style,
+                'items' => $saleItems->map(fn (SaleItem $i) => [
+                    'line_number' => $i->line_number,
+                    'product_name' => $i->product_name_snapshot,
+                    'quantity' => $i->quantity,
+                    'unit_price' => $i->unit_price_snapshot,
+                    'net_line_amount' => $i->net_line_amount,
+                    'tax_classification' => $i->tax_classification_snapshot,
+                    'tax_amount' => $i->tax_amount,
+                ])->all(),
+                'subtotal' => $sale->subtotal,
+                'discount_total' => $sale->discount_total,
+                'taxable_sales' => $sale->taxable_sales,
+                'vat_exempt_sales' => $sale->vat_exempt_sales,
+                'zero_rated_sales' => $sale->zero_rated_sales,
+                'vat_amount' => $sale->vat_amount,
+                'non_vat_sales' => $sale->non_vat_sales,
+                'grand_total' => $sale->grand_total,
+                // Schema version 2 (docs/06-backend/stage-24-owner-decisions.md, decision 4): everything above is version
+                // 1's shape. These four are new and nullable. The registration data is copied from the terminal's
+                // fiscal installation as it stood at the moment of sale, so a later change never rewrites an issued
+                // invoice; nothing is invented for a terminal that has none on file.
+                'registration' => $this->registrationSnapshot($fiscalInstallationId, $soldAt->toDateString()),
+                'payments' => array_map(fn (array $payment) => ['method' => $payment['method'], 'amount' => (string) $payment['amount']], $payload['payments']),
+                'amount_tendered' => $tendered = $this->sumAmounts($payload['payments']),
+                'change' => bccomp($tendered, $sale->grand_total, 2) === 1 ? bcsub($tendered, $sale->grand_total, 2) : '0.00',
+                'discount_beneficiary' => $discountBeneficiary,
+            ];
 
-        $invoice = Invoice::create([
-            'store_id' => $storeId,
-            'sale_id' => $sale->id,
-            'invoice_series_id' => $allocated->invoiceSeriesId,
-            'fiscal_installation_id' => $fiscalInstallationId,
-            'invoice_number' => $allocated->formattedNumber,
-            'issued_at' => $soldAt,
-            'terminal_id' => $terminalId,
-            'seller_registered_name_snapshot' => $storeSettings->registered_name ?? '',
-            'tax_registration_type_snapshot' => $taxRegistrationType,
-            'terminal_code_snapshot' => $terminal->terminal_code,
-            'invoice_snapshot_json' => $invoiceSnapshot,
-        ]);
+            $invoice = Invoice::create([
+                'store_id' => $storeId,
+                'sale_id' => $sale->id,
+                'invoice_series_id' => $allocated->invoiceSeriesId,
+                'fiscal_installation_id' => $fiscalInstallationId,
+                'invoice_number' => $allocated->formattedNumber,
+                'issued_at' => $soldAt,
+                'terminal_id' => $terminalId,
+                'seller_registered_name_snapshot' => $storeSettings->registered_name ?? '',
+                'tax_registration_type_snapshot' => $taxRegistrationType,
+                'terminal_code_snapshot' => $terminal->terminal_code,
+                'invoice_snapshot_json' => $invoiceSnapshot,
+            ]);
+
+            $documentMetadata = ['invoice_number' => $allocated->formattedNumber];
+        }
 
         // ADR-003 step 7: one SALE-type stock_movement per sale_item,
         // all against the resolved default location. Written through the
@@ -510,18 +565,21 @@ final class CheckoutService
             'terminal_id' => $terminalId,
             'entity_type' => 'sale',
             'entity_id' => $sale->id,
-            'after_metadata' => ['sale_id' => $sale->id, 'invoice_number' => $allocated->formattedNumber],
+            'after_metadata' => ['sale_id' => $sale->id] + $documentMetadata,
         ]);
 
-        ElectronicJournalEntry::create([
-            'store_id' => $storeId,
-            'terminal_id' => $terminalId,
-            'event_type' => 'INVOICE',
-            'source_type' => 'invoice',
-            'source_id' => $invoice->id,
-            'audit_event_id' => $auditEvent->id,
-            'payload_json' => $invoiceSnapshot,
-        ]);
+        // The electronic journal is an invoice-mode artifact (ADR-016 section 7): a slip sale writes the audit event above and no journal entry.
+        if (! $slipMode) {
+            ElectronicJournalEntry::create([
+                'store_id' => $storeId,
+                'terminal_id' => $terminalId,
+                'event_type' => 'INVOICE',
+                'source_type' => 'invoice',
+                'source_id' => $invoice->id,
+                'audit_event_id' => $auditEvent->id,
+                'payload_json' => $invoiceSnapshot,
+            ]);
+        }
 
         // domain-model.md SS2.10's reserved DISCOUNT_APPLIED type, written once per sale (not per line) --
         // the DISCOUNT_OVERRIDE check above already gated the write; this is its audit trail. A sale with
@@ -537,7 +595,7 @@ final class CheckoutService
                 'entity_id' => $sale->id,
                 'after_metadata' => array_filter([
                     'sale_id' => $sale->id,
-                    'invoice_number' => $allocated->formattedNumber,
+                    ...array_intersect_key($documentMetadata, ['invoice_number' => true, 'slip_number' => true]),
                     'line_discount_total' => $calculation->discountTotal->subtract($calculation->orderLevelDiscountAmount)->toApiString(),
                     'order_level_discount_amount' => $calculation->orderLevelDiscountAmount->toApiString(),
                     'discount_total' => $calculation->discountTotal->toApiString(),

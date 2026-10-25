@@ -54,7 +54,7 @@ class RefundResultResource extends RefundSummaryResource
         return parent::toArray($request) + [
             'items' => $items,
             'settlements' => $settlements,
-            'sale' => new SaleSummaryResource($refund->sale()->with('invoice')->first()),
+            'sale' => new SaleSummaryResource($refund->sale()->with(['invoice', 'slip'])->first()),
             'remaining_refundable' => $this->remaining,
         ];
     }

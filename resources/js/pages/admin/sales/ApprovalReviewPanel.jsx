@@ -6,6 +6,7 @@ import { failureMessage, fieldErrors, request } from '../catalog/catalogApi';
 import { formatDateTime, formatMoney, shortId } from '../reports/formatters';
 import { trimQuantity } from './refundMath';
 import { DISPOSITIONS, StatusBadge, reversalMessage } from './salesParts';
+import { documentTitle } from '../../../lib/saleDocument';
 
 const DISPOSITION_LABEL = Object.fromEntries(DISPOSITIONS.map((disposition) => [disposition.id, disposition.label]));
 
@@ -165,7 +166,7 @@ export default function ApprovalReviewPanel({ kind, summary, terminalState, onDo
                         <dl className="divide-y divide-slate-800/70 rounded-md border border-slate-800 bg-slate-950/60 px-3">
                             <Line label="Sale">
                                 <Link to={`/admin/sales/${detail.sale.id}`} className="font-mono text-emerald-400 hover:underline">
-                                    Invoice {detail.sale.invoice_number ?? '—'}
+                                    {documentTitle(detail.sale)}
                                 </Link>{' '}
                                 <StatusBadge status={detail.sale.status} />
                             </Line>

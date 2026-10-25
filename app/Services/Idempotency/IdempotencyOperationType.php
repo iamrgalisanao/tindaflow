@@ -28,4 +28,6 @@ enum IdempotencyOperationType: string
     // Added in stage 25; the CHECK constraint was extended by a forward migration.
     case StockCountPost = 'STOCK_COUNT_POST';
     case StockTransfer = 'STOCK_TRANSFER';
+    // ADR-016 slice 2.2a; the CHECK constraint was extended by a forward migration.
+    case SlipReprint = 'SLIP_REPRINT';
 }

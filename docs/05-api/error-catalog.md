@@ -119,6 +119,8 @@ with the envelope above.
 | `REFUND_NOT_FOUND` | 404 | Referenced refund does not exist | — (added pass 3, `GET /refunds/{refundId}`) |
 | `REFUND_NOT_PENDING_APPROVAL` | 409 | `POST /refunds/{refundId}/approve` or `/reject` called against a refund that is no longer `REQUESTED` | Stage 2 state-machines.md §3 (added pass 3) |
 | `INVOICE_NOT_FOUND` | 404 | Referenced invoice does not exist | — |
+| `SLIP_NOT_FOUND` | 404 | Referenced slip (the document of a sale made in SLIP mode) does not exist, or belongs to another store — indistinguishable | ADR-016 slice 2.2a — `saleSlipGet`/`saleSlipReprint`, new operations; follows `INVOICE_NOT_FOUND` |
+| `SALE_DOCUMENT_MODE_CHANGE_BLOCKED` | 409 | `PUT /sale-document-settings/mode`: a shift or business day is open on some terminal of the store, so the way sales are documented cannot change. `details` carries `open_shifts` and `open_fiscal_days`; close every shift and day, then retry. A missing capability is the generic `FORBIDDEN` (403) | ADR-016 section 7 / invariants.md SLIP-001 — `saleDocumentModeSet`, a new operation |
 | `INVOICE_SERIES_EXHAUSTED` | 409 | `invoice_series.ending_number` reached; finalization cannot allocate a number | Stage 2 invariant #19 |
 | `STOCK_ADJUSTMENT_REASON_REQUIRED` | 422 | Adjustment/damage/expired movement submitted with an empty reason | Stage 2 invariant #46 |
 | `CONCURRENCY_CONFLICT` | 409 | A generic current-state race lost against another request (used only where no more specific code above applies) | architecture.md §24 |

@@ -27,7 +27,7 @@ class Sale extends Model
         'store_id', 'terminal_id', 'fiscal_day_id', 'shift_id', 'cashier_id', 'transaction_number',
         'sold_at', 'subtotal', 'order_level_discount_amount', 'discount_total', 'taxable_sales',
         'vat_exempt_sales', 'zero_rated_sales', 'vat_amount', 'non_vat_sales', 'grand_total', 'status',
-        'idempotency_key', 'buyer_name', 'buyer_address', 'buyer_tin', 'buyer_business_style',
+        'idempotency_key', 'buyer_name', 'buyer_address', 'buyer_tin', 'buyer_business_style', 'document_mode',
     ];
 
     protected function casts(): array
@@ -85,6 +85,17 @@ class Sale extends Model
     public function invoice(): HasOne
     {
         return $this->hasOne(Invoice::class);
+    }
+
+    public function slip(): HasOne
+    {
+        return $this->hasOne(SaleSlip::class);
+    }
+
+    /** The number printed on this sale's document: the invoice number, or in SLIP mode the slip number (ADR-016, SLIP-001). */
+    public function documentReference(): ?string
+    {
+        return $this->document_mode === 'SLIP' ? $this->slip?->slip_number : $this->invoice?->invoice_number;
     }
 
     public function voids(): HasMany

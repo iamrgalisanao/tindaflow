@@ -18,6 +18,7 @@ class StoreSettings extends Model
     protected $fillable = [
         'store_id', 'business_name', 'registered_name', 'business_address',
         'tin', 'branch_code', 'invoice_header', 'invoice_footer', 'telephone', 'email',
+        'sale_document_mode', 'slip_footer',
     ];
 
     public function store(): BelongsTo

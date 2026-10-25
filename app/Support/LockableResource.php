@@ -15,6 +15,8 @@ enum LockableResource: string
     case Sale = 'sale';
     case SaleItem = 'sale_item';
     case InvoiceSeries = 'invoice_series';
+    // ADR-016 slice 2.2a: a terminal's slip counter row (SLIP mode only). Taken last; an operation never takes it together with InvoiceSeries.
+    case SlipCounter = 'slip_counter';
 
     public function order(): int
     {
@@ -24,6 +26,7 @@ enum LockableResource: string
             self::Sale => 2,
             self::SaleItem => 3,
             self::InvoiceSeries => 4,
+            self::SlipCounter => 5,
         };
     }
 }

@@ -6,6 +6,7 @@ import { formatMoney } from '../reports/formatters';
 import { QUANTITY_PATTERN, fromCents, fromThousandths, refundEventCents, toCents, toThousandths, trimQuantity } from './refundMath';
 import { DISPOSITIONS, PAYMENT_METHODS, reversalMessage } from './salesParts';
 import MoneyInput from '../../../components/MoneyInput';
+import { documentReference } from '../../../lib/saleDocument';
 
 const inputClass = (error) =>
     `min-h-11 w-full rounded-md border bg-slate-950 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-1 lg:min-h-0 ${
@@ -208,7 +209,7 @@ export default function RefundPanel({ sale, executesImmediately, onDone, onClose
     );
 
     return (
-        <SlideOver titleId="refund_panel_title" title="Refund" badge={sale.invoice_number ? `#${sale.invoice_number}` : null} onClose={onClose} footer={footer}>
+        <SlideOver titleId="refund_panel_title" title="Refund" badge={documentReference(sale) ? `#${documentReference(sale)}` : null} onClose={onClose} footer={footer}>
             <form id="refund_form" onSubmit={submit} noValidate className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
                 {(formError || errors.server) && (
                     <p role="alert" className="rounded-md border border-rose-800 bg-rose-950/40 px-3 py-2 text-sm text-slate-100">

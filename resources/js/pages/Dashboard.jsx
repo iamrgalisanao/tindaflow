@@ -161,7 +161,7 @@ export default function Dashboard() {
                 <section className="mb-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
                     <h3 className="text-sm font-semibold text-slate-100">Your shift starts at the till</h3>
                     <p className="mt-1 max-w-prose text-sm text-slate-400">
-                        Open the till to start selling. You can look up an earlier transaction, reprint its invoice, or ask for a void or refund from
+                        Open the till to start selling. You can look up an earlier transaction, reprint its invoice or slip, or ask for a void or refund from
                         Sales history — a manager decides those.
                     </p>
                     <Link to="/help" className="mt-2 inline-block text-sm text-emerald-400 hover:underline">

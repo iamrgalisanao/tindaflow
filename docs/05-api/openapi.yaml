@@ -14,6 +14,8 @@ tags:
 - {name: Inventory}
 - {name: Sales}
 - {name: Invoices}
+- {name: SaleSlips}
+- {name: SaleDocumentSettings}
 - {name: Shifts}
 - {name: FiscalDay}
 - {name: Reports}
@@ -2359,6 +2361,14 @@ paths:
       - name: invoice_number
         in: query
         schema: {type: string}
+      - name: slip_number
+        in: query
+        description: ADR-016. Exact match on the slip number of a sale made in SLIP mode.
+        schema: {type: string}
+      - name: document_number
+        in: query
+        description: ADR-016. Exact match on the number on the sale's document, whichever it is -- the invoice number of an INVOICE-mode sale or the slip number of a SLIP-mode sale.
+        schema: {type: string}
       - name: transaction_number
         in: query
         schema: {type: string}
@@ -2765,6 +2775,41 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/InvoiceReprintResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  # ------------------------------------------------------------ SaleSlips
+  /sale-slips/{slipId}:
+    get:
+      operationId: saleSlipGet
+      tags: [SaleSlips]
+      summary: Get the slip of a sale made in SLIP mode, rendered from its immutable snapshot (ADR-016, ADR-006)
+      description: 'The plain original. Renders exclusively from sale_slips.slip_snapshot_json, never today''s store settings or menu. A slip of another store is SLIP_NOT_FOUND.'
+      parameters:
+      - {$ref: '#/components/parameters/SlipIdPath'}
+      responses:
+        '200':
+          description: Slip
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SaleSlipDetail'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /sale-slips/{slipId}/reprints:
+    post:
+      operationId: saleSlipReprint
+      tags: [SaleSlips]
+      summary: Reprint a slip (never allocates a new number)
+      description: 'The slip twin of invoiceReprint. Never creates a sale or slip row and never touches a slip counter; it only records that a copy was produced: a SLIP_REPRINTED audit event whose id is the reprint occurrence. The electronic journal is an invoice-mode artifact and receives no entry. The returned slip carries a visible REPRINT -- COPY mark. Idempotency-Key required so a network retry cannot record a second copy.'
+      parameters:
+      - {$ref: '#/components/parameters/SlipIdPath'}
+      - {$ref: '#/components/parameters/IdempotencyKeyHeader'}
+      responses:
+        '201':
+          description: Reprint recorded; marked document returned
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SaleSlipReprintResult'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
@@ -3419,6 +3464,67 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # ------------------------------------------------- SaleDocumentSettings
+  /sale-document-settings:
+    get:
+      operationId: saleDocumentSettingsGet
+      tags: [SaleDocumentSettings]
+      summary: How the store documents a sale (INVOICE or SLIP), the slip footer, and what is open right now
+      description: 'ADR-016. open_shifts and open_fiscal_days count the store''s shifts and business days that are open on any terminal; the mode cannot change while either is above zero.'
+      responses:
+        '200':
+          description: Sale document settings
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SaleDocumentSettings'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /sale-document-settings/mode:
+    put:
+      operationId: saleDocumentModeSet
+      tags: [SaleDocumentSettings]
+      x-capability: FISCAL_CONFIGURATION_MANAGE
+      summary: Switch the store between INVOICE and SLIP
+      description: 'ADR-016 section 7 / ADR-014. A store-wide decision, uniform across its tills. Refused with SALE_DOCUMENT_MODE_CHANGE_BLOCKED (409) while any shift or business day is open on any terminal; writes a SALE_DOCUMENT_MODE_CHANGED audit event. Each sale records the mode it was finalized in, so earlier sales keep their document. Asking for the mode already in force changes nothing and writes nothing. A store with no settings row gets one (its own name, blank registered name and TIN).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SaleDocumentModeInput'}
+      responses:
+        '200':
+          description: The settings after the change
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SaleDocumentSettings'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: SALE_DOCUMENT_MODE_CHANGE_BLOCKED -- a shift or business day is open; details carry open_shifts and open_fiscal_days
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /sale-document-settings/slip-footer:
+    put:
+      operationId: slipFooterSet
+      tags: [SaleDocumentSettings]
+      x-capability: STORE_SETTINGS_MANAGE
+      summary: Set the optional line printed at the bottom of every slip
+      description: 'ADR-016. Empty by default; the store decides the wording. Applies to slips printed from now on only -- a printed slip keeps the footer it was printed with. null (or blank) clears it. Writes a SETTINGS_CHANGED audit event when the value changes.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SlipFooterInput'}
+      responses:
+        '200':
+          description: The settings after the change
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SaleDocumentSettings'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
   /tax-registrations:
     get:
       operationId: taxRegistrationList
@@ -4058,6 +4164,11 @@ components:
       schema: {type: string, format: uuid}
     InvoiceIdPath:
       name: invoiceId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    SlipIdPath:
+      name: slipId
       in: path
       required: true
       schema: {type: string, format: uuid}
@@ -4852,6 +4963,11 @@ components:
           anyOf:
           - {type: string, description: 'The accountable fiscal serial itself — digits only, minimum six, leading zeroes preserved (RMO 24-2023). Deliberately excludes any invoice_series.prefix/series_code (Stage 2 domain-model.md §2.6 already keeps those as separate invoice_series fields); a future need to display a series prefix alongside this serial must add an explicit separate field, never concatenate it into this one. See InvoiceSummary.invoice_number for the full rationale.', pattern: '^[0-9]{6,}$', example: '000103'}
           - {type: 'null'}
+        document_mode: {$ref: '#/components/schemas/SaleDocumentMode'}
+        document_reference:
+          anyOf:
+          - {type: string, description: 'ADR-016. The one number to show for this sale, whichever document it got: its invoice number (INVOICE mode) or its slip number, "<terminal code>-<6 digits>" (SLIP mode). Screens show this instead of assuming an invoice.'}
+          - {type: 'null'}
         store_id: {type: string, format: uuid}
         terminal_id: {type: string, format: uuid}
         fiscal_day_id: {type: string, format: uuid}
@@ -4860,6 +4976,10 @@ components:
         sold_at: {type: string, format: date-time}
         grand_total: {$ref: '#/components/schemas/Money'}
         status: {$ref: '#/components/schemas/SaleStatus'}
+    SaleDocumentMode:
+      type: string
+      enum: [INVOICE, SLIP]
+      description: 'ADR-016. INVOICE: the numbered invoice path (default, unchanged). SLIP: internal sales monitoring -- a small per-terminal-numbered slip, no invoice, no invoice series, no electronic journal entry, no tax breakdown.'
     SaleDetail:
       allOf:
       - {$ref: '#/components/schemas/SaleSummary'}
@@ -4898,6 +5018,10 @@ components:
           amount_tendered: {$ref: '#/components/schemas/Money'}
           change: {$ref: '#/components/schemas/Money'}
           invoice: {$ref: '#/components/schemas/InvoiceSummary'}
+          slip:
+            anyOf:
+            - {$ref: '#/components/schemas/SaleSlipSummary'}
+            - {type: 'null'}
           void:
             anyOf:
             - allOf:
@@ -4940,6 +5064,54 @@ components:
         is_reprint: {type: boolean, enum: [true], description: 'Always true — this schema only ever describes a reprint occurrence. render_html inside `invoice` carries a visible "REPRINT"/"COPY" watermark whenever it was produced via this endpoint (ADR-007), even though the underlying `invoice` payload is otherwise identical to the original.'}
         reprinted_at: {type: string, format: date-time, description: 'The date/time of this specific reprint event — never the original invoice.issued_at.'}
         requested_by: {type: string, format: uuid, description: 'The authenticated user who performed this reprint (resolved server-side from the session, never client-supplied).'}
+    SaleSlipSummary:
+      type: object
+      description: 'ADR-016. The document of a sale made in SLIP mode. Append-only.'
+      properties:
+        id: {type: string, format: uuid}
+        slip_number: {type: string, description: 'A running number per terminal, gap-free for committed slips: "<terminal code>-<6 digits>", e.g. T-01-000004. A different sequence from invoice numbers; never prefixed or formatted like one.', example: T-01-000004}
+        issued_at: {type: string, format: date-time}
+        schema_version: {type: integer}
+    SaleSlipDetail:
+      allOf:
+      - {$ref: '#/components/schemas/SaleSlipSummary'}
+      - type: object
+        properties:
+          sale_id: {type: string, format: uuid}
+          terminal_id: {type: string, format: uuid}
+          render_html: {type: string, description: 'Server-rendered, print-optimized HTML for a narrow 58mm thermal slip (store name, slip number, date and time, cashier, lines, total, payment type, the store''s footer line). Rendered exclusively from slip_snapshot_json. Never contains the words invoice or official receipt. Carries no reprint marker -- GET /sale-slips/{slipId} always renders the plain original.'}
+    SaleSlipReprintResult:
+      type: object
+      description: 'The response shape for POST /sale-slips/{slipId}/reprints only (the twin of InvoiceReprintResult).'
+      properties:
+        reprint_event_id: {type: string, format: uuid, description: 'The id of the SLIP_REPRINTED audit_event row created for this call; identical on an idempotent retry.'}
+        slip: {$ref: '#/components/schemas/SaleSlipDetail'}
+        is_reprint: {type: boolean, enum: [true]}
+        reprinted_at: {type: string, format: date-time}
+        requested_by: {type: string, format: uuid}
+    SaleDocumentSettings:
+      type: object
+      properties:
+        sale_document_mode: {$ref: '#/components/schemas/SaleDocumentMode'}
+        slip_footer:
+          anyOf:
+          - {type: string, maxLength: 200}
+          - {type: 'null'}
+        open_shifts: {type: integer, description: 'Shifts open on any terminal of the store right now.'}
+        open_fiscal_days: {type: integer, description: 'Business days (fiscal days) open on any terminal of the store right now.'}
+    SaleDocumentModeInput:
+      type: object
+      required: [sale_document_mode]
+      properties:
+        sale_document_mode: {$ref: '#/components/schemas/SaleDocumentMode'}
+    SlipFooterInput:
+      type: object
+      required: [slip_footer]
+      properties:
+        slip_footer:
+          anyOf:
+          - {type: string, maxLength: 200}
+          - {type: 'null'}
     VoidSummary:
       type: object
       properties:
@@ -5278,6 +5450,7 @@ components:
         generated_at: {type: string, format: date-time}
         generated_by: {type: string, format: uuid}
         totals_snapshot: {$ref: '#/components/schemas/ZReadingTotalsSnapshot'}
+        document_mode: {allOf: [{$ref: '#/components/schemas/SaleDocumentMode'}], description: 'ADR-016. SLIP when the day''s sales were slips: the reading is then the store''s internal end-of-day report (business day), printed without tax lines or accumulated-sales counters. The stored totals are unchanged.'}
     ReportResult:
       type: object
       properties:
@@ -5508,12 +5681,14 @@ components:
             invoice_series: {type: boolean}
             inventory_location: {type: boolean}
             tax_registration: {type: boolean}
+        document_mode: {allOf: [{$ref: '#/components/schemas/SaleDocumentMode'}], description: 'ADR-016. In SLIP mode fiscal_installation, invoice_series and tax_registration do not apply and read true; only inventory_location is required.'}
     StoreSetupOverview:
       description: Store-wide readiness from the same checks the till runs, per terminal that can sell.
       type: object
       properties:
         ready: {type: boolean}
         checks: {$ref: '#/components/schemas/StoreSetupReadiness/properties/checks'}
+        document_mode: {$ref: '#/components/schemas/SaleDocumentMode'}
         terminals:
           type: array
           items:

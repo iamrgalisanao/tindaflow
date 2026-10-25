@@ -11,7 +11,7 @@ class VoidResultResource extends VoidSummaryResource
     public function toArray(Request $request): array
     {
         return parent::toArray($request) + [
-            'sale' => new SaleSummaryResource($this->resource->sale()->with('invoice')->first()),
+            'sale' => new SaleSummaryResource($this->resource->sale()->with(['invoice', 'slip'])->first()),
         ];
     }
 }
