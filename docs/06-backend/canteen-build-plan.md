@@ -1,0 +1,74 @@
+# Canteen build plan (ADR-016)
+
+Status: proposed 2026-10-25. Design only. Slices are in dependency order; each is shippable and leaves the invoice path working. Estimates are working days for one developer including tests, audit events and the help-page update for that slice; the range is best case to realistic.
+
+**Total: 48 to 61 days (midpoint about 54).** The earlier 42 to 59 estimate is raised at the low end for two reasons found in the code: about 18 backend and 9 frontend files assume every sale has an invoice (slice 2.2b), and the menu admin builder is a real screen set, not a form (slice 1.2). Phase 1 depends on no unanswered client item.
+
+Every migration below is run by the owner role. For each new table, state in the migration comment whether it is append-only or lifecycle, then update `database/scripts/harden_append_only_privileges.sql`, the read-back in `app/Console/Commands/HardenDatabase.php`, and `tests/Database/AppendOnlyPrivilegesTest.php` in the same slice. No new table needs DELETE, so the DELETE allow-list is unchanged.
+
+## Phase 1 — Menu and navigation (no client dependency): 15 to 20 days
+
+**1.1 Menu groups and navigation: 3 to 4 days.**
+- Scope: `menu_groups` (two levels), `products.menu_group_id`, admin screen to build the 7 groups and sub-groups and assign products, POS group tabs and sub-tabs replacing the flat category tabs, search by name or SKU kept as one box (verify the POS catalog search covers SKU; the admin product list already does).
+- Areas: new `MenuGroup` model/service/controller, `ProductController` (filter by group), `resources/js/pages/pos/CatalogPanel.jsx`, admin catalog pages, product CSV (optional `menu_group` column).
+- Migration: `menu_groups` (lifecycle), `products` + nullable `menu_group_id`. Existing `categories` untouched. Seed the 7 groups and 4 sub-groups for the canteen store only.
+- Tests: depth cap of 2, inactive group hidden, product in no group still reachable by search, store scoping, audit events.
+
+**1.2 Meal configuration model and admin builder: 6 to 8 days.**
+- Scope: `dish_categories`, `dishes`, `meals` (+ hidden backing product), `meal_option_groups`, `meal_options`, `menu_prices`; services enforcing the configuration rules (one `prices_the_meal` group per meal, min <= max, price rows only for categories that appear); admin screens for dishes (rename/hide/reorder), meals and groups, a price grid per meal by dish category with history view; seed Standard Meal (60/68, vegetable 60), Combo Meal (80/85, flagged "pending client confirmation"), rice add-ons 15 and 10.
+- Areas: new `app/Services/Menu/*`, `MenuController`, `MenuPriceController`, admin pages under `resources/js/pages/admin/menu/`, `CATALOG_MANAGE` gates, audit event types.
+- Migration: seven tables. `menu_prices` append-only (REVOKE UPDATE); the rest lifecycle, no DELETE.
+- Tests: invariants MENU-003/004/005, price effective at an instant (before/after `effective_from`), rename leaves history, cashier forbidden, audit written.
+
+**1.3 Checkout: meal resolution, snapshot, new picker, rice pop-up: 6 to 8 days.**
+- Scope: `GET /menu` payload for the till; `items[].meal` accepted by finalize (OpenAPI + request validation); server resolves selections and price, creates the meal line plus add-on lines, writes `sale_item_selections` and the new `sale_items` columns; replace `mealMenus.js`, `MealPicker.jsx` and the SKU lookup in `CatalogPanel.jsx` with the menu-driven picker (step 1 dish category, step 2 dish, then the rice pop-up, skippable); idempotency hash includes the `meal` structure; invoice snapshot (invoice mode) prints meal and dish in the line description; sales detail shows the selection.
+- Areas: `CheckoutService` (a `MealLineResolver` collaborator, so the transaction script stays readable), `SaleItem` model, `SaleDetailResource`, `Pos.jsx`, `CartPanel.jsx`, the invoice snapshot renderer.
+- Migration: `sale_items` + nullable `menu_group_path_snapshot`, `meal_id`, `meal_name_snapshot`, `parent_line_number`; new `sale_item_selections` (append-only). Update the hardening script for the new table.
+- Tests: client price ignored (tampered price); min/max violations; inactive option; rename a dish after the sale and the sale/report/reprint is unchanged (MENU-001); repricing mid-day; add-on line refunded alone; end-to-end invoice with a meal; the existing 5ec4c51 picker tests are replaced.
+
+## Phase 2 — Payment methods and slip mode: 10 to 12 days
+
+**2.1 Bank transfer and reference: 1 day.** Add `BANK_TRANSFER` to the `payments` and `refund_settlements` CHECK constraints (one migration, drop and recreate the constraint), to request validation, `NetCollectionService`, readings breakdown and `TenderPanel` labels; show an optional reference input for BANK_TRANSFER, GCASH, MAYA (the `reference_note` column and `external_reference` payload field already exist). Test: accepted, reference optional, appears in the payment breakdown, never counted as cash.
+
+**2.2a Slip mode core: 5 to 6 days.**
+- Scope: `store_settings.sale_document_mode`, `sales.document_mode`; `SaleDocumentMode` enum; `CheckoutService` branch skipping fiscal installation resolution, series allocation and invoice insert, and writing `sale_slips` with the per-terminal `slip_counters` number; slip renderer (very small, ADR-007 pipeline) and reprint; mode switch screen behind `FISCAL_CONFIGURATION_MANAGE` with the open-shift/day check and audit; shift/cash-count/X-reading unchanged; end-of-day report relabelled in slip mode; remove the fiscal setup prerequisite for starting a shift in slip mode (verify the shift-open path first: it creates the fiscal day without needing a fiscal installation).
+- Migration: `store_settings` + `sale_document_mode` (default `INVOICE`), `sales` + `document_mode` (NOT NULL default `INVOICE`), `sale_slips` (append-only), `slip_counters` (lifecycle).
+- Tests: invoice mode byte-for-byte unchanged (existing suite green); slip sale consumes no invoice number; rolled-back sale leaves no slip-number gap; two tills get distinct sequences; mode change refused with an open shift; shift close variance identical in both modes.
+
+**2.2b Remove invoice assumptions from void, refund, lookup, reports: 3 to 4 days.** Files to audit and branch on `document_mode`: `VoidService`, `RefundService`, `SaleController`, `SaleSummaryResource`, `SaleDetailResource`, `InvoiceSummaryResource`, `InvoiceReprintService`, `SalesReportController`, `VoidRefundReportController`, `ReportQueryService`, and in the SPA `Pos.jsx`, `PosLookupPanel.jsx`, `SalesPage.jsx`, `SaleDetailPage.jsx`, `RefundPanel.jsx`, `VoidSalePanel.jsx`, `ApprovalReviewPanel.jsx`, `recordsParts.jsx`, `reportsRegistry.js`. Introduce one `documentReference` (invoice number or slip number) used everywhere. The electronic journal stays invoice-mode only. Tests: void and refund of a slip sale, lookup by slip number, report columns.
+
+## Phase 3 — Employees and credit: 13 to 17 days
+
+Depends on 2.1 (payment CHECK constraints) and 2.2 (slip carries the employee). Needs the client's answer on the cut-off end date (assumed end of month) and the limit for SUB (assumed the same 1,500) before UAT, not before building.
+
+**3.1 Employees and lookup: 4 to 5 days.** `employees`, `employee_code_sequences`, `billing_parties` (seeded TSC and Subcontractors), `credit_policies`; admin screens with `EMPLOYEE_MANAGE`, CSV import with generated codes, deactivate, printable QR/ID card sheet; till lookup by scanner text or typed number (name, type, active only). Migration: those four tables plus a column-level UPDATE grant for `employees` that excludes `employee_code` and `employee_type`. Tests: code format and gap-free under concurrent creation, never reused, cashier cannot create (403), lookup scoped to store, inactive refused.
+
+**3.2 Credit tender, ledger, limit, concurrency, reversals: 6 to 8 days.** `CREDIT` tender (sole payment, no payment step in `TenderPanel`), `sales.employee_id`, `employee_credit_entries` ledger, `CutOff` value object (store timezone, end of month), `LockableResource::Employee` inserted at order 2 and the order documented in architecture.md, over-limit refusal `CREDIT_LIMIT_EXCEEDED`, credit-status preview endpoint and the cashier warning, refund/void settlement to `CREDIT` writing REVERSAL in the original period, readings show credit as a separate non-cash line. Migration: `payments`/`refund_settlements` CHECK add `CREDIT` (if not done in 2.1), `sales.employee_id`, `employee_credit_entries` (append-only). Tests (tests/Database where concurrency matters): two connections charging the same employee near the limit, exactly one succeeds; cut-off boundaries (15th/16th, 28/29/30/31, midnight Manila); expected cash and change unchanged by a credit sale (CREDIT-002; confirm the open cash-change bug in the project memory is fixed or independent before relying on drawer assertions); refund of an earlier period; credit mixed with cash refused.
+
+**3.3 Supervisor override: 3 to 4 days.** `user_override_codes`, `credit_override_grants`, `CREDIT_LIMIT_OVERRIDE` capability, endpoints to set/reset a code, list approvers and grant, the till modal (named approver plus code), checkout consumption under the employee lock, lockout and throttle, all audit events and their filters in `recordsParts.jsx`. Migration: two tables; grants limited to counter columns and `consumed_at`. Tests: wrong code x5 locks even when the surrounding checkout rolls back; token single-use (parallel replay), wrong terminal/employee/amount, expired, approver equals cashier refused, code equals password refused, every path audited, no code or token in logs or audit payloads.
+
+## Phase 4 — Billing: 7 to 8 days
+
+**4.1 Billing generator and report: 4 to 5 days.** Service producing party -> account (employee) -> meal type -> item/dish from the ledger and snapshots for a range or named cut-off, as-of date, adjustments flagged, on-screen plus print and CSV export; optional saved `billing_runs` with `BR-` numbers; separate runs for TSC and SUB. Migration: `billing_runs` (append-only). Tests: totals equal ledger net; re-run after a later refund shows the adjustment and the saved run is unchanged; a renamed dish does not change an old statement; party separation.
+
+**4.2 Cheques against what is owed: 3 days.** `billing_cheques`, `billing_cheque_allocations`, `BILLING_MANAGE`, owed-by-period view, return a cheque (status RECEIVED to RETURNED, reinstating the owed amount), idempotent recording (two operation types added to `IdempotencyOperationType`). Tests: over-allocation refused under concurrency, cheque never creates a cash movement, returned cheque restores balance.
+
+## Phase 5 — Cross-cutting: 3 to 5 days
+Menu and employee data loading scripts for go-live; extend `docs/02-domain/invariant-test-coverage.md` for invariants 82 to 96; `/help` guides and screenshots for the new flows (see `scripts/help-shots`); update `docker/README.md` for the new hardened tables; a full run of `tests/Database` against a hardened role; UAT with the client's supervisors.
+
+## Dependency summary
+1.1 -> 1.2 -> 1.3. 2.1 and 2.2a can start after 1.3 (or in parallel with 1.2 if two people). 2.2b follows 2.2a. 3.1 can run parallel to 2.2. 3.2 needs 2.1, 3.1 and 2.2a. 3.3 needs 3.2. 4.1 needs 3.2. 4.2 needs 4.1. Customer-visible order of value: Phase 1, then 2, then 3, 4.
+
+## Open items (client or owner)
+1. **Combo Meal prices.** 80 for chicken/pork/fish and 85 for beef is an assumption; confirm, and whether the Combo price depends on the main's category at all.
+2. **Vegetable-only meal.** Which dishes, price 60 assumed, does it include rice, is it a Standard Meal variant (modelled as a Vegetable dish category).
+3. **Cut-off end date.** Client said 16th to 30th; the design uses the 16th to the last day of the month. Confirm.
+4. **SUB billing target.** One bill to one subcontractor party, or several subcontractor companies (the design already allows several `billing_parties`); same 1,500 limit for SUB?
+5. **"Account name" in the billing report.** Read as the employee; confirm it is not the company.
+6. **End-of-day totals.** Does the client want any end-of-day report in slip mode, or only shift close and cash count?
+7. **Tax treatment of the slip.** Which tax registration/classification the canteen's meal products carry (the calculator needs one, NON_VAT is supported); the slip prints no tax breakdown either way.
+8. **Mixed tender.** Credit plus cash on one sale is excluded; is a part-credit sale ever needed?
+9. **Who approves.** Is a MANAGER the "supervisor", or does the client need a separate role (a code-level change to the fixed three roles)?
+10. **Employee QR secrecy.** Sequential codes are guessable; acceptable for a staff canteen, or print a check digit or secret on the ID card?
+11. **Bounced cheques and write-offs.** Is "returned" enough, or is a write-off adjustment needed?
+12. **Drawer cash bug.** The memory note on expected cash ignoring change given must be confirmed fixed before slice 3.2's drawer assertions are written.

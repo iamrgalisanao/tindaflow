@@ -564,3 +564,49 @@ second review pass.
     `starting_number = 100, ending_number = 99` would only ever be
     observable as "already exhausted" rather than being rejected
     outright as invalid configuration at the point it is created.
+
+---
+
+## Canteen extension (new — ADR-016, proposed 2026-10-25, not yet built)
+
+Items 82-96. Nothing above is weakened: #8 is met by a `CREDIT` payment row, #2/#7 cover the new snapshot tables, #35/#36/#42 keep
+applying to the business day in slip mode.
+
+82. **MENU-001 — snapshot immutability.** A meal line's menu group path, meal name, chosen dish and option names, dish category and prices
+    are copied into `sale_item` / `sale_item_selection` in the finalize transaction and never updated. No report, slip, reprint or
+    billing statement reads `dish`, `meal`, `meal_option` or `menu_price` names or amounts for a sale that already exists. Renaming,
+    hiding or repricing menu data cannot change a past sale.
+83. **MENU-002 — the server prices a meal.** The unit price of a meal line and of an add-on is the `menu_price` in force at `sold_at`,
+    resolved server-side from the option in the `prices_the_meal` group's dish category; a client-submitted price is never used.
+84. **MENU-003 — a valid selection.** Each choice group's selected count is within `min_select..max_select`; every option belongs to the
+    meal, is active at finalization, and exactly one `prices_the_meal` group exists per meal; a meal line has quantity 1.
+85. **MENU-004 — price history is append-only and unambiguous.** `menu_price` rows are only inserted; for any (meal, dish category) or add-on
+    option at an instant, the row with the latest `effective_from <= instant` is the price; two rows may not share the same key and `effective_from`.
+86. **MENU-005 — no hard delete of menu data.** Dishes, meals, groups and options are hidden (`active = false`), never deleted, because
+    snapshots and the inventory phase reference `dish.id`.
+87. **EMP-001 — the code is system generated.** `employee_code` is `TSC`/`SUB` plus a gap-free-per-type five-digit number from a locked
+    counter, unique per store, immutable, never reused (including after deactivation). Only a user holding `EMPLOYEE_MANAGE` can create or
+    edit an employee; no cashier or till endpoint can.
+88. **CREDIT-001 — credit is a whole-sale tender.** A `CREDIT` payment is the sale's only payment, equals its grand total, requires an
+    active employee on the sale, and is refused in a sale that has any other tender.
+89. **CREDIT-002 — credit never touches the drawer.** A credit sale adds nothing to `cash_sales`, `expected_cash` or change allocation, and
+    a refund or void of a credit sale settles to the credit ledger, never to a cash refund.
+90. **CREDIT-003 — the limit holds unless an audited override was consumed.** For an employee and cut-off period, `SUM(CHARGE) - SUM(REVERSAL)`
+    plus a new charge never exceeds the limit in force, except by consuming a valid override grant in the same transaction. The balance is read
+    under `FOR UPDATE` on the employee row, so two tills cannot both approve; the check is authoritative at checkout, the till's warning is not.
+91. **CREDIT-004 — the ledger is append-only and the period is fixed.** `employee_credit_entry` rows are never updated or deleted; the balance is
+    derived, never stored. The period is computed from `sold_at` in the store timezone (1st-15th, 16th-end of month); a reversal carries the
+    original charge's period.
+92. **OVR-001 — an override is one sale, one approver, audited.** A grant is bound to terminal, employee, cashier and a maximum charge, expires in
+    minutes, is single use (consumed atomically), and the approver differs from the cashier. `CREDIT_OVERRIDE_GRANTED`, `_USED` and `_REFUSED` audit
+    events are written for every attempt; the ledger entry it enabled references the grant.
+93. **OVR-002 — override codes are secret and locked out.** Codes are stored only as slow hashes, differ from the login password, and five wrong
+    attempts lock that approver for a period; failure counts are committed outside the checkout transaction so a rolled-back sale cannot erase them.
+94. **BILL-001 — a billing statement is derived.** Statements are recomputed from `employee_credit_entry`; a saved `billing_run` is a frozen
+    snapshot that is never edited; a later re-run shows differences as adjustments.
+95. **BILL-002 — cheques only reduce what is owed.** `billing_cheque_allocation` rows are append-only, their sum per cheque never exceeds the
+    cheque amount, and recording a cheque never creates a `cash_movement` or touches a shift.
+96. **SLIP-001 — one document per sale, in the store's mode.** A sale has exactly one of an `invoice` or a `sale_slip`, matching `sale.document_mode`.
+    A slip sale never consumes an invoice number; a slip number is a per-terminal running integer allocated in the finalize transaction (no gap
+    from a rolled-back sale), formatted so it cannot be mistaken for an invoice number. The store's `sale_document_mode` changes only under
+    `FISCAL_CONFIGURATION_MANAGE`, while no shift or fiscal day is open, with an audit event.

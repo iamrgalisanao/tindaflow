@@ -718,6 +718,35 @@ mechanism V1 actually supports.
 
 ---
 
+### 2.13 Canteen extension: meal menu, employee credit, slip mode, billing (ADR-016, proposed 2026-10-25)
+
+Additive only: no existing entity changes meaning. Full rationale, alternatives and the client decision on invoicing are in
+[ADR-016](../03-architecture/decisions/ADR-016-configurable-meal-menu-employee-credit-and-slip-mode.md). Not yet built.
+
+**Configuration (mutable, never deleted, `active` flag):** `menu_group` (two levels; `product.menu_group_id`), `dish_category`,
+`dish` (own id, the future inventory attach point), `meal` (has a hidden backing `product`), `meal_option_group` (min/max,
+`prices_the_meal`, `popup_after_choice`), `meal_option` (a dish, or an add-on with its own backing product), `billing_party`,
+`credit_policy` (limit per cut-off by employee type).
+
+**Append-only history:** `menu_price` (effective-dated, the price change history), `sale_item_selection` (snapshot of the chosen dish
+and options per meal line), `sale_slip` (slip mode document), `employee_credit_entry` (CHARGE / REVERSAL ledger), `credit_override_grant`
+(single-use per-sale supervisor approval; only `consumed_at` is updatable), `billing_run`, `billing_cheque` (only `status` updatable),
+`billing_cheque_allocation`.
+
+**Additions to existing entities:** `sale_item` gains `menu_group_path_snapshot`, `meal_id`, `meal_name_snapshot`, `parent_line_number`
+(add-on lines); `sale` gains `employee_id` and `document_mode` (`INVOICE`|`SLIP`); `payment.method` and `refund_settlement.payment_method`
+gain `BANK_TRANSFER` and `CREDIT`; `store_settings` gains `sale_document_mode`; a user may hold an override code (`user_override_code`).
+
+**`employee`** — `store_id`, `employee_type` (`DIRECT`|`SUBCONTRACTOR`), `employee_code` (system generated `TSC00001` / `SUB00001`, immutable,
+also the QR value), `name`, `billing_party_id`, `active`. Created only by a user holding `EMPLOYEE_MANAGE` (ADMIN).
+
+**Capabilities added** (catalog grows from 17 to 20): `EMPLOYEE_MANAGE` (ADMIN), `CREDIT_LIMIT_OVERRIDE` (MANAGER, ADMIN),
+`BILLING_MANAGE` (MANAGER, ADMIN). Menu editing reuses `CATALOG_MANAGE`; billing read reuses `REPORT_VIEW`; changing the sale document
+mode reuses `FISCAL_CONFIGURATION_MANAGE` (vendor unlock, ADR-014). The V1 roles stay ADMIN/MANAGER/CASHIER: the client's "supervisor" is a MANAGER.
+
+**Slip mode and the fiscal day.** Entity names `fiscal_day` and `z_reading` stay; in slip mode they mean business day and internal
+end-of-day report. Shift open/close, cash count and X-reading are unchanged.
+
 ## 3. Money & Quantity model
 
 ### 3.1 Money — representation and precision
@@ -923,6 +952,9 @@ per this section's own "never recompute historical tax" rule above):**
 | `refund` | `refund_item`, `refund_settlement` |
 | `fiscal_day` | `z_reading` (at most one, created at closure) |
 | `shift` | `cash_movement`, `x_reading` (zero or more) |
+| `meal` (ADR-016) | `meal_option_group`, `meal_option`; prices live in append-only `menu_price` |
+| `employee` (ADR-016) | `employee_credit_entry` ledger (append-only; balance is derived, never stored) |
+| `billing_cheque` (ADR-016) | `billing_cheque_allocation` |
 | `stock_balance` | derived — not an aggregate root; a projection of `stock_movement` |
 | `store` | `store_settings`, `tax_registration` (history), `terminal` (→ `terminal_fiscal_installation` → `fiscal_installation`, all history) |
 
