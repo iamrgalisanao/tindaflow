@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { saleLineName } from '../../../lib/saleLines';
 import SlideOver from '../SlideOver';
 import { fieldErrors, request } from '../catalog/catalogApi';
 import { formatMoney } from '../reports/formatters';
@@ -243,7 +244,7 @@ export default function RefundPanel({ sale, executesImmediately, onDone, onClose
                                 <li key={key} className={`rounded-md border p-3 ${done ? 'border-slate-800 opacity-60' : 'border-slate-700 bg-slate-950/40'}`}>
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="min-w-0">
-                                            <p className="break-words text-sm text-slate-100">{row.item.product_name_snapshot}</p>
+                                            <p className="break-words text-sm text-slate-100">{saleLineName(row.item, sale.items)}</p>
                                             <p className="font-mono text-[11px] text-slate-500">
                                                 {trimQuantity(row.item.quantity)} &times; {formatMoney(row.item.unit_price_snapshot)} = {formatMoney(row.item.net_line_amount)}
                                             </p>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { saleLineName } from '../../lib/saleLines';
 import InvoicePanel from '../admin/sales/InvoicePanel';
 import RefundPanel from '../admin/sales/RefundPanel';
 import VoidSalePanel from '../admin/sales/VoidSalePanel';
@@ -303,7 +304,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                                 {detail.items.map((item) => (
                                     <tr key={item.id}>
                                         <td className="py-1.5">
-                                            <span className="block text-slate-100">{item.product_name_snapshot}</span>
+                                            <span className="block text-slate-100">{saleLineName(item, detail.items)}</span>
                                             <span className="block font-mono text-[11px] text-slate-500">
                                                 {item.quantity} × {formatMoney(item.unit_price_snapshot)}
                                                 {Number(item.line_discount_amount) > 0 && <span className="text-emerald-400"> · less {formatMoney(item.line_discount_amount)}</span>}

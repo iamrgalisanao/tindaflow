@@ -36,6 +36,17 @@ describe('CartPanel meal lines', () => {
         expect(screen.queryByLabelText(/Discount on/)).toBeNull();
     });
 
+    it('lets a long meal name wrap so the dish stays readable, while a product name still truncates', () => {
+        const line = { ...buildMealLine(meal, { g1: ['o1'] }), quantity: '1', discount: '' };
+        const product = { key: 'p1', product: { id: 'p1', name: 'Coke 330ml', selling_price: '25.00', unit_of_measure: 'can' }, quantity: '1', discount: '' };
+        render(<CartPanel {...props([line, product])} />);
+
+        const mealName = screen.getByText('Standard Meal - Beef nilaga');
+        expect(mealName.className).toContain('break-words');
+        expect(mealName.className).not.toContain('truncate');
+        expect(screen.getByText('Coke 330ml').className).toContain('truncate');
+    });
+
     it('two different dishes are two lines; the quantity steps like any line', () => {
         const a = { ...buildMealLine(meal, { g1: ['o1'] }), quantity: '1', discount: '' };
         const b = { ...buildMealLine(meal, { g1: ['o3'] }), quantity: '1', discount: '' };

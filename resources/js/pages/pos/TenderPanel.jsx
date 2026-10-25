@@ -86,7 +86,7 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
                         return (
                             <li key={line.key} className="flex items-start justify-between gap-3 px-4 py-3">
                                 <span className="min-w-0">
-                                    <span className="block truncate text-sm font-medium text-slate-100">{line.product.name}</span>
+                                    <span className={`block text-sm font-medium text-slate-100 ${line.meal ? 'break-words' : 'truncate'}`}>{line.product.name}</span>
                                     {line.meal &&
                                         mealDetailLines(line).map((detail) => (
                                             <span key={detail} className="block truncate text-xs text-emerald-300">

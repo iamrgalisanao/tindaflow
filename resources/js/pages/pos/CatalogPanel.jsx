@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../api';
 import MealPicker from './MealPicker';
-import { fromPriceText, mealsForView } from './mealMenu';
+import { fromPriceText, mealsForView, viewCount } from './mealMenu';
 import { buildMenuTabs, groupFilter } from './menuGroups';
 
 const PAGE_SIZE = 100;
@@ -96,6 +96,8 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
     const shown = searching ? results : tiles;
     const mealTiles = searching || menuTabs === null ? [] : mealsForView(menu.meals, { groupMode, menuTabs: menuTabs ?? [], groupId, subGroupId, categoryId });
 
+    const selectedCount = shown === null ? null : viewCount(total, mealTiles);
+
     return (
         <section aria-label="Products" className="flex min-h-0 flex-1 flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
             <form onSubmit={onSearch} className="flex gap-2">
@@ -149,7 +151,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                                 <TabButton
                                     key={tab.id || 'all'}
                                     selected={groupId === tab.id}
-                                    count={groupId === tab.id && subGroupId === '' && shown !== null ? total : null}
+                                    count={groupId === tab.id && subGroupId === '' ? selectedCount : null}
                                     onClick={() => {
                                         setGroupId(tab.id);
                                         setSubGroupId('');
@@ -163,7 +165,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                     {groupMode && selectedTop && selectedTop.children.length > 0 && (
                         <div role="tablist" aria-label={`${selectedTop.name} sub-groups`} className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
                             {[{ id: '', name: `All ${selectedTop.name}` }, ...selectedTop.children].map((tab) => (
-                                <TabButton key={tab.id || 'all'} small selected={subGroupId === tab.id} count={subGroupId === tab.id && shown !== null ? total : null} onClick={() => setSubGroupId(tab.id)}>
+                                <TabButton key={tab.id || 'all'} small selected={subGroupId === tab.id} count={subGroupId === tab.id ? selectedCount : null} onClick={() => setSubGroupId(tab.id)}>
                                     {tab.name}
                                 </TabButton>
                             ))}
@@ -172,7 +174,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                     {menuTabs !== null && !groupMode && (
                         <div role="tablist" aria-label="Categories" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
                             {[{ id: '', name: 'All' }, ...categories].map((category) => (
-                                <TabButton key={category.id || 'all'} selected={categoryId === category.id} count={categoryId === category.id && shown !== null ? total : null} onClick={() => setCategoryId(category.id)}>
+                                <TabButton key={category.id || 'all'} selected={categoryId === category.id} count={categoryId === category.id ? selectedCount : null} onClick={() => setCategoryId(category.id)}>
                                     {category.name}
                                 </TabButton>
                             ))}

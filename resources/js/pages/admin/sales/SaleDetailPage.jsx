@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { saleLineName } from '../../../lib/saleLines';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import AdminLayout from '../AdminLayout';
@@ -221,7 +222,7 @@ export default function SaleDetailPage() {
                                     {sale.items.map((item) => (
                                         <tr key={item.id}>
                                             <td className="px-2 py-2">
-                                                <span className="text-slate-100">{item.product_name_snapshot}</span>
+                                                <span className="text-slate-100">{saleLineName(item, sale.items)}</span>
                                                 <span className="ml-2 font-mono text-[11px] text-slate-500">{item.sku_snapshot}</span>
                                             </td>
                                             <td className="px-2 py-2 text-right font-mono tabular-nums">{formatQuantity(item.quantity)}</td>

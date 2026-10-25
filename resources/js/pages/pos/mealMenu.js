@@ -206,3 +206,11 @@ export function mealsForView(meals, { groupMode, menuTabs, groupId, subGroupId, 
     const ids = new Set([groupId, ...(top?.children.map((child) => child.id) ?? [])]);
     return meals.filter((meal) => meal.menu_group_id !== null && ids.has(meal.menu_group_id));
 }
+
+/**
+ * The number shown on the selected tab: the products the server counted for it (a top group already includes its sub-groups)
+ * plus the meal tiles shown under it. mealsForView lists each meal once, so a meal is never counted twice.
+ */
+export function viewCount(productTotal, mealTiles) {
+    return (Number(productTotal) || 0) + mealTiles.length;
+}

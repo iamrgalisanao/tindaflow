@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMealLine, fromPriceText, mealDetailLines, mealLineKey, mealPlates, mealsForView, requestItems } from './mealMenu';
+import { buildMealLine, fromPriceText, mealDetailLines, mealLineKey, mealPlates, mealsForView, requestItems, viewCount } from './mealMenu';
 
 const meal = {
     id: 'm1', name: 'Standard Meal', menu_group_id: 'l1', menu_group_path: 'Lunch > Standard Meal',
@@ -71,5 +71,22 @@ describe('tiles', () => {
     it('with category tabs the meals are on All only', () => {
         expect(ids(mealsForView(meals, { groupMode: false, menuTabs: [], groupId: '', subGroupId: '', categoryId: '' }))).toEqual(['a', 'b', 'c']);
         expect(mealsForView(meals, { groupMode: false, menuTabs: [], groupId: '', subGroupId: '', categoryId: 'c1' })).toEqual([]);
+    });
+});
+
+describe('viewCount', () => {
+    it('adds the meal tiles to the product total', () => {
+        expect(viewCount(0, [{ id: 'a' }, { id: 'b' }])).toBe(2);
+        expect(viewCount(5, [{ id: 'a' }])).toBe(6);
+        expect(viewCount('3', [])).toBe(3);
+        expect(viewCount(undefined, [])).toBe(0);
+    });
+
+    it('counts a meal once under a top group that also holds its sub-group', () => {
+        const meals = [{ id: 'a', menu_group_id: 'l1' }, { id: 'b', menu_group_id: 'l2' }];
+        const tabs = [{ id: 'l', children: [{ id: 'l1' }, { id: 'l2' }] }];
+        const view = (subGroupId) => viewCount(0, mealsForView(meals, { groupMode: true, menuTabs: tabs, groupId: 'l', subGroupId, categoryId: '' }));
+        expect(view('')).toBe(2);
+        expect(view('l1')).toBe(1);
     });
 });

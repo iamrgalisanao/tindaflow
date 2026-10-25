@@ -70,7 +70,7 @@ export default function CartPanel({
                     return (
                         <li key={line.key} className="flex items-center gap-3 px-4 py-3">
                             <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-medium text-slate-100">{line.product.name}</p>
+                                <p className={`text-sm font-medium text-slate-100 ${line.meal ? 'break-words' : 'truncate'}`}>{line.product.name}</p>
                                 {line.meal && (
                                     <ul aria-label={`${line.product.name} selection`} className="text-xs text-emerald-300">
                                         {mealDetailLines(line).map((detail) => (

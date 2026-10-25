@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { saleLineName } from '../../../lib/saleLines';
 import { Link } from 'react-router-dom';
 import SlideOver from '../SlideOver';
 import { failureMessage, fieldErrors, request } from '../catalog/catalogApi';
@@ -63,7 +64,10 @@ export default function ApprovalReviewPanel({ kind, summary, terminalState, onDo
 
     const pending = detail?.status === 'REQUESTED';
     const canApprove = terminalState === 'enrolled' || terminalState === 'unknown';
-    const nameOf = (saleItemId) => sale?.items.find((item) => item.id === saleItemId)?.product_name_snapshot ?? `Line ${shortId(saleItemId)}`;
+    const nameOf = (saleItemId) => {
+        const found = sale?.items.find((item) => item.id === saleItemId);
+        return found ? saleLineName(found, sale.items) : `Line ${shortId(saleItemId)}`;
+    };
 
     async function decide(path, body, keyRef, fallback) {
         setBusy(true);
