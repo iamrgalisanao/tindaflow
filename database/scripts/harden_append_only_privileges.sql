@@ -89,7 +89,8 @@ REVOKE UPDATE ON
     slip_counters,  -- ADR-016 slice 2.2a: lifecycle, not append-only -- UPDATE is revoked here and re-granted by column below
     employees,      -- ADR-016 slice 3.1: lifecycle -- UPDATE is revoked here and re-granted by column below (not employee_code / employee_type)
     employee_code_sequences, -- ADR-016 slice 3.1: lifecycle -- the counters; re-granted by column below
-    credit_policies -- ADR-016 slice 3.1: lifecycle -- the current limit; re-granted by column below
+    credit_policies, -- ADR-016 slice 3.1: lifecycle -- the current limit; re-granted by column below
+    employee_credit_entries -- ADR-016 slice 3.2, CREDIT-004: the credit ledger (CHARGE / REVERSAL); never changed, the balance is derived
 FROM tindaflow_app;
 
 -- slip_counters is the running slip number of each terminal. The checkout transaction increments `last_number` (and stamps
@@ -151,6 +152,9 @@ GRANT UPDATE (status) ON sales TO tindaflow_app;
 -- sales.document_mode sits under the table-wide UPDATE revoke of `sales` (written once at INSERT); store_settings.sale_document_mode and
 -- slip_footer are ordinary columns of a lifecycle table (the store settings and the mode switch update them), and idempotency_records
 -- gained one allowed operation type, which is a CHECK change only.
+
+-- Slice 3.2: employee_credit_entries is append-only (in the list above); sales.employee_id sits under the table-wide UPDATE revoke of
+-- `sales` (written once at INSERT); the payments / refund_settlements method CHECKs gained CREDIT, which is a constraint change only.
 
 -- billing_parties (ADR-016 slice 3.1) is a plain lifecycle/configuration table: INSERT and UPDATE (rename, deactivate), never DELETE
 -- (covered by the store-wide REVOKE DELETE). It needs no statement here.

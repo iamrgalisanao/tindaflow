@@ -2,6 +2,7 @@
 
 namespace App\Services\Checkout;
 
+use App\Domain\Exceptions\CreditTenderException;
 use App\Domain\Exceptions\FiscalDayNotOpenException;
 use App\Domain\Exceptions\InsufficientPaymentException;
 use App\Domain\Exceptions\InvalidPaymentTotalException;
@@ -29,6 +30,9 @@ use App\Models\SaleItemSelection;
 use App\Models\SaleSlip;
 use App\Models\Terminal;
 use App\Models\User;
+use App\Services\Credit\CreditLedger;
+use App\Services\Employees\CreditPolicyService;
+use App\Services\Employees\EmployeeAuditor;
 use App\Services\Idempotency\CanonicalRequestHasher;
 use App\Services\Idempotency\IdempotencyOperationType;
 use App\Services\Idempotency\IdempotencyService;
@@ -79,10 +83,12 @@ final class CheckoutService
         private ?MealLineResolver $mealLineResolver = null,
         private ?SlipNumberAllocator $slipNumberAllocator = null,
         private ?SlipSnapshotBuilder $slipSnapshotBuilder = null,
+        private ?CreditLedger $creditLedger = null,
     ) {
         $this->mealLineResolver ??= new MealLineResolver(new MenuPriceResolver);
         $this->slipNumberAllocator ??= new SlipNumberAllocator;
         $this->slipSnapshotBuilder ??= new SlipSnapshotBuilder;
+        $this->creditLedger ??= new CreditLedger(new CreditPolicyService(new EmployeeAuditor));
     }
 
     /**
@@ -111,6 +117,9 @@ final class CheckoutService
     {
         $lockOrder = new GlobalLockOrder;
         $soldAt = Carbon::now();
+
+        // ADR-016 section 5 / CREDIT-001: a credit sale is one CREDIT payment plus the employee it is charged to. Shape only, before any lock.
+        $creditEmployeeId = $this->creditEmployeeId($payload);
 
         // ADR-003 step 2/3: resolve + lock the terminal's currently OPEN
         // shift, then fiscal day, in the frozen order. A single
@@ -155,6 +164,10 @@ final class CheckoutService
 
         $terminal = Terminal::findOrFail($terminalId);
         $storeId = $terminal->store_id;
+
+        // Global Lock Order position 2 (after shift and fiscal day, before anything of the sale): the employee row, so two tills
+        // charging one employee queue here and the second reads the balance the first left (CREDIT-003). Active and in this store, or refused.
+        $creditEmployee = $creditEmployeeId === null ? null : $this->creditLedger->lockEmployeeForCharge($lockOrder, $storeId, $creditEmployeeId);
 
         // ADR-016 section 7: the store's document mode decides which of two paths this sale takes. INVOICE (every store until it
         // is switched) is the unchanged fiscal path below; SLIP skips the fiscal installation, the invoice series, the invoice row
@@ -335,6 +348,18 @@ final class CheckoutService
             throw InsufficientPaymentException::forTotals($totalPayments->toApiString(), $calculation->grandTotal->toApiString());
         }
 
+        if ($creditEmployee !== null) {
+            // The till previews the total before a Senior Citizen / PWD discount, which only the server works out, so the amount it sent may be
+            // higher than the real total. A credit payment is always exactly the grand total (CREDIT-001): it is recorded as such, and there is
+            // no change on credit. The limit is checked against the real total, under the employee lock taken above.
+            $this->creditLedger->assertWithinLimit($creditEmployee, $calculation->grandTotal, $soldAt);
+            $payload['payments'] = [[
+                'method' => 'CREDIT',
+                'amount' => $calculation->grandTotal->toApiString(),
+                'external_reference' => $payload['payments'][0]['external_reference'] ?? null,
+            ]];
+        }
+
         // ADR-003 step 5: insert sale, sale_item, payment.
         $sale = Sale::create([
             'store_id' => $storeId,
@@ -342,6 +367,7 @@ final class CheckoutService
             'fiscal_day_id' => $fiscalDay->id,
             'shift_id' => $shift->id,
             'cashier_id' => $cashierId,
+            'employee_id' => $creditEmployee?->id,
             // Stage 6C ruling (stage-6c-sale-finalization.md SS7 gate 1,
             // APPROVED): transaction_number is a separate operational
             // reference, never derived from sale.id (a UUIDv7 via
@@ -437,6 +463,11 @@ final class CheckoutService
             ]);
         }
 
+        // CREDIT-004: the charge is written in the sale's own transaction, in the period the sale's local calendar date falls in.
+        if ($creditEmployee !== null) {
+            $this->creditLedger->recordCharge($creditEmployee, $sale, $calculation->grandTotal, $soldAt);
+        }
+
         $saleItems = $sale->items()->get();
 
         if ($slipMode) {
@@ -459,6 +490,7 @@ final class CheckoutService
                     ($storeSettings->business_name ?? '') !== '' ? $storeSettings->business_name : (string) DB::table('stores')->where('id', $storeId)->value('name'),
                     (string) User::whereKey($cashierId)->value('name'),
                     $storeSettings->slip_footer ?? null,
+                    $creditEmployee === null ? null : ['code' => $creditEmployee->employee_code, 'name' => $creditEmployee->fullName()],
                 ),
             ]);
             $documentMetadata = ['slip_number' => $slip->slip_number, 'document_mode' => 'SLIP'] + ($taxRegistrationAssumed ? ['tax_registration_assumed' => 'NON_VAT'] : []);
@@ -514,7 +546,11 @@ final class CheckoutService
                 'amount_tendered' => $tendered = $this->sumAmounts($payload['payments']),
                 'change' => bccomp($tendered, $sale->grand_total, 2) === 1 ? bcsub($tendered, $sale->grand_total, 2) : '0.00',
                 'discount_beneficiary' => $discountBeneficiary,
-            ];
+            ] + ($creditEmployee === null ? [] : [
+                // Additive and present ONLY on a credit sale, so every other invoice snapshot is byte-for-byte what it always was. The renderer
+                // prints "Charged to" in the payment section (ADR-016 slice 3.2).
+                'credit_employee' => ['code' => $creditEmployee->employee_code, 'name' => $creditEmployee->fullName()],
+            ]);
 
             $invoice = Invoice::create([
                 'store_id' => $storeId,
@@ -555,6 +591,10 @@ final class CheckoutService
             'unit_cost' => $saleItem->unit_cost_snapshot,
             'created_by' => $cashierId,
         ])->all());
+
+        if ($creditEmployee !== null) {
+            $documentMetadata += ['employee_id' => $creditEmployee->id, 'employee_code' => $creditEmployee->employee_code, 'payment_method' => 'CREDIT'];
+        }
 
         // ADR-003 step 8: audit_event + electronic_journal_entry (ADR-005:
         // synchronous, same transaction, never queued).
@@ -612,6 +652,27 @@ final class CheckoutService
         // ADR-003 step 9 (commit) happens implicitly when
         // IdempotencyService::execute()'s enclosing transaction commits.
         return new OperationOutcome(resultType: 'sale', resultResourceId: $sale->id);
+    }
+
+    /**
+     * CREDIT-001. A sale is either all CREDIT plus its employee, or has no CREDIT payment and no employee.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function creditEmployeeId(array $payload): ?string
+    {
+        $payments = array_values($payload['payments']);
+        $employeeId = $payload['employee_id'] ?? null;
+        $credit = array_values(array_filter($payments, fn (array $payment) => $payment['method'] === 'CREDIT'));
+
+        if ($credit === []) {
+            return $employeeId === null ? null : throw CreditTenderException::employeeWithoutCredit();
+        }
+        if (count($payments) !== 1) {
+            throw CreditTenderException::mixedWithOtherTender();
+        }
+
+        return $employeeId ?? throw CreditTenderException::employeeRequired();
     }
 
     /**

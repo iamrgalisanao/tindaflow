@@ -1,6 +1,7 @@
 import { clampedDiscountCents, fromThousandths, lineCents, pesos, toThousandths } from './posMoney';
 import MoneyInput from '../../components/MoneyInput';
 import { mealDetailLines, mealPlates } from './mealMenu';
+import { isOverLimit, money, remainingAfter } from './credit';
 
 const STEP = 1000n; // one whole unit
 
@@ -15,6 +16,10 @@ const STEP = 1000n; // one whole unit
  * entitlement, not a discretionary override) and captures only who the discount is for -- the 20%-off-VAT-exclusive
  * amount is computed exclusively by the server, never previewed here, so "Total amount due" stays the safe,
  * pre-discount figure to collect until the receipt shows the real one.
+ *
+ * `credit` is null for a cash sale. For a sale charged to an employee it is `{ name, status }` (status: limit/used/remaining for the
+ * current cut-off, from the lookup): the panel then shows what is left now and after this cart, warns in red when the cart is over
+ * what is left (the server decides finally, at checkout), and the Charge button names the employee.
  */
 export default function CartPanel({
     cart,
@@ -31,6 +36,7 @@ export default function CartPanel({
     onQuantity,
     onRemove,
     onCharge,
+    credit = null,
 }) {
     function step(line, direction) {
         const current = toThousandths(line.quantity) ?? STEP;
@@ -41,6 +47,8 @@ export default function CartPanel({
     }
 
     const itemCount = cart.length;
+    const leftAfter = credit ? remainingAfter(credit.status, totalCents) : null;
+    const overLimit = credit ? isOverLimit(credit.status, totalCents) : false;
 
     return (
         <section aria-label="Cart" className="flex min-h-0 flex-1 flex-col rounded-lg border border-slate-700 bg-slate-900">
@@ -285,6 +293,25 @@ export default function CartPanel({
                     </div>
                     <p className="mt-2 text-right text-[11px] text-slate-400">A preview. The server works out the final total when the sale is finalised.</p>
                 </div>
+                {credit && (
+                    <div aria-label="Credit balance" className="mt-2 rounded border border-sky-800/60 bg-slate-950 px-3 py-2 text-xs">
+                        <div className="flex items-center justify-between gap-3 text-slate-400">
+                            <span>Remaining credit</span>
+                            <span className="font-mono tabular-nums text-slate-100">{money(credit.status.remaining)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-slate-400">
+                            <span>Left after this sale</span>
+                            <span className={`font-mono tabular-nums ${overLimit ? 'text-red-400' : 'text-emerald-400'}`}>
+                                {leftAfter === null ? '—' : `${leftAfter < 0n ? '-' : ''}₱${pesos(leftAfter < 0n ? -leftAfter : leftAfter)}`}
+                            </span>
+                        </div>
+                        {overLimit && (
+                            <p role="alert" className="mt-1 rounded bg-red-500/10 px-2 py-1 text-red-300">
+                                This cart is over {credit.name}&apos;s credit limit. Remove items, or pay with cash instead; the sale will be refused.
+                            </p>
+                        )}
+                    </div>
+                )}
                 {statutoryDiscountIncomplete && (
                     <p role="alert" className="mb-2 rounded bg-red-500/10 px-3 py-2 text-xs text-red-300">
                         Enter the ID number and name for the Senior Citizen / PWD discount.
@@ -296,7 +323,7 @@ export default function CartPanel({
                     onClick={onCharge}
                     className="mt-3 min-h-16 w-full rounded-lg bg-emerald-500 px-4 text-lg font-bold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-400"
                 >
-                    {itemCount === 0 ? 'Charge' : `Charge ₱${pesos(totalCents)}`}
+                    {credit ? (itemCount === 0 ? 'Charge to employee' : `Charge ₱${pesos(totalCents)} to ${credit.name}`) : itemCount === 0 ? 'Charge' : `Charge ₱${pesos(totalCents)}`}
                 </button>
             </div>
         </section>

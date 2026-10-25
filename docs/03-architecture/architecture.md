@@ -684,8 +684,11 @@ applied, so every row below is fully specified.**
 **The global order, most-coarse to most-specific:**
 
 ```
-shift  →  fiscal_day  →  sale  →  sale_item (ascending id/line_number)  →  invoice_series
+shift  →  fiscal_day  →  employee  →  sale  →  sale_item (ascending id/line_number)  →  invoice_series  →  slip_counter
 ```
+
+(`employee` was inserted at position 2 by ADR-016 slice 3.2, 2026-10-26; `slip_counter` was appended by slice 2.2a. In code:
+`LockableResource` Shift 0, FiscalDay 1, **Employee 2**, Sale 3, SaleItem 4, InvoiceSeries 5, SlipCounter 6.)
 
 Every operation acquires a **subset** of this list, always in this
 relative order (an operation may skip a level it doesn't need, but never
@@ -694,9 +697,9 @@ needs):
 
 | Operation | Locks taken (in order) | Notes |
 |---|---|---|
-| **Checkout (Sale finalization)** | `shift` (the sale's own, currently-open shift) → `fiscal_day` (the sale's own, currently-open fiscal day) → `invoice_series` (INVOICE mode) or, in SLIP mode (ADR-016 slice 2.2a), → `slip_counter` (the terminal's own counter row, order 5, never taken together with `invoice_series`) | Unchanged from the original design (ADR-003/004); no `sale`/`sale_item` lock needed since the row doesn't exist until this transaction creates it |
-| **Void completion** | `shift` (the void's own **processing** shift — Stage 2 `void.shift_id`, resolved from the ADR-011 terminal context) → `fiscal_day` (the void's own processing fiscal day — `void.fiscal_day_id`) → `sale` (the **original** sale, to check/flip `status`) | The `shift`/`fiscal_day` locked here are the *processing* context (Stage 2 invariants #67–#69), never the original sale's own `shift_id`/`fiscal_day_id` — those are read, not locked, since a void never mutates the original sale's fiscal attribution |
-| **Refund completion** | `shift` (processing) → `fiscal_day` (processing) → `sale` (original) → `sale_item` (every referenced line, locked in **ascending `id`/`line_number` order** — never in request-payload order, to prevent two refunds touching an overlapping set of lines from deadlocking on each other) | Same processing-context distinction as Void; `sale_item` sits last among Refund's locks per the global order |
+| **Checkout (Sale finalization)** | `shift` (the sale's own, currently-open shift) → `fiscal_day` (the sale's own, currently-open fiscal day) → `employee` (**only a credit sale**, ADR-016 slice 3.2: the employee row `FOR UPDATE`, taken before the credit balance is read, so two tills charging one employee queue and the second sees the first's charge) → `invoice_series` (INVOICE mode) or, in SLIP mode (ADR-016 slice 2.2a), → `slip_counter` (the terminal's own counter row, order 5, never taken together with `invoice_series`) | Unchanged from the original design (ADR-003/004); no `sale`/`sale_item` lock needed since the row doesn't exist until this transaction creates it |
+| **Void completion** | `shift` (the void's own **processing** shift — Stage 2 `void.shift_id`, resolved from the ADR-011 terminal context) → `fiscal_day` (the void's own processing fiscal day — `void.fiscal_day_id`) → `employee` (**only a void of a credit sale**: read from the immutable `sales.employee_id`, locked FIRST, as checkout does) → `sale` (the **original** sale, to check/flip `status`) | The `shift`/`fiscal_day` locked here are the *processing* context (Stage 2 invariants #67–#69), never the original sale's own `shift_id`/`fiscal_day_id` — those are read, not locked, since a void never mutates the original sale's fiscal attribution |
+| **Refund completion** | `shift` (processing) → `fiscal_day` (processing) → `employee` (**only a refund of a credit sale that executes**; a refund merely requested by a cashier writes no ledger entry and locks no employee) → `sale` (original) → `sale_item` (every referenced line, locked in **ascending `id`/`line_number` order** — never in request-payload order, to prevent two refunds touching an overlapping set of lines from deadlocking on each other) | Same processing-context distinction as Void; `sale_item` sits last among Refund's locks per the global order |
 | **Shift close** | `shift` (own) | Does not need to lock individual `sale` rows — the race with an in-flight checkout is already resolved by both operations taking the same `shift` lock first |
 | **Z-Reading / fiscal day closure** | `fiscal_day` (own) | Does not need to lock individual `shift` rows — the open-shift check is a read verified while holding the `fiscal_day` lock, and each `shift`'s own close operation already serializes against concurrent checkout via the `shift` lock independently |
 

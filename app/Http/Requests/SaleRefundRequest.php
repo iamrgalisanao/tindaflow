@@ -26,7 +26,7 @@ class SaleRefundRequest extends FormRequest
             'items.*.quantity' => ['required', 'regex:/^\d{1,7}(\.\d{1,3})?$/', 'gt:0'],
             'items.*.disposition' => ['required', Rule::in(['RETURN_TO_STOCK', 'DAMAGED', 'EXPIRED', 'DISPOSED'])],
             'settlements' => ['required', 'array', 'min:1'],
-            'settlements.*.payment_method' => ['required', Rule::in(['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'])],
+            'settlements.*.payment_method' => ['required', Rule::in(['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER', 'CREDIT'])],
             'settlements.*.amount' => ['required', 'regex:/^\d{1,10}\.\d{2}$/', 'gt:0'],
             'settlements.*.external_reference' => ['nullable', 'string', 'max:255'],
             'reason' => ['required', 'string', 'max:255'],

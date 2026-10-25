@@ -60,6 +60,11 @@ final class InvoiceSnapshotV2Renderer extends InvoiceSnapshotRenderer
         if ($this->positive((string) ($snapshot['change'] ?? '0.00'))) {
             $lines[] = $this->row('Change', $this->money((string) $snapshot['change']));
         }
+        // A credit sale (ADR-016 slice 3.2) names who it was charged to; the key exists only on such an invoice, so nothing else changes.
+        $employee = $snapshot['credit_employee'] ?? null;
+        if (is_array($employee) && $this->has($employee, 'name')) {
+            $lines[] = '<div class="wrap">Charged to: '.$this->text($employee['name']).($this->has($employee, 'code') ? ' ('.$this->text($employee['code']).')' : '').'</div>';
+        }
         $lines[] = '<div class="sep"></div>';
 
         return $lines;

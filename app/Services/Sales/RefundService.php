@@ -2,6 +2,7 @@
 
 namespace App\Services\Sales;
 
+use App\Domain\Exceptions\CreditRefundSettlementException;
 use App\Domain\Exceptions\RefundNotAllowedException;
 use App\Domain\Exceptions\RefundNotFoundException;
 use App\Domain\Exceptions\RefundNotPendingApprovalException;
@@ -19,6 +20,9 @@ use App\Models\SaleItem;
 use App\Models\Terminal;
 use App\Models\User;
 use App\Services\Auth\RoleCapabilityCatalog;
+use App\Services\Credit\CreditLedger;
+use App\Services\Employees\CreditPolicyService;
+use App\Services\Employees\EmployeeAuditor;
 use App\Services\Idempotency\CanonicalRequestHasher;
 use App\Services\Idempotency\IdempotencyOperationType;
 use App\Services\Idempotency\IdempotencyService;
@@ -54,7 +58,10 @@ final class RefundService
         private readonly StockLedger $stockLedger,
         private readonly SaleReturnLocator $returnLocator,
         private readonly RefundCalculator $calculator,
-    ) {}
+        private ?CreditLedger $creditLedger = null,
+    ) {
+        $this->creditLedger ??= new CreditLedger(new CreditPolicyService(new EmployeeAuditor));
+    }
 
     /** @param  array{items: list<array<string, mixed>>, settlements: list<array<string, mixed>>, reason: string}  $payload */
     public function request(Terminal $terminal, User $user, string $saleId, string $idempotencyKey, array $payload): Refund
@@ -152,11 +159,15 @@ final class RefundService
     /** @param  array<string, mixed>  $payload */
     private function performRequest(Terminal $terminal, User $user, string $saleId, array $payload): OperationOutcome
     {
-        Sale::where('store_id', $user->store_id)->find($saleId) ?? throw SaleNotFoundException::forId($saleId);
+        $found = Sale::where('store_id', $user->store_id)->find($saleId) ?? throw SaleNotFoundException::forId($saleId);
 
         $lockOrder = new GlobalLockOrder;
         $immediate = RoleCapabilityCatalog::has($user->role, 'SALE_REFUND_APPROVE');
         $context = $immediate ? $this->contexts->lockFor($lockOrder, $terminal->id, $user->id) : null;
+        // Only an executing refund writes the ledger, so only it locks the employee -- FIRST, before the sale (Global Lock Order).
+        if ($immediate) {
+            $this->lockCreditEmployee($lockOrder, $found);
+        }
 
         $lockOrder->acquire(LockableResource::Sale);
         $sale = Sale::whereKey($saleId)->lockForUpdate()->firstOrFail();
@@ -168,6 +179,7 @@ final class RefundService
         $lines = $this->deriveLines($sale, $items, $payload['items']);
         $total = $this->totalOf($lines);
         $this->assertSettlementsMatch($payload['settlements'], $total);
+        $this->assertSettlementsFitTheTender($sale, $payload['settlements']);
 
         $refund = Refund::create([
             'sale_id' => $sale->id,
@@ -217,6 +229,7 @@ final class RefundService
 
         $lockOrder = new GlobalLockOrder;
         $context = $this->contexts->lockFor($lockOrder, $terminal->id, $user->id);
+        $this->lockCreditEmployee($lockOrder, Sale::findOrFail($pending->sale_id));
         $lockOrder->acquire(LockableResource::Sale);
         $sale = Sale::whereKey($pending->sale_id)->lockForUpdate()->firstOrFail();
         $refund = Refund::whereKey($refundId)->lockForUpdate()->firstOrFail();
@@ -235,6 +248,7 @@ final class RefundService
         $lines = $this->deriveLines($sale, $items, $requested['items']);
         $total = $this->totalOf($lines);
         $this->assertSettlementsMatch($requested['settlements'], $total);
+        $this->assertSettlementsFitTheTender($sale, $requested['settlements']);
 
         $this->complete($refund, $sale, $items, $lines, $requested['settlements'], $total, $user, $terminal, $context);
 
@@ -303,6 +317,31 @@ final class RefundService
     }
 
     /**
+     * CREDIT-002. A sale paid with credit (it names an employee) is refunded to credit only: no cash moves, the employee's balance goes
+     * down. Any other sale cannot be refunded to credit.
+     *
+     * @param  list<array<string, mixed>>  $settlements
+     */
+    private function assertSettlementsFitTheTender(Sale $sale, array $settlements): void
+    {
+        $credited = array_filter($settlements, fn (array $settlement) => $settlement['payment_method'] === 'CREDIT');
+        if ($sale->employee_id !== null && count($credited) !== count($settlements)) {
+            throw CreditRefundSettlementException::creditSaleNeedsCredit();
+        }
+        if ($sale->employee_id === null && $credited !== []) {
+            throw CreditRefundSettlementException::creditOnACashSale();
+        }
+    }
+
+    /** The employee of a credit sale is locked before the sale (Global Lock Order), read from the immutable sale row. */
+    private function lockCreditEmployee(GlobalLockOrder $lockOrder, Sale $sale): void
+    {
+        if ($sale->employee_id !== null) {
+            $this->creditLedger->lockEmployee($lockOrder, $sale->store_id, $sale->employee_id);
+        }
+    }
+
+    /**
      * @param  Collection<string, SaleItem>  $items
      * @param  list<array{item: SaleItem, quantity: Quantity, disposition: string, amount: Money}>  $lines
      * @param  list<array<string, mixed>>  $settlements
@@ -361,6 +400,11 @@ final class RefundService
         }
 
         $sale->update(['status' => $this->saleStatusFromHistory($sale, $items)]);
+
+        // CREDIT-004: what was refunded comes off the employee's balance, in the period of the ORIGINAL charge, never the current one.
+        if ($sale->employee_id !== null) {
+            $this->creditLedger->recordReversalForRefund($sale, $refund, $total, $now);
+        }
 
         $audit = AuditEvent::create([
             'store_id' => $sale->store_id,

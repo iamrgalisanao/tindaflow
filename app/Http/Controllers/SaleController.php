@@ -16,6 +16,7 @@ use App\Http\Resources\VoidResultResource;
 use App\Models\Sale;
 use App\Services\Auth\PosRequestContext;
 use App\Services\Checkout\CheckoutService;
+use App\Services\Employees\EmployeeService;
 use App\Services\Sales\RefundService;
 use App\Services\Sales\VoidService;
 use Illuminate\Database\Eloquent\Builder;
@@ -65,7 +66,7 @@ class SaleController extends Controller
     public function list(Request $request): JsonResponse
     {
         $actor = Auth::guard('web')->user();
-        $query = Sale::query()->where('store_id', $actor->store_id)->with(['invoice', 'slip'])
+        $query = Sale::query()->where('store_id', $actor->store_id)->with(['invoice', 'slip', 'employee'])
             ->when(! $actor->can('REPORT_VIEW'), fn (Builder $sales) => $sales->where('cashier_id', $actor->id));
 
         if ($request->filled('transaction_number')) {
@@ -95,9 +96,14 @@ class SaleController extends Controller
                 ? $query->whereHas('items', fn (Builder $items) => $items->where('product_id', $productId))
                 : $query->whereRaw('1 = 0');
         }
+        // ADR-016: the credit sales of one employee, by the code on their card (exact match, case and whitespace ignored).
+        if ($request->filled('employee_code')) {
+            $code = EmployeeService::normalizeCode((string) $request->query('employee_code'));
+            $query->whereHas('employee', fn (Builder $employee) => $employee->where('employee_code', $code));
+        }
         if ($request->filled('payment_method')) {
             $method = (string) $request->query('payment_method');
-            in_array($method, ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'], true)
+            in_array($method, ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER', 'CREDIT'], true)
                 ? $query->whereHas('payments', fn (Builder $payments) => $payments->where('method', $method))
                 : $query->whereRaw('1 = 0');
         }
@@ -123,7 +129,7 @@ class SaleController extends Controller
     public function get(string $saleId): JsonResponse
     {
         $actor = Auth::guard('web')->user();
-        $sale = Sale::where('store_id', $actor->store_id)->with(['items.selections', 'payments', 'invoice', 'slip'])
+        $sale = Sale::where('store_id', $actor->store_id)->with(['items.selections', 'payments', 'invoice', 'slip', 'employee'])
             ->when(! $actor->can('REPORT_VIEW'), fn (Builder $sales) => $sales->where('cashier_id', $actor->id))
             ->find($saleId)
             ?? throw SaleNotFoundException::forId($saleId);

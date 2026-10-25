@@ -340,10 +340,19 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                                     <dd className="font-mono tabular-nums text-slate-200">{formatMoney(payment.amount)}</dd>
                                 </div>
                             ))}
-                            <div className="flex justify-between text-slate-400">
-                                <dt>Change</dt>
-                                <dd className="font-mono tabular-nums text-slate-200">{formatMoney(detail.change)}</dd>
-                            </div>
+                            {detail.employee ? (
+                                <div className="flex justify-between gap-3 text-slate-400">
+                                    <dt>Charged to</dt>
+                                    <dd className="text-right text-slate-200">
+                                        {detail.employee.name} <span className="font-mono text-xs text-slate-400">{detail.employee.employee_code}</span>
+                                    </dd>
+                                </div>
+                            ) : (
+                                <div className="flex justify-between text-slate-400">
+                                    <dt>Change</dt>
+                                    <dd className="font-mono tabular-nums text-slate-200">{formatMoney(detail.change)}</dd>
+                                </div>
+                            )}
                         </dl>
 
                         {detail.void && (

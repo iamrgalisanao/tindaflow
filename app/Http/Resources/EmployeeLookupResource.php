@@ -8,7 +8,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * EmployeeLookupResult schema (openapi.yaml): only what the till needs to name the person it is charging. No billing party, no
- * dates, no balance (credit status arrives with slice 3.2).
+ * dates, no balance (the credit status is EmployeeCreditLookupResource).
  *
  * @property Employee $resource
  */

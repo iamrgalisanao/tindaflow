@@ -2036,7 +2036,7 @@ paths:
     get:
       operationId: employeeLookup
       tags: [Employees]
-      summary: 'The till''s lookup (any signed-in user, no capability): ONE employee of the caller''s store by EXACT code, as a scanner types it (code then Enter) or a cashier keys it. Surrounding whitespace and case are ignored; there is no partial match and no listing. Returns only id, code, type, name and active. Unknown code: EMPLOYEE_NOT_FOUND (404). Deactivated employee: EMPLOYEE_INACTIVE (409). No balance yet (slice 3.2).'
+      summary: 'The till''s lookup (any signed-in user, no capability): ONE employee of the caller''s store by EXACT code, as a scanner types it (code then Enter) or a cashier keys it. Surrounding whitespace and case are ignored; there is no partial match and no listing. Returns id, code, type, name, active and (slice 3.2) the `credit` status for the CURRENT cut-off. Unknown code: EMPLOYEE_NOT_FOUND (404). Deactivated employee: EMPLOYEE_INACTIVE (409). Rate limited per signed-in user (named limiter employee-lookup, default 30 a minute, shared with employeeCreditStatusGet): RATE_LIMITED (429), because codes are sequential.'
       parameters:
       - name: code
         in: query
@@ -2044,14 +2044,32 @@ paths:
         schema: {type: string, maxLength: 64}
       responses:
         '200':
-          description: The employee
+          description: The employee and their credit status
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/EmployeeLookupResult'}
+              schema: {$ref: '#/components/schemas/EmployeeCreditLookupResult'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /employees/{employeeId}/credit-status:
+    parameters:
+    - {name: employeeId, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: employeeCreditStatusGet
+      tags: [Employees]
+      summary: 'The same answer as employeeLookup for an employee the till already holds (any signed-in user, store-scoped): the limit, what is used (CHARGE minus REVERSAL) and what remains for the CURRENT cut-off, so the till can refresh the balance before it charges. Advisory only: checkout re-checks under the employee lock. Other-store or unknown: EMPLOYEE_NOT_FOUND (404); deactivated: EMPLOYEE_INACTIVE (409). Shares the employee-lookup rate limit.'
+      responses:
+        '200':
+          description: The employee and their credit status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EmployeeCreditLookupResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
   /employees/{employeeId}:
     parameters:
     - {name: employeeId, in: path, required: true, schema: {type: string, format: uuid}}
@@ -2637,6 +2655,10 @@ paths:
       - name: payment_method
         in: query
         schema: {$ref: '#/components/schemas/PaymentMethod'}
+      - name: employee_code
+        in: query
+        description: 'ADR-016 slice 3.2. The credit sales of one employee, by the code on their card (exact match; case and surrounding whitespace ignored).'
+        schema: {type: string, maxLength: 64}
       - name: status
         in: query
         schema: {$ref: '#/components/schemas/SaleStatus'}
@@ -2663,7 +2685,7 @@ paths:
       operationId: saleFinalize
       tags: [Sales]
       summary: Finalize a Sale (checkout) — the single most important operation
-      description: 'A Sale does not exist before this call succeeds (Stage 2 §2.7: no persisted DRAFT). Terminal, cashier, shift, fiscal_day are resolved server-side and can never be overridden by the request body (architecture.md §5/§11, Stage 2 invariant #3/#4). Server recomputes every monetary/tax/discount figure via the FinancialCalculator (ADR-012) regardless of any client-submitted preview values.'
+      description: 'A Sale does not exist before this call succeeds (Stage 2 §2.7: no persisted DRAFT). Terminal, cashier, shift, fiscal_day are resolved server-side and can never be overridden by the request body (architecture.md §5/§11, Stage 2 invariant #3/#4). Server recomputes every monetary/tax/discount figure via the FinancialCalculator (ADR-012) regardless of any client-submitted preview values. Credit (ADR-016 slice 3.2): `payments` may be ONE `{method: CREDIT, amount}` plus `employee_id`. CREDIT mixed with any other payment: CREDIT_MIXED_TENDER (422); CREDIT without employee_id, or employee_id without CREDIT: CREDIT_EMPLOYEE_REQUIRED (422); unknown or other-store employee: EMPLOYEE_NOT_FOUND (404); deactivated: EMPLOYEE_INACTIVE (409); over the limit for the sale''s cut-off period: CREDIT_LIMIT_EXCEEDED (409, details carry limit, used, remaining and requested). The recorded CREDIT amount is always the server''s grand total (an amount below it is INSUFFICIENT_PAYMENT).'
       security:
       - cookieAuth: []
         terminalCookieAuth: []
@@ -4520,7 +4542,8 @@ components:
       enum: [VAT, NON_VAT]
     PaymentMethod:
       type: string
-      enum: [CASH, GCASH, MAYA, CARD, OTHER]
+      enum: [CASH, GCASH, MAYA, CARD, OTHER, CREDIT]
+      description: 'CREDIT (ADR-016 slice 3.2) is a whole-sale tender charged to an employee: it is the sale''s ONLY payment, equals its grand total, and the request names the employee (employee_id). It is never cash: it adds nothing to the drawer, expected cash or change. As a refund settlement it is accepted ONLY for a sale that was paid with credit (and a credit sale accepts nothing else).'
     SaleStatus:
       type: string
       enum: [COMPLETED, VOIDED, PARTIALLY_REFUNDED, REFUNDED]
@@ -4638,6 +4661,20 @@ components:
         employee_type: {$ref: '#/components/schemas/EmployeeType'}
         name: {type: string}
         active: {type: boolean}
+    EmployeeCreditLookupResult:
+      description: 'EmployeeLookupResult plus the credit status of the CURRENT cut-off (1st-15th, or 16th to the end of the month, in the store''s timezone).'
+      allOf:
+      - {$ref: '#/components/schemas/EmployeeLookupResult'}
+      - type: object
+        properties:
+          credit:
+            type: object
+            properties:
+              limit: {$ref: '#/components/schemas/Money'}
+              used: {$ref: '#/components/schemas/Money'}
+              remaining: {type: string, description: 'limit minus used; negative if a limit was lowered below what is used.'}
+              period_start: {type: string, format: date}
+              period_end: {type: string, format: date}
     EmployeeImportResult:
       type: object
       properties:
@@ -5190,6 +5227,10 @@ components:
           type: array
           minItems: 1
           items: {$ref: '#/components/schemas/PaymentInput'}
+        employee_id:
+          anyOf:
+          - {type: string, format: uuid, description: 'ADR-016 slice 3.2. The employee a CREDIT sale is charged to (the id from employeeLookup). Required with a CREDIT payment, refused without one.'}
+          - {type: 'null'}
         buyer_name:
           anyOf:
           - {type: string}
@@ -5306,6 +5347,13 @@ components:
         sold_at: {type: string, format: date-time}
         grand_total: {$ref: '#/components/schemas/Money'}
         status: {$ref: '#/components/schemas/SaleStatus'}
+        employee:
+          type: object
+          description: 'ADR-016 slice 3.2. Present ONLY on a sale charged to an employee (payment CREDIT); absent on every other sale.'
+          properties:
+            id: {type: string, format: uuid}
+            employee_code: {type: string}
+            name: {type: string}
     SaleDocumentMode:
       type: string
       enum: [INVOICE, SLIP]

@@ -25,7 +25,7 @@ class Sale extends Model
 
     protected $fillable = [
         'store_id', 'terminal_id', 'fiscal_day_id', 'shift_id', 'cashier_id', 'transaction_number',
-        'sold_at', 'subtotal', 'order_level_discount_amount', 'discount_total', 'taxable_sales',
+        'employee_id', 'sold_at', 'subtotal', 'order_level_discount_amount', 'discount_total', 'taxable_sales',
         'vat_exempt_sales', 'zero_rated_sales', 'vat_amount', 'non_vat_sales', 'grand_total', 'status',
         'idempotency_key', 'buyer_name', 'buyer_address', 'buyer_tin', 'buyer_business_style', 'document_mode',
     ];
@@ -70,6 +70,12 @@ class Sale extends Model
     public function cashier(): BelongsTo
     {
         return $this->belongsTo(User::class, 'cashier_id');
+    }
+
+    /** The employee a credit sale was charged to (ADR-016 section 5); null for every other sale. */
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class);
     }
 
     public function items(): HasMany

@@ -15,6 +15,9 @@ use App\Models\SaleVoid;
 use App\Models\Terminal;
 use App\Models\User;
 use App\Services\Auth\RoleCapabilityCatalog;
+use App\Services\Credit\CreditLedger;
+use App\Services\Employees\CreditPolicyService;
+use App\Services\Employees\EmployeeAuditor;
 use App\Services\Idempotency\CanonicalRequestHasher;
 use App\Services\Idempotency\IdempotencyOperationType;
 use App\Services\Idempotency\IdempotencyService;
@@ -46,7 +49,10 @@ final class VoidService
         private readonly ExecutionContextResolver $contexts,
         private readonly StockLedger $stockLedger,
         private readonly SaleReturnLocator $returnLocator,
-    ) {}
+        private ?CreditLedger $creditLedger = null,
+    ) {
+        $this->creditLedger ??= new CreditLedger(new CreditPolicyService(new EmployeeAuditor));
+    }
 
     public function request(Terminal $terminal, User $user, string $saleId, string $idempotencyKey, string $reason): SaleVoid
     {
@@ -139,6 +145,7 @@ final class VoidService
 
         $lockOrder = new GlobalLockOrder;
         $context = $this->contexts->lockFor($lockOrder, $terminal->id, $user->id, $sale->fiscal_day_id);
+        $this->lockCreditEmployee($lockOrder, $sale);
         $lockOrder->acquire(LockableResource::Sale);
         $sale = Sale::whereKey($saleId)->lockForUpdate()->firstOrFail();
         $this->assertVoidable($sale, $context['other']->status);
@@ -169,6 +176,7 @@ final class VoidService
 
         $lockOrder = new GlobalLockOrder;
         $context = $this->contexts->lockFor($lockOrder, $terminal->id, $user->id, $originalFiscalDayId);
+        $this->lockCreditEmployee($lockOrder, Sale::findOrFail($pending->sale_id));
         $lockOrder->acquire(LockableResource::Sale);
         $sale = Sale::whereKey($pending->sale_id)->lockForUpdate()->firstOrFail();
         $void = SaleVoid::whereKey($voidId)->lockForUpdate()->firstOrFail();
@@ -189,6 +197,17 @@ final class VoidService
         $this->applyVoid($void, $sale, $user, $terminal);
 
         return new OperationOutcome(resultType: 'void', resultResourceId: $void->id);
+    }
+
+    /**
+     * ADR-016 / CREDIT-003: a void of a credit sale locks the employee FIRST (Global Lock Order: after shift and fiscal day, before the
+     * sale), the same order as checkout. The employee id is read from the immutable sale row before any lock on it is taken.
+     */
+    private function lockCreditEmployee(GlobalLockOrder $lockOrder, Sale $sale): void
+    {
+        if ($sale->employee_id !== null) {
+            $this->creditLedger->lockEmployee($lockOrder, $sale->store_id, $sale->employee_id);
+        }
     }
 
     /** domain-model.md SS2.8's five conditions, in the order a person would want them explained. */
@@ -232,6 +251,11 @@ final class VoidService
         ])->all());
 
         $sale->update(['status' => 'VOIDED']);
+
+        // CREDIT-004: the whole charge is reversed, in the period of the ORIGINAL charge (a void reduces what was owed then; it frees no room now).
+        if ($sale->employee_id !== null) {
+            $this->creditLedger->recordReversalForVoid($sale, $void, Carbon::now());
+        }
 
         $audit = AuditEvent::create([
             'store_id' => $sale->store_id,

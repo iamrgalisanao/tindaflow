@@ -285,8 +285,12 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // Employees and credit limits (ADR-016 section 5, slice 3.1). employeeLookup is the one till operation: any signed-in user, one
     // employee by exact code, no listing. Everything else, reads included, is EMPLOYEE_MANAGE (ADMIN only; a cashier or manager gets 403).
     // No delete: an employee is deactivated and the code is never reissued (EMP-001). The literal paths come before {employeeId}.
+    // Slice 3.2: the lookup now also carries the credit status, and employeeCreditStatusGet refreshes it. Codes are sequential, so both
+    // share one named limiter (config tindaflow.employee_lookup_throttle, per signed-in user) that stops a session from walking the code space.
     Route::get('/employees/lookup', [EmployeeController::class, 'lookup'])
-        ->middleware(['auth', EnsureUserIsActive::class]);
+        ->middleware(['auth', EnsureUserIsActive::class, 'throttle:employee-lookup']);
+    Route::get('/employees/{employeeId}/credit-status', [EmployeeController::class, 'creditStatus'])->whereUuid('employeeId')
+        ->middleware(['auth', EnsureUserIsActive::class, 'throttle:employee-lookup']);
     Route::middleware(['auth', EnsureUserIsActive::class, 'can:EMPLOYEE_MANAGE'])->group(function () {
         Route::get('/employees', [EmployeeController::class, 'list']);
         Route::post('/employees', [EmployeeController::class, 'create']);

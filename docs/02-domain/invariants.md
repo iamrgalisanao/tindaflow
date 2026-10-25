@@ -590,14 +590,18 @@ applying to the business day in slip mode.
     *Built in slice 3.1 (2026-10-25):* the counter is `employee_code_sequences`, one row per store and type, locked `FOR UPDATE` in the creating transaction (a rollback gives the number back; two real processes get distinct gap-free codes — `EmployeeCodeConcurrencyTest`). The number grows past 99999 (`TSC100000`) rather than failing. Immutability is enforced twice: the API refuses `employee_code`/`employee_type` in a request, and the application database role has no UPDATE on those columns. The till's `employeeLookup` is an exact match only (case and surrounding whitespace ignored), store-scoped, and refuses an inactive employee (`EMPLOYEE_INACTIVE`).
 88. **CREDIT-001 — credit is a whole-sale tender.** A `CREDIT` payment is the sale's only payment, equals its grand total, requires an
     active employee on the sale, and is refused in a sale that has any other tender.
+    *Built in slice 3.2 (2026-10-26):* `CREDIT_MIXED_TENDER` / `CREDIT_EMPLOYEE_REQUIRED` (422), `EMPLOYEE_NOT_FOUND` (an unknown or other-store employee) and `EMPLOYEE_INACTIVE`; the recorded amount is always the server's grand total. `CreditSaleHttpTest`.
 89. **CREDIT-002 — credit never touches the drawer.** A credit sale adds nothing to `cash_sales`, `expected_cash` or change allocation, and
     a refund or void of a credit sale settles to the credit ledger, never to a cash refund.
+    *Built in slice 3.2:* the shift, X- and Z-readings already net the change through `NetCollectionService`, so CREDIT shows in `payment_breakdown` and `non_cash_sales` only; a credit refund must settle to CREDIT (`CREDIT_REFUND_SETTLEMENT_INVALID`) and never appears in `cash_refunds`. `CreditSaleHttpTest` pins expected cash, cash sales and the refund path.
 90. **CREDIT-003 — the limit holds unless an audited override was consumed.** For an employee and cut-off period, `SUM(CHARGE) - SUM(REVERSAL)`
     plus a new charge never exceeds the limit in force, except by consuming a valid override grant in the same transaction. The balance is read
     under `FOR UPDATE` on the employee row, so two tills cannot both approve; the check is authoritative at checkout, the till's warning is not.
+    *Built in slice 3.2 (override NOT built, slice 3.3):* exactly the limit is allowed, one centavo over is `CREDIT_LIMIT_EXCEEDED` (409, with limit, used, remaining, requested). Lock order: shift, fiscal day, **employee**, sale. `CreditConcurrencyTest` (real processes; fails without the lock).
 91. **CREDIT-004 — the ledger is append-only and the period is fixed.** `employee_credit_entry` rows are never updated or deleted; the balance is
     derived, never stored. The period is computed from `sold_at` in the store timezone (1st-15th, 16th-end of month); a reversal carries the
     original charge's period.
+    *Built in slice 3.2:* `App\Domain\CutOff` (unit-tested at the 15th/16th, month ends, leap and non-leap February, Manila midnight against UTC); one CHARGE per sale and one REVERSAL per void or refund are partial unique indexes; the application role has no UPDATE or DELETE (`AppendOnlyPrivilegesTest`).
 92. **OVR-001 — an override is one sale, one approver, audited.** A grant is bound to terminal, employee, cashier and a maximum charge, expires in
     minutes, is single use (consumed atomically), and the approver differs from the cashier. `CREDIT_OVERRIDE_GRANTED`, `_USED` and `_REFUSED` audit
     events are written for every attempt; the ledger entry it enabled references the grant.

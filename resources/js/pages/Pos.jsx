@@ -9,6 +9,9 @@ import { request } from './admin/catalog/catalogApi';
 import { ConfirmDialog } from './admin/catalog/CatalogParts';
 import NotFound from './NotFound';
 import CartPanel from './pos/CartPanel';
+import CreditConfirmPanel from './pos/CreditConfirmPanel';
+import PayerStrip from './pos/PayerStrip';
+import SaleStart, { EmployeeBox } from './pos/SaleStart';
 import CatalogPanel from './pos/CatalogPanel';
 import PosHeader from './pos/PosHeader';
 import PosLookupPanel from './pos/PosLookupPanel';
@@ -16,6 +19,7 @@ import ShiftPanel from './pos/ShiftPanel';
 import TenderPanel from './pos/TenderPanel';
 import XReadingPanel from './pos/XReadingPanel';
 import { attemptKey, failureText, newIdempotencyKey, settleAttempt } from './pos/attempts';
+import { creditSaleParts, limitRefusal, lookupFailureText, payerFromLookup } from './pos/credit';
 import { mealPlates, requestItems } from './pos/mealMenu';
 import { apiMoney, clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 import MoneyInput from '../components/MoneyInput';
@@ -91,6 +95,14 @@ export default function Pos() {
     // (the VAT decomposition it runs is not duplicated here), so the total shown before Complete sale stays the
     // pre-discount figure: always enough to cover the real, lower charge, never a risk of under-tendering.
     const [statutoryDiscount, setStatutoryDiscount] = useState({ enabled: false, type: 'SENIOR_CITIZEN', rule: 'STANDARD_20', weeklyUsed: '', idNumber: '', name: '' });
+
+    // ADR-016 slice 3.2: who pays, chosen on the first screen of every sale. null = that first screen is showing; { kind: 'CASH' }; or
+    // { kind: 'CREDIT', employee } with the employee's credit status for the current cut-off. It survives tab switches (Pos stays
+    // mounted) and is cleared when a sale completes, so the first screen returns only when a new sale starts.
+    const [payer, setPayer] = useState(null);
+    const [employeePicker, setEmployeePicker] = useState(false); // the employee box over the register (charge to an employee / change employee)
+    const [startOverPending, setStartOverPending] = useState(false);
+    const [creditRefusal, setCreditRefusal] = useState(null); // the figures of a CREDIT_LIMIT_EXCEEDED answer
 
     const [payments, setPayments] = useState([{ method: 'CASH', amount: '' }]); // [{method, amount}], split tender is 2+ rows
     const [checkoutBusy, setCheckoutBusy] = useState(false);
@@ -353,11 +365,91 @@ export default function Pos() {
     const orderDiscountCents = canDiscount ? clampedDiscountCents(discount, afterLineDiscountsCents) : 0n;
     const totalCents = afterLineDiscountsCents - orderDiscountCents;
 
+    const creditPayer = payer?.kind === 'CREDIT' ? payer : null;
+
     function goToCheckout() {
-        setPayments([{ method: 'CASH', amount: moneyText(totalCents) }]);
         setError(null);
+        setCreditRefusal(null);
+        if (creditPayer) {
+            setStep('checkout');
+            refreshCredit();
+            return;
+        }
+        setPayments([{ method: 'CASH', amount: moneyText(totalCents) }]);
         setStep('checkout');
     }
+
+    function chooseCash() {
+        setPayer({ kind: 'CASH' });
+    }
+
+    function chooseCredit(employee) {
+        setPayer({ kind: 'CREDIT', employee });
+        setEmployeePicker(false);
+        setCreditRefusal(null);
+        setError(null);
+    }
+
+    /** Switch an open sale to cash without losing the cart. */
+    function switchToCash() {
+        setPayer({ kind: 'CASH' });
+        setCreditRefusal(null);
+        setError(null);
+        setStep('cart');
+    }
+
+    /** Back to the first screen; asks first when there is a cart to lose. */
+    function startOver() {
+        if (cart.length > 0) {
+            setStartOverPending(true);
+        } else {
+            resetToStart();
+        }
+    }
+
+    function resetToStart() {
+        delete attempts.current.sale;
+        setCart([]);
+        setDiscount('');
+        setStatutoryDiscount({ enabled: false, type: 'SENIOR_CITIZEN', rule: 'STANDARD_20', weeklyUsed: '', idNumber: '', name: '' });
+        setResults(null);
+        setSearch('');
+        setScanNotice(null);
+        setPayer(null);
+        setEmployeePicker(false);
+        setStartOverPending(false);
+        setCreditRefusal(null);
+        setError(null);
+        setStep('cart');
+    }
+
+    /** Re-reads the employee's balance (another till may have charged them since the card was scanned). Advisory; checkout decides. */
+    async function refreshCredit() {
+        const target = creditPayer?.employee;
+        if (!target) {
+            return;
+        }
+        const result = await request(`/api/v1/employees/${target.id}/credit-status`);
+        if (result.ok) {
+            const fresh = payerFromLookup(result.body);
+            setPayer((current) => (current?.kind === 'CREDIT' && current.employee.id === fresh.id ? { kind: 'CREDIT', employee: { ...current.employee, credit: fresh.credit } } : current));
+        } else if (result.status === 409 || result.status === 404) {
+            setError(lookupFailureText(result));
+        }
+    }
+
+    useEffect(() => {
+        if (!employeePicker) {
+            return undefined;
+        }
+        function onKeyDown(event) {
+            if (event.key === 'Escape') {
+                setEmployeePicker(false);
+            }
+        }
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+    }, [employeePicker]);
 
     async function completeSale(event) {
         event.preventDefault();
@@ -368,10 +460,15 @@ export default function Pos() {
         const payload = {
             // A meal line is sent as its selection, one plate per item; the server prices it from the menu.
             items: cart.flatMap((line, index) => requestItems(line, lineDiscountCentsByLine[index])),
-            // A blank/zero row (shown while a split payment is still being entered) is never sent.
-            payments: payments
-                .filter((payment) => (toCents(payment.amount) ?? 0n) > 0n)
-                .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
+            ...(creditPayer
+                ? // A credit sale is one CREDIT payment for the whole total plus the employee; the server records the real total.
+                  creditSaleParts(creditPayer.employee.id, totalCents)
+                : {
+                      // A blank/zero row (shown while a split payment is still being entered) is never sent.
+                      payments: payments
+                          .filter((payment) => (toCents(payment.amount) ?? 0n) > 0n)
+                          .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
+                  }),
             ...(orderDiscountCents > 0n ? { order_level_discount_amount: moneyText(orderDiscountCents) } : {}),
             ...(statutoryDiscount.enabled
                 ? {
@@ -395,16 +492,25 @@ export default function Pos() {
 
         if (result.ok) {
             setSale(result.body);
+            setPayer(null);
+            setCreditRefusal(null);
             setStep('receipt');
             // `replace`, not push: Back from the receipt should return to the register the cashier
             // started from, never to a checkout step whose cart no longer exists.
             navigate(`/pos/receipt/${result.body.id}`, { replace: true });
         } else {
-            setError(
-                result.status === 0 || result.status === 502
-                    ? 'The connection dropped, so this sale may already have been recorded. Press Complete sale again: it will not be rung twice. If it keeps failing, check Lookup before ringing it up again.'
-                    : failureText(result, 'Checkout failed.'),
-            );
+            const refusal = creditPayer ? limitRefusal(result) : null;
+            setCreditRefusal(refusal);
+            if (refusal) {
+                // The panel shows the figures (no override at the till yet); refresh the balance it was based on.
+                refreshCredit();
+            } else {
+                setError(
+                    result.status === 0 || result.status === 502
+                        ? `The connection dropped, so this sale may already have been recorded. Press ${creditPayer ? `Charge to ${creditPayer.employee.name}` : 'Complete sale'} again: it will not be rung twice. If it keeps failing, check Lookup before ringing it up again.`
+                        : failureText(result, 'Checkout failed.'),
+                );
+            }
         }
         setCheckoutBusy(false);
     }
@@ -468,6 +574,9 @@ export default function Pos() {
         setDiscount('');
         setStatutoryDiscount({ enabled: false, type: 'SENIOR_CITIZEN', rule: 'STANDARD_20', weeklyUsed: '', idNumber: '', name: '' });
         setPayments([{ method: 'CASH', amount: '' }]);
+        setPayer(null); // a new sale starts on the Cash / Credit screen
+        setEmployeePicker(false);
+        setCreditRefusal(null);
         setResults(null);
         setSearch('');
         // `sale` is NOT cleared here: the address changes a moment after this runs (the router applies it as a
@@ -680,6 +789,25 @@ export default function Pos() {
                 />
             )}
 
+            {startOverPending && (
+                <ConfirmDialog
+                    title="Start this sale over?"
+                    body={`${cart.length === 1 ? 'One item is' : `${cart.length} items are`} in the cart and nothing has been charged yet. Starting over clears the cart and returns to Cash or Credit. To keep the items, use "Pay with cash instead" or "Change employee".`}
+                    confirmLabel="Clear the cart and start over"
+                    onConfirm={resetToStart}
+                    onCancel={() => setStartOverPending(false)}
+                />
+            )}
+
+            {employeePicker && (
+                <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-4 pt-20" role="dialog" aria-modal="true" aria-label="Charge to employee">
+                    <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm" onClick={() => setEmployeePicker(false)} aria-hidden="true" />
+                    <div className="relative w-full max-w-xl">
+                        <EmployeeBox onFound={chooseCredit} onCancel={() => setEmployeePicker(false)} cancelLabel="Keep the current payer" />
+                    </div>
+                </div>
+            )}
+
             {error && <p className="mx-4 mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
 
             {isStaleBusinessDay(businessDate) && (
@@ -739,7 +867,20 @@ export default function Pos() {
                 </ShiftPanel>
             )}
 
-            {step === 'cart' && view === 'register' && (
+            {step === 'cart' && view === 'register' && payer === null && <SaleStart onCash={chooseCash} onCredit={chooseCredit} />}
+
+            {step === 'cart' && view === 'register' && payer !== null && (
+                <PayerStrip
+                    payer={payer}
+                    totalCents={totalCents}
+                    onChangeEmployee={() => setEmployeePicker(true)}
+                    onChargeEmployee={() => setEmployeePicker(true)}
+                    onUseCash={switchToCash}
+                    onStartOver={startOver}
+                />
+            )}
+
+            {step === 'cart' && view === 'register' && payer !== null && (
                 <div className="mx-auto grid w-full max-w-[1600px] grid-cols-1 gap-4 p-4 lg:h-[calc(100dvh-4.5rem)] lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:grid-rows-[minmax(0,1fr)]">
                     <div className="flex min-h-0 flex-col lg:order-1">
                         <CatalogPanel
@@ -774,12 +915,29 @@ export default function Pos() {
                             onQuantity={setQuantity}
                             onRemove={removeFromCart}
                             onCharge={goToCheckout}
+                            credit={creditPayer ? { name: creditPayer.employee.name, status: creditPayer.employee.credit } : null}
                         />
                     </div>
                 </div>
             )}
 
-            {step === 'checkout' && (
+            {step === 'checkout' && creditPayer && (
+                <CreditConfirmPanel
+                    cart={cart}
+                    totalCents={totalCents}
+                    payer={creditPayer}
+                    busy={checkoutBusy}
+                    refusal={creditRefusal}
+                    onBack={() => {
+                        setCreditRefusal(null);
+                        setStep('cart');
+                    }}
+                    onUseCash={switchToCash}
+                    onComplete={completeSale}
+                />
+            )}
+
+            {step === 'checkout' && !creditPayer && (
                 <TenderPanel
                     cart={cart}
                     totalCents={totalCents}
@@ -808,14 +966,25 @@ export default function Pos() {
                             <dt className="text-slate-400">Grand total</dt>
                             <dd className="font-mono font-semibold">₱{sale.grand_total}</dd>
                         </div>
-                        <div className="flex justify-between">
-                            <dt className="text-slate-400">Tendered</dt>
-                            <dd className="font-mono">₱{sale.amount_tendered}</dd>
-                        </div>
-                        <div className="flex justify-between">
-                            <dt className="text-slate-400">Change</dt>
-                            <dd className="font-mono">₱{sale.change}</dd>
-                        </div>
+                        {sale.employee ? (
+                            <div className="flex justify-between gap-3">
+                                <dt className="text-slate-400">Charged to</dt>
+                                <dd className="text-right font-semibold text-sky-300">
+                                    {sale.employee.name} <span className="font-mono text-xs font-normal text-slate-400">{sale.employee.employee_code}</span>
+                                </dd>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="flex justify-between">
+                                    <dt className="text-slate-400">Tendered</dt>
+                                    <dd className="font-mono">₱{sale.amount_tendered}</dd>
+                                </div>
+                                <div className="flex justify-between">
+                                    <dt className="text-slate-400">Change</dt>
+                                    <dd className="font-mono">₱{sale.change}</dd>
+                                </div>
+                            </>
+                        )}
                     </dl>
                     <ul className="divide-y divide-slate-800 border-t border-slate-800 pt-2 text-sm">
                         {sale.items.map((item) => (

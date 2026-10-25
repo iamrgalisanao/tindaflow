@@ -16,7 +16,7 @@ use Carbon\CarbonInterface;
  */
 final class SlipRenderer
 {
-    private const METHODS = ['CASH' => 'Cash', 'GCASH' => 'GCash', 'MAYA' => 'Maya', 'CARD' => 'Card', 'OTHER' => 'Other'];
+    private const METHODS = ['CASH' => 'Cash', 'GCASH' => 'GCash', 'MAYA' => 'Maya', 'CARD' => 'Card', 'OTHER' => 'Other', 'CREDIT' => 'CREDIT'];
 
     /** @param  array<string, mixed>  $snapshot */
     public function render(array $snapshot, ?CarbonInterface $reprintedAt = null): string
@@ -70,6 +70,17 @@ final class SlipRenderer
         }
         if ($this->positive((string) ($snapshot['change'] ?? '0.00'))) {
             $html[] = $this->row('Change', $this->amount((string) $snapshot['change']));
+        }
+
+        // A credit sale names who is charged: ADR-016 slice 3.2. The key exists only on such a slip.
+        if (is_array($snapshot['employee'] ?? null)) {
+            $html[] = '<div class="sep"></div>';
+            if ($this->has($snapshot['employee'], 'name')) {
+                $html[] = '<div class="wrap b">'.$this->text($snapshot['employee']['name']).'</div>';
+            }
+            if ($this->has($snapshot['employee'], 'code')) {
+                $html[] = $this->row('Employee', $this->text($snapshot['employee']['code']));
+            }
         }
 
         if ($this->has($snapshot, 'footer')) {

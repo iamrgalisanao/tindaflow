@@ -38,6 +38,12 @@ class AppServiceProvider extends ServiceProvider
         // Every Z-reading copy writes an audit event: thirty an hour per person is far more than paper ever needs.
         RateLimiter::for('reprints', fn (Request $request) => Limit::perHour(30)->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
 
+        // ADR-016 slice 3.2: employee codes are sequential (TSC00001, TSC00002 ...), so the till's lookup and credit-status reads are limited
+        // per signed-in user, well under the API ceiling. A cashier scans one card per sale; thirty a minute is far above the busiest queue.
+        // The 429 is the catalogued RATE_LIMITED.
+        RateLimiter::for('employee-lookup', fn (Request $request) => Limit::perMinute((int) config('tindaflow.employee_lookup_throttle.per_minute'))
+            ->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
+
         // A generous ceiling on the whole API, per signed-in user: far above what a till produces, low enough that
         // a runaway client or a stolen session cannot hammer the database or the import/export endpoints. (Laravel
         // orders `auth` ahead of `throttle`, so a guest is answered 401 before it is counted; the only route a

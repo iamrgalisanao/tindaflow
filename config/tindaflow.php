@@ -25,6 +25,12 @@ return [
         'per_minute' => env('API_THROTTLE_PER_MINUTE', 600),
     ],
 
+    // ADR-016 slice 3.2: employee codes are sequential, so the till's employee lookup and credit-status reads are limited per signed-in
+    // user (a cashier scans one card per sale; this is far above the busiest queue). A technical safeguard, not a business rule.
+    'employee_lookup_throttle' => [
+        'per_minute' => env('EMPLOYEE_LOOKUP_THROTTLE_PER_MINUTE', 30),
+    ],
+
     // A3: the tindaflow_terminal credential cookie's lifetime. ADR-011
     // calls for a "long-lived" credential; the exact duration is an
     // internal Stage 6 operational choice, not part of the frozen

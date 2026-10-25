@@ -16,9 +16,10 @@ final class SlipSnapshotBuilder
     /**
      * @param  Collection<int, SaleItem>  $saleItems
      * @param  list<array<string, mixed>>  $payments  the request's payments, as accepted
+     * @param  array{code: string, name: string}|null  $creditEmployee  who a credit sale is charged to; the key is added to the snapshot only then
      * @return array<string, mixed>
      */
-    public function build(Sale $sale, Collection $saleItems, array $payments, string $slipNumber, string $terminalCode, string $storeName, string $cashierName, ?string $footer): array
+    public function build(Sale $sale, Collection $saleItems, array $payments, string $slipNumber, string $terminalCode, string $storeName, string $cashierName, ?string $footer, ?array $creditEmployee = null): array
     {
         $tendered = array_reduce($payments, fn (string $carry, array $payment) => bcadd($carry, (string) $payment['amount'], 2), '0.00');
 
@@ -49,6 +50,6 @@ final class SlipSnapshotBuilder
             'amount_tendered' => $tendered,
             'change' => bccomp($tendered, (string) $sale->grand_total, 2) === 1 ? bcsub($tendered, (string) $sale->grand_total, 2) : '0.00',
             'footer' => $footer,
-        ];
+        ] + ($creditEmployee === null ? [] : ['employee' => ['code' => $creditEmployee['code'], 'name' => $creditEmployee['name']]]);
     }
 }

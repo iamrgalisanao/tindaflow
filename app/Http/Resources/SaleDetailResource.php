@@ -45,6 +45,12 @@ class SaleDetailResource extends JsonResource
             'sold_at' => $this->resource->sold_at?->toJSON(),
             'grand_total' => $this->resource->grand_total,
             'status' => $this->resource->status,
+            // ADR-016 slice 3.2: present only on a sale charged to an employee, so every other sale reads exactly as before.
+            'employee' => $this->when($this->resource->employee_id !== null, fn () => [
+                'id' => $this->resource->employee_id,
+                'employee_code' => $this->resource->employee->employee_code,
+                'name' => $this->resource->employee->fullName(),
+            ]),
             'subtotal' => $this->resource->subtotal,
             'order_level_discount_amount' => $this->resource->order_level_discount_amount,
             'discount_total' => $this->resource->discount_total,

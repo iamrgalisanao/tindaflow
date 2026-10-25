@@ -283,6 +283,8 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
     public function test_a_slip_sale_its_reprint_a_new_shift_and_the_mode_switch_work_as_the_restricted_role_and_a_slip_cannot_be_changed(): void
     {
         $w = $this->worldUnderTheHardenedRole();
+        // The factory's random codes (T-00..T-99) could already be T-01; park the other till on a code that cannot collide first.
+        $w['t2']->update(['terminal_code' => 'PARK-2']);
         $w['t1']->update(['terminal_code' => 'T-01']);
         DB::table('store_settings')->insert([
             'store_id' => $w['storeId'], 'business_name' => 'Canteen One', 'registered_name' => '', 'tin' => '', 'sale_document_mode' => 'SLIP',
@@ -348,6 +350,39 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $this->assertTrue($this->refuses(fn () => DB::table('billing_parties')->delete()), 'a billing party must not be deletable');
     }
 
+    public function test_credit_sales_void_and_refund_work_as_the_restricted_role_and_the_ledger_is_append_only(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+        $created = $this->asUser($w['admin'])->postJson('/api/v1/employees', ['employee_type' => 'DIRECT', 'first_name' => 'Ana', 'last_name' => 'Reyes'])->assertStatus(201);
+        $employeeId = $created->json('id');
+
+        // Checkout locks the employee row FOR UPDATE (it needs a column-level UPDATE privilege on employees) and inserts the CHARGE;
+        // the void and the refund lock it too and insert their REVERSAL.
+        $first = $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
+            'items' => [['product_id' => $w['product']->id, 'quantity' => '2']],
+            'payments' => [['method' => 'CREDIT', 'amount' => '200.00']],
+            'employee_id' => $employeeId,
+        ], $this->key())->assertStatus(201)->json();
+        $second = $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
+            'items' => [['product_id' => $w['product']->id, 'quantity' => '1']],
+            'payments' => [['method' => 'CREDIT', 'amount' => '100.00']],
+            'employee_id' => $employeeId,
+        ], $this->key())->assertStatus(201)->json();
+        $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$first['id']}/void", ['reason' => 'Wrong order'], $this->key())->assertStatus(201);
+        $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$second['id']}/refunds", [
+            'items' => [['sale_item_id' => $second['items'][0]['id'], 'quantity' => '1', 'disposition' => 'RETURN_TO_STOCK']],
+            'settlements' => [['payment_method' => 'CREDIT', 'amount' => '100.00']],
+            'reason' => 'Returned',
+        ], $this->key())->assertStatus(201);
+        $this->asUser($w['cashier'], $w['enroll1'])->getJson("/api/v1/employees/{$employeeId}/credit-status")->assertOk()->assertJsonPath('credit.used', '0.00');
+
+        $this->assertSame(['CHARGE', 'CHARGE', 'REVERSAL', 'REVERSAL'], DB::table('employee_credit_entries')->orderBy('recorded_at')->orderBy('entry_type')->pluck('entry_type')->all());
+        $this->assertTrue($this->refuses(fn () => DB::table('employee_credit_entries')->update(['amount' => '1.00'])), 'a ledger entry must not be updatable');
+        $this->assertTrue($this->refuses(fn () => DB::table('employee_credit_entries')->update(['period_start' => '2020-01-01'])), 'the period of an entry is fixed');
+        $this->assertTrue($this->refuses(fn () => DB::table('employee_credit_entries')->delete()), 'a ledger entry must not be deletable');
+        $this->assertTrue($this->refuses(fn () => DB::table('sales')->where('id', $first['id'])->update(['employee_id' => null])), 'the employee of a sale is written once');
+    }
+
     public function test_the_tables_the_app_is_allowed_to_delete_from_are_exactly_the_ones_that_hold_no_money_or_audit_data(): void
     {
         $this->worldUnderTheHardenedRole();
@@ -357,7 +392,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }

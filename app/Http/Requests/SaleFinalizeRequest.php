@@ -39,9 +39,12 @@ class SaleFinalizeRequest extends FormRequest
             'items.*.override_reason' => ['nullable', 'string'],
             'order_level_discount_amount' => ['nullable', 'regex:/^-?\d+\.\d{2}$/'],
             'payments' => ['required', 'array', 'min:1'],
-            'payments.*.method' => ['required', 'string', 'in:CASH,GCASH,MAYA,CARD,OTHER'],
+            'payments.*.method' => ['required', 'string', 'in:CASH,GCASH,MAYA,CARD,OTHER,CREDIT'],
             'payments.*.amount' => ['required', 'regex:/^-?\d+\.\d{2}$/'],
             'payments.*.external_reference' => ['nullable', 'string'],
+            // ADR-016 section 5: the employee a CREDIT sale is charged to (the id the till got from employeeLookup). Whether it is allowed
+            // with these payments is a domain rule (CREDIT_MIXED_TENDER / CREDIT_EMPLOYEE_REQUIRED), not a shape rule.
+            'employee_id' => ['nullable', 'uuid'],
             'buyer_name' => ['nullable', 'string'],
             'buyer_address' => ['nullable', 'string'],
             'buyer_tin' => ['nullable', 'string'],

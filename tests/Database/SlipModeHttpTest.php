@@ -38,6 +38,9 @@ class SlipModeHttpTest extends PostgresSchemaTestCase
     /** @param  array<string, mixed>  $w */
     private function slipMode(array $w, ?string $footer = null): void
     {
+        // The factory's random codes (T-00..T-99) could already be T-01 or T-02; park both on codes that cannot collide first.
+        $w['t1']->update(['terminal_code' => 'PARK-1']);
+        $w['t2']->update(['terminal_code' => 'PARK-2']);
         $w['t1']->update(['terminal_code' => 'T-01']);
         $w['t2']->update(['terminal_code' => 'T-02']);
         DB::table('store_settings')->updateOrInsert(['store_id' => $w['storeId']], [

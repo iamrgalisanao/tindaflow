@@ -4,7 +4,7 @@ import SlideOver from '../SlideOver';
 import { fieldErrors, request } from '../catalog/catalogApi';
 import { formatMoney } from '../reports/formatters';
 import { QUANTITY_PATTERN, fromCents, fromThousandths, refundEventCents, toCents, toThousandths, trimQuantity } from './refundMath';
-import { DISPOSITIONS, PAYMENT_METHODS, reversalMessage } from './salesParts';
+import { DISPOSITIONS, REFUND_METHODS, reversalMessage } from './salesParts';
 import MoneyInput from '../../../components/MoneyInput';
 import { documentReference } from '../../../lib/saleDocument';
 
@@ -27,7 +27,10 @@ export default function RefundPanel({ sale, executesImmediately, onDone, onClose
     const [prior, setPrior] = useState(null); // null while loading, else { [saleItemId]: { quantity, amount } }
     const [priorFailed, setPriorFailed] = useState(false);
     const [lines, setLines] = useState({});
-    const [settlements, setSettlements] = useState([{ method: 'CASH', amount: '', reference: '', edited: false }]);
+    // A sale charged to an employee is refunded to credit and nothing else (ADR-016 CREDIT-002): no cash leaves the drawer, the
+    // employee's balance goes down. Every other sale starts on cash, as before.
+    const creditSale = Boolean(sale.employee);
+    const [settlements, setSettlements] = useState([{ method: creditSale ? 'CREDIT' : 'CASH', amount: '', reference: '', edited: false }]);
     const [reason, setReason] = useState('');
     const [errors, setErrors] = useState({});
     const [formError, setFormError] = useState(null);
@@ -305,80 +308,105 @@ export default function RefundPanel({ sale, executesImmediately, onDone, onClose
                     </ul>
                 </fieldset>
 
-                <fieldset>
-                    <legend className="mb-2 text-xs text-slate-400">
-                        Money returned to the customer <span className="text-emerald-400">*</span>
-                    </legend>
-                    <div className="space-y-2">
-                        {effectiveSettlements.map((row, index) => (
-                            <div key={index} className="grid grid-cols-[7rem_1fr] gap-2 sm:grid-cols-[7rem_1fr_1fr_auto]">
-                                <select aria-label="Method" value={row.method} onChange={(event) => setSettlement(index, { method: event.target.value })} className={inputClass(false)}>
-                                    {PAYMENT_METHODS.map((method) => (
-                                        <option key={method} value={method}>
-                                            {method}
-                                        </option>
-                                    ))}
-                                </select>
-                                <MoneyInput
-                                    aria-label="Amount"
-                                    symbol={false}
-                                    placeholder="0.00"
-                                    value={row.amount}
-                                    aria-invalid={Boolean(errors[`settlement_${index}`])}
-                                    onChange={(value) => setSettlement(index, { amount: value })}
-                                    className={`${inputClass(errors[`settlement_${index}`])} font-mono`}
-                                />
-                                <input
-                                    aria-label="Reference"
-                                    type="text"
-                                    autoComplete="off"
-                                    placeholder="Reference (optional)"
-                                    maxLength={255}
-                                    value={row.reference}
-                                    onChange={(event) => setSettlement(index, { reference: event.target.value })}
-                                    className={`${inputClass(false)} col-span-2 sm:col-span-1`}
-                                />
-                                {settlements.length > 1 && (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            touch();
-                                            setSettlements((current) => current.filter((_, i) => i !== index));
-                                        }}
-                                        className="col-span-2 min-h-11 text-xs text-slate-400 hover:text-rose-400 sm:col-span-1 lg:min-h-0"
-                                    >
-                                        Remove
-                                    </button>
-                                )}
-                                {errors[`settlement_${index}`] && (
-                                    <p role="alert" className="col-span-full font-mono text-[11px] text-rose-400">
-                                        &#9888; {errors[`settlement_${index}`]}
-                                    </p>
-                                )}
+                {creditSale ? (
+                    <fieldset>
+                        <legend className="mb-2 text-xs text-slate-400">Credit back to the employee</legend>
+                        <div className="rounded-md border border-sky-800/60 bg-slate-950 px-3 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm font-semibold text-slate-100">
+                                    {sale.employee.name} <span className="font-mono text-xs font-normal text-slate-400">{sale.employee.employee_code}</span>
+                                </span>
+                                <span aria-label="Credited back" className="font-mono text-base tabular-nums text-sky-300">
+                                    {formatMoney(fromCents(totalCents))}
+                                </span>
                             </div>
-                        ))}
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            touch();
-                            setSettlements((current) => [
-                                ...current.map((row) => ({ ...row, amount: singleAuto ? fromCents(totalCents) : row.amount, edited: true })),
-                                { method: 'GCASH', amount: '', reference: '', edited: true },
-                            ]);
-                        }}
-                        className="mt-2 min-h-11 text-xs text-emerald-400 hover:underline lg:min-h-0"
-                    >
-                        + Split across another method
-                    </button>
-                    {errors.settlements ? (
-                        <p role="alert" className="mt-1 font-mono text-[11px] text-rose-400">
-                            &#9888; {errors.settlements}
-                        </p>
-                    ) : (
-                        <p className="mt-1 text-[11px] text-slate-500">Cash comes out of the drawer; other methods do not.</p>
-                    )}
-                </fieldset>
+                            <p className="mt-2 text-[11px] text-slate-400">
+                                This sale was charged to the employee, so the refund is credited back to them: it reduces what they owe for the period the sale was in
+                                (even if that period has closed) and no cash leaves the drawer.
+                            </p>
+                        </div>
+                        {errors.settlements && (
+                            <p role="alert" className="mt-1 font-mono text-[11px] text-rose-400">
+                                &#9888; {errors.settlements}
+                            </p>
+                        )}
+                    </fieldset>
+                ) : (
+                    <fieldset>
+                        <legend className="mb-2 text-xs text-slate-400">
+                            Money returned to the customer <span className="text-emerald-400">*</span>
+                        </legend>
+                        <div className="space-y-2">
+                            {effectiveSettlements.map((row, index) => (
+                                <div key={index} className="grid grid-cols-[7rem_1fr] gap-2 sm:grid-cols-[7rem_1fr_1fr_auto]">
+                                    <select aria-label="Method" value={row.method} onChange={(event) => setSettlement(index, { method: event.target.value })} className={inputClass(false)}>
+                                        {REFUND_METHODS.map((method) => (
+                                            <option key={method} value={method}>
+                                                {method}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <MoneyInput
+                                        aria-label="Amount"
+                                        symbol={false}
+                                        placeholder="0.00"
+                                        value={row.amount}
+                                        aria-invalid={Boolean(errors[`settlement_${index}`])}
+                                        onChange={(value) => setSettlement(index, { amount: value })}
+                                        className={`${inputClass(errors[`settlement_${index}`])} font-mono`}
+                                    />
+                                    <input
+                                        aria-label="Reference"
+                                        type="text"
+                                        autoComplete="off"
+                                        placeholder="Reference (optional)"
+                                        maxLength={255}
+                                        value={row.reference}
+                                        onChange={(event) => setSettlement(index, { reference: event.target.value })}
+                                        className={`${inputClass(false)} col-span-2 sm:col-span-1`}
+                                    />
+                                    {settlements.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                touch();
+                                                setSettlements((current) => current.filter((_, i) => i !== index));
+                                            }}
+                                            className="col-span-2 min-h-11 text-xs text-slate-400 hover:text-rose-400 sm:col-span-1 lg:min-h-0"
+                                        >
+                                            Remove
+                                        </button>
+                                    )}
+                                    {errors[`settlement_${index}`] && (
+                                        <p role="alert" className="col-span-full font-mono text-[11px] text-rose-400">
+                                            &#9888; {errors[`settlement_${index}`]}
+                                        </p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                touch();
+                                setSettlements((current) => [
+                                    ...current.map((row) => ({ ...row, amount: singleAuto ? fromCents(totalCents) : row.amount, edited: true })),
+                                    { method: 'GCASH', amount: '', reference: '', edited: true },
+                                ]);
+                            }}
+                            className="mt-2 min-h-11 text-xs text-emerald-400 hover:underline lg:min-h-0"
+                        >
+                            + Split across another method
+                        </button>
+                        {errors.settlements ? (
+                            <p role="alert" className="mt-1 font-mono text-[11px] text-rose-400">
+                                &#9888; {errors.settlements}
+                            </p>
+                        ) : (
+                            <p className="mt-1 text-[11px] text-slate-500">Cash comes out of the drawer; other methods do not.</p>
+                        )}
+                    </fieldset>
+                )}
 
                 <div>
                     <label htmlFor="refund_reason" className="mb-1 block text-xs text-slate-400">

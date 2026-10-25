@@ -280,7 +280,8 @@ class EmployeeHttpTest extends PostgresSchemaTestCase
 
         $response = $this->asUser($cashier)->getJson('/api/v1/employees/lookup?code=TSC00012')->assertOk();
 
-        $this->assertEqualsCanonicalizing(['id', 'employee_code', 'employee_type', 'name', 'active'], array_keys($response->json()));
+        $this->assertEqualsCanonicalizing(['id', 'employee_code', 'employee_type', 'name', 'active', 'credit'], array_keys($response->json()));
+        $response->assertJson(['credit' => ['limit' => '1500.00', 'used' => '0.00', 'remaining' => '1500.00']]);
         $response->assertJson(['employee_code' => 'TSC00012', 'employee_type' => 'DIRECT', 'name' => 'Ana M Reyes', 'active' => true]);
     }
 

@@ -16,7 +16,7 @@ const SORTS = [
     { id: '-grand_total', label: 'Highest total' },
     { id: 'grand_total', label: 'Lowest total' },
 ];
-const EMPTY = { status: '', payment_method: '', from: '', to: '', document_number: '', transaction_number: '', sort: '-sold_at' };
+const EMPTY = { status: '', payment_method: '', from: '', to: '', document_number: '', transaction_number: '', employee_code: '', sort: '-sold_at' };
 
 const fieldClass = 'min-h-11 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 lg:min-h-0';
 
@@ -40,6 +40,7 @@ export default function SalesPage() {
     const [filters, setFilters] = useState(EMPTY);
     const [draftInvoice, setDraftInvoice] = useState('');
     const [draftTransaction, setDraftTransaction] = useState('');
+    const [draftEmployee, setDraftEmployee] = useState('');
     const [page, setPage] = useState(1);
     const [reloadKey, setReloadKey] = useState(0);
     const [result, setResult] = useState(null);
@@ -76,13 +77,14 @@ export default function SalesPage() {
         if (event.type === 'keydown' && event.key !== 'Enter') {
             return;
         }
-        change({ document_number: draftInvoice.trim(), transaction_number: draftTransaction.trim() });
+        change({ document_number: draftInvoice.trim(), transaction_number: draftTransaction.trim(), employee_code: draftEmployee.trim() });
     }
 
     function clear() {
         setFilters({ ...EMPTY, sort: filters.sort });
         setDraftInvoice('');
         setDraftTransaction('');
+        setDraftEmployee('');
         setPage(1);
     }
 
@@ -128,6 +130,18 @@ export default function SalesPage() {
                         onBlur={commitText}
                         onKeyDown={commitText}
                         className={`${fieldClass} font-mono`}
+                    />
+                </Field>
+                <Field id="sales_employee" label="Employee code">
+                    <input
+                        id="sales_employee"
+                        type="search"
+                        placeholder="TSC00012"
+                        value={draftEmployee}
+                        onChange={(event) => setDraftEmployee(event.target.value)}
+                        onBlur={commitText}
+                        onKeyDown={commitText}
+                        className={`${fieldClass} font-mono uppercase`}
                     />
                 </Field>
                 <Field id="sales_status" label="Status">
@@ -221,6 +235,7 @@ export default function SalesPage() {
                                             <Link to={`/admin/sales/${sale.id}`} className="text-emerald-400 hover:underline">
                                                 {documentReference(sale) ?? '—'}
                                             </Link>
+                                            {sale.employee && <span className="block font-sans text-[11px] text-sky-300">Credit &middot; {sale.employee.name}</span>}
                                         </td>
                                         <td className="px-3 py-2 font-mono text-[12px] text-slate-400" title={sale.transaction_number}>
                                             {sale.transaction_number.slice(0, 14)}

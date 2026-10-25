@@ -259,10 +259,16 @@ export default function SaleDetailPage() {
                             {sale.payments.map((payment) => (
                                 <Row key={payment.id} label={`${payment.method}${payment.reference_note ? ` · ${payment.reference_note}` : ''}`} value={formatMoney(payment.amount)} />
                             ))}
-                            <div className="mt-1 border-t border-slate-800 pt-1">
-                                <Row label="Tendered" value={formatMoney(sale.amount_tendered)} />
-                                <Row label="Change" value={formatMoney(sale.change)} />
-                            </div>
+                            {sale.employee ? (
+                                <div className="mt-1 border-t border-slate-800 pt-1">
+                                    <Row label="Charged to" value={`${sale.employee.name} (${sale.employee.employee_code})`} />
+                                </div>
+                            ) : (
+                                <div className="mt-1 border-t border-slate-800 pt-1">
+                                    <Row label="Tendered" value={formatMoney(sale.amount_tendered)} />
+                                    <Row label="Change" value={formatMoney(sale.change)} />
+                                </div>
+                            )}
                             {(sale.buyer_name || sale.buyer_tin) && (
                                 <p className="mt-3 border-t border-slate-800 pt-2 text-xs text-slate-400">
                                     Buyer: {sale.buyer_name ?? '—'}

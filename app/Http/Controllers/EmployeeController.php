@@ -2,14 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Exceptions\EmployeeInactiveException;
 use App\Enums\EmployeeType;
 use App\Http\Controllers\Concerns\RespondsWithPagination;
 use App\Http\Requests\CreditLimitRequest;
 use App\Http\Requests\EmployeeInputRequest;
 use App\Http\Resources\CreditPolicyResource;
+use App\Http\Resources\EmployeeCreditLookupResource;
 use App\Http\Resources\EmployeeLookupResource;
 use App\Http\Resources\EmployeeResource;
 use App\Models\User;
+use App\Services\Credit\CreditLedger;
 use App\Services\Employees\CreditPolicyService;
 use App\Services\Employees\EmployeeImportService;
 use App\Services\Employees\EmployeeService;
@@ -94,14 +97,30 @@ class EmployeeController extends Controller
     }
 
     /** Any signed-in till user. `code` is what the scanner typed or the cashier keyed in. */
-    public function lookup(Request $request, EmployeeService $service): JsonResponse
+    public function lookup(Request $request, EmployeeService $service, CreditLedger $ledger): JsonResponse
     {
         $code = $request->query('code');
         if (! is_string($code) || trim($code) === '' || strlen($code) > 64) {
             throw ValidationException::withMessages(['code' => 'Scan or type the employee code.']);
         }
 
-        return (new EmployeeLookupResource($service->lookup($this->actor()->store_id, $code)))->response();
+        $employee = $service->lookup($this->actor()->store_id, $code);
+
+        return (new EmployeeCreditLookupResource($employee, $ledger->status($employee, now())))->response();
+    }
+
+    /**
+     * ADR-016 slice 3.2: the limit, what is used and what remains for the current cut-off, so the till can refresh it before it charges.
+     * Advisory: checkout re-checks under the employee lock. Any signed-in user, store-scoped; an inactive employee is EMPLOYEE_INACTIVE.
+     */
+    public function creditStatus(EmployeeService $service, CreditLedger $ledger, string $employeeId): JsonResponse
+    {
+        $employee = $service->find($this->actor()->store_id, $employeeId);
+        if (! $employee->active) {
+            throw EmployeeInactiveException::forCode($employee->employee_code);
+        }
+
+        return (new EmployeeCreditLookupResource($employee, $ledger->status($employee, now())))->response();
     }
 
     public function creditPolicies(CreditPolicyService $service): JsonResponse

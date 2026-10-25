@@ -27,6 +27,8 @@ class InvoiceModeUnchangedTest extends PostgresSchemaTestCase
     private function captureOneFixedSale(): array
     {
         $w = $this->world();
+        // The factory's random codes (T-00..T-99) could already be T-01; park the other till on a code that cannot collide first.
+        $w['t2']->update(['terminal_code' => 'PARK-2']);
         $w['t1']->update(['terminal_code' => 'T-01']);
         $w['product']->update(['name' => 'Fixed Product A', 'sku' => 'FIX-A', 'barcode' => '4800000000017']);
         $w['product2']->update(['name' => 'Fixed Product B', 'sku' => 'FIX-B', 'barcode' => '4800000000024']);
