@@ -82,7 +82,8 @@ REVOKE UPDATE ON
     x_readings,
     z_readings,
     audit_events,
-    electronic_journal_entries
+    electronic_journal_entries,
+    menu_prices     -- ADR-016 slice 1.2, MENU-004: the menu's price history; a price change is a new row
 FROM tindaflow_app;
 
 -- voids/refunds are NOT fully append-only (they transition
@@ -114,6 +115,11 @@ GRANT UPDATE (status) ON sales TO tindaflow_app;
 -- hides (active = false) its rows, so it keeps INSERT and UPDATE, and it is never deleted. It needs no statement here: it is
 -- not in the DELETE allow-list above, so the store-wide REVOKE DELETE already covers it. tindaflow:harden-database reads
 -- that back, and AppendOnlyPrivilegesTest proves the menu admin works and a DELETE is refused under the restricted role.
+
+-- The meal menu configuration tables (ADR-016 slice 1.2) -- dish_categories, dishes, meals, meal_option_groups, meal_options --
+-- are lifecycle/configuration tables like menu_groups: INSERT and UPDATE (rename, reorder, hide with active = false), never
+-- DELETE (covered by the store-wide REVOKE DELETE above). menu_prices is the one append-only table of the menu; it is in the
+-- REVOKE UPDATE list above. products.menu_hidden is an ordinary column of a lifecycle table.
 
 -- shifts/fiscal_days/invoice_series/idempotency_records are lifecycle
 -- aggregates with frozen-domain-required in-place field changes

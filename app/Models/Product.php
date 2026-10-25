@@ -19,7 +19,7 @@ class Product extends Model
     protected $fillable = [
         'store_id', 'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'menu_group_id',
         'unit_of_measure', 'cost', 'selling_price', 'tax_class', 'track_inventory',
-        'reorder_level', 'active',
+        'reorder_level', 'active', 'menu_hidden',
     ];
 
     protected function casts(): array
@@ -29,6 +29,7 @@ class Product extends Model
             'selling_price' => 'decimal:2',
             'track_inventory' => 'boolean',
             'active' => 'boolean',
+            'menu_hidden' => 'boolean',
         ];
     }
 

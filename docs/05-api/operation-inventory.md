@@ -89,6 +89,45 @@ The till's two-level navigation tree (`docs/06-backend/canteen-build-plan.md` 1.
 | POST | /menu-groups/{menuGroupId}/activate | menuGroupActivate | session | false | `CATALOG_MANAGE` | no | — | 200 MenuGroup | 403, `MENU_GROUP_NOT_FOUND` |
 | POST | /menu-groups/{menuGroupId}/deactivate | menuGroupDeactivate | session | false | `CATALOG_MANAGE` | no | — | 200 MenuGroup | 403, `MENU_GROUP_NOT_FOUND` |
 
+### Meal menu (32) — ADR-016 slice 1.2 (2026-10-25), forward-committed
+
+Configuration behind the till's meal picker (`docs/06-backend/canteen-build-plan.md` 1.2): dish categories, dishes, meals (each with a hidden backing product and a pricing option group), option groups, options, and the append-only price history. Every operation, reads included, is `CATALOG_MANAGE` (the till's own read-only `GET /menu` payload is slice 1.3). Records of another store are `DISH_CATEGORY_NOT_FOUND`, `DISH_NOT_FOUND`, `MEAL_NOT_FOUND`, `MEAL_OPTION_GROUP_NOT_FOUND`, `MEAL_OPTION_NOT_FOUND` (new codes, 404). There is no delete anywhere (MENU-005): hiding is `deactivate`. A price edit appends a `menu_prices` row (MENU-004); there is no price update or delete. Tag in `openapi.yaml`: `Menu`.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /dish-categories | dishCategoryList | session | false | `CATALOG_MANAGE` | no | active? | 200 paginated DishCategory | 403 |
+| POST | /dish-categories | dishCategoryCreate | session | false | `CATALOG_MANAGE` | no | name, sort_order | 201 DishCategory | 403, 422 |
+| POST | /dish-categories/reorder | dishCategoryReorder | session | false | `CATALOG_MANAGE` | no | ids | 200 DishCategory list | 403, 422 |
+| PATCH | /dish-categories/{dishCategoryId} | dishCategoryUpdate | session | false | `CATALOG_MANAGE` | no | name, sort_order | 200 DishCategory | 403, `DISH_CATEGORY_NOT_FOUND`, 422 |
+| POST | /dish-categories/{dishCategoryId}/activate | dishCategoryActivate | session | false | `CATALOG_MANAGE` | no | — | 200 DishCategory | 403, `DISH_CATEGORY_NOT_FOUND` |
+| POST | /dish-categories/{dishCategoryId}/deactivate | dishCategoryDeactivate | session | false | `CATALOG_MANAGE` | no | — | 200 DishCategory | 403, `DISH_CATEGORY_NOT_FOUND` |
+| GET | /dishes | dishList | session | false | `CATALOG_MANAGE` | no | dish_category_id, active, search? | 200 paginated Dish | 403 |
+| POST | /dishes | dishCreate | session | false | `CATALOG_MANAGE` | no | name, dish_category_id, sort_order | 201 Dish | 403, 422 |
+| POST | /dishes/reorder | dishReorder | session | false | `CATALOG_MANAGE` | no | dish_category_id, ids | 200 Dish list | 403, 422 |
+| PATCH | /dishes/{dishId} | dishUpdate | session | false | `CATALOG_MANAGE` | no | name, dish_category_id, sort_order | 200 Dish | 403, `DISH_NOT_FOUND`, 422 |
+| POST | /dishes/{dishId}/activate | dishActivate | session | false | `CATALOG_MANAGE` | no | — | 200 Dish | 403, `DISH_NOT_FOUND` |
+| POST | /dishes/{dishId}/deactivate | dishDeactivate | session | false | `CATALOG_MANAGE` | no | — | 200 Dish | 403, `DISH_NOT_FOUND` |
+| GET | /meals | mealList | session | false | `CATALOG_MANAGE` | no | active, menu_group_id? | 200 paginated Meal | 403 |
+| POST | /meals | mealCreate | session | false | `CATALOG_MANAGE` | no | name, menu_group_id, sort_order, pricing_group_name | 201 Meal | 403, 422 |
+| POST | /meals/reorder | mealReorder | session | false | `CATALOG_MANAGE` | no | ids | 200 Meal list | 403, 422 |
+| GET | /meals/{mealId} | mealGet | session | false | `CATALOG_MANAGE` | no | — | 200 Meal | 403, `MEAL_NOT_FOUND` |
+| PATCH | /meals/{mealId} | mealUpdate | session | false | `CATALOG_MANAGE` | no | name, menu_group_id, sort_order | 200 Meal | 403, `MEAL_NOT_FOUND`, 422 |
+| POST | /meals/{mealId}/activate | mealActivate | session | false | `CATALOG_MANAGE` | no | — | 200 Meal | 403, `MEAL_NOT_FOUND` |
+| POST | /meals/{mealId}/deactivate | mealDeactivate | session | false | `CATALOG_MANAGE` | no | — | 200 Meal | 403, `MEAL_NOT_FOUND` |
+| POST | /meals/{mealId}/option-groups | mealOptionGroupCreate | session | false | `CATALOG_MANAGE` | no | name, kind, min_select, max_select, popup_after_choice, step_order | 201 MealOptionGroup | 403, `MEAL_NOT_FOUND`, 422 |
+| POST | /meals/{mealId}/option-groups/reorder | mealOptionGroupReorder | session | false | `CATALOG_MANAGE` | no | ids | 200 MealOptionGroup list | 403, `MEAL_NOT_FOUND`, 422 |
+| PATCH | /meal-option-groups/{groupId} | mealOptionGroupUpdate | session | false | `CATALOG_MANAGE` | no | name, min_select, max_select, popup_after_choice, step_order, prices_the_meal | 200 MealOptionGroup | 403, `MEAL_OPTION_GROUP_NOT_FOUND`, 422 |
+| POST | /meal-option-groups/{groupId}/activate | mealOptionGroupActivate | session | false | `CATALOG_MANAGE` | no | — | 200 MealOptionGroup | 403, `MEAL_OPTION_GROUP_NOT_FOUND` |
+| POST | /meal-option-groups/{groupId}/deactivate | mealOptionGroupDeactivate | session | false | `CATALOG_MANAGE` | no | — | 200 MealOptionGroup | 403, `MEAL_OPTION_GROUP_NOT_FOUND`, 422 |
+| POST | /meal-option-groups/{groupId}/options | mealOptionCreate | session | false | `CATALOG_MANAGE` | no | dish_id, label, sort_order | 201 MealOption | 403, `MEAL_OPTION_GROUP_NOT_FOUND`, 422 |
+| POST | /meal-option-groups/{groupId}/options/reorder | mealOptionReorder | session | false | `CATALOG_MANAGE` | no | ids | 200 MealOption list | 403, `MEAL_OPTION_GROUP_NOT_FOUND`, 422 |
+| PATCH | /meal-options/{optionId} | mealOptionUpdate | session | false | `CATALOG_MANAGE` | no | label, sort_order | 200 MealOption | 403, `MEAL_OPTION_NOT_FOUND`, 422 |
+| POST | /meal-options/{optionId}/activate | mealOptionActivate | session | false | `CATALOG_MANAGE` | no | — | 200 MealOption | 403, `MEAL_OPTION_NOT_FOUND` |
+| POST | /meal-options/{optionId}/deactivate | mealOptionDeactivate | session | false | `CATALOG_MANAGE` | no | — | 200 MealOption | 403, `MEAL_OPTION_NOT_FOUND` |
+| GET | /meals/{mealId}/prices | menuPriceGrid | session | false | `CATALOG_MANAGE` | no | — | 200 MenuPriceGrid | 403, `MEAL_NOT_FOUND` |
+| POST | /meals/{mealId}/prices | menuPriceSet | session | false | `CATALOG_MANAGE` | no | dish_category_id, meal_option_id, amount, effective_from, reason | 201 MenuPrice | 403, `MEAL_NOT_FOUND`, 422 |
+| GET | /meals/{mealId}/prices/history | menuPriceHistory | session | false | `CATALOG_MANAGE` | no | dish_category_id, meal_option_id? | 200 paginated MenuPrice | 403, `MEAL_NOT_FOUND` |
+
 ### Alternate barcodes and packs (3) — stage 26 (2026-09-20), forward-committed, no prior draft at any stage; extended in stage 29 (2026-09-21)
 
 **Stage 29:** a row is now a *packaging*: the barcode is optional, and a row may carry a `name` ("Case") and `units_per_base` (how many single units one holds; 1 for a plain alias), plus `can_receive`. `productBarcodeCreate` accepts `name`, `units_per_base` and `can_receive` and needs at least one of `barcode` and `name`; a duplicate name on the same product is a `422` on `name`. Stock is always kept in the base unit. See `docs/06-backend/stage-29-packaging-and-pack-receiving.md`.

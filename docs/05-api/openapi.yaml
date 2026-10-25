@@ -10,6 +10,7 @@ tags:
 - {name: Auth}
 - {name: Terminal}
 - {name: Catalog}
+- {name: Menu}
 - {name: Inventory}
 - {name: Sales}
 - {name: Invoices}
@@ -868,6 +869,966 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404':
           description: MENU_GROUP_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /dish-categories:
+    get:
+      operationId: dishCategoryList
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'List dish categories (ADR-016 slice 1.2: the price categories of a meals dishes), in menu order. active filters by visibility.'
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: active
+        in: query
+        schema: {type: boolean}
+      responses:
+        '200':
+          description: description
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/DishCategory'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: dishCategoryCreate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Create a dish category. The name is unique ignoring case (422 on name); the code is generated and never changes.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                sort_order: {type: integer, minimum: 0}
+      responses:
+        '201':
+          description: Dish category created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DishCategory'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /dish-categories/reorder:
+    post:
+      operationId: dishCategoryReorder
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Put every dish category in order. ids must list every category exactly once (422 on ids); they are numbered 1..n.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The categories in their new order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/DishCategory'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /dish-categories/{dishCategoryId}:
+    patch:
+      operationId: dishCategoryUpdate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Rename and/or re-sort a dish category. History is untouched: prices are keyed by id.'
+      parameters:
+      - name: dishCategoryId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                sort_order: {type: integer, minimum: 0}
+      responses:
+        '200':
+          description: Dish category updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DishCategory'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: DISH_CATEGORY_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /dish-categories/{dishCategoryId}/activate:
+    post:
+      operationId: dishCategoryActivate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Show a dish category again (idempotent).'
+      parameters:
+      - name: dishCategoryId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Dish category activated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DishCategory'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: DISH_CATEGORY_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /dish-categories/{dishCategoryId}/deactivate:
+    post:
+      operationId: dishCategoryDeactivate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Hide a dish category (idempotent). There is no delete (invariants.md MENU-005).'
+      parameters:
+      - name: dishCategoryId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Dish category deactivated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DishCategory'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: DISH_CATEGORY_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /dishes:
+    get:
+      operationId: dishList
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'List dishes, in menu order. Filters: dish_category_id, active, search (name).'
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: dish_category_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: active
+        in: query
+        schema: {type: boolean}
+      - name: search
+        in: query
+        schema: {type: string}
+      responses:
+        '200':
+          description: description
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/Dish'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: dishCreate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Create a dish in a dish category of the same store. The name is unique ignoring case (422 on name).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                dish_category_id: {type: string, format: uuid}
+                sort_order: {type: integer, minimum: 0}
+      responses:
+        '201':
+          description: Dish created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Dish'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /dishes/reorder:
+    post:
+      operationId: dishReorder
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Put the dishes of one dish category in order. ids must list every dish of that category exactly once (422 on ids).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dish_category_id: {type: string, format: uuid}
+                ids:
+                  type: array
+                  items: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The dishes in their new order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Dish'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /dishes/{dishId}:
+    patch:
+      operationId: dishUpdate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Rename, move to another dish category, and/or re-sort a dish. Past sales keep their own snapshot of the name (MENU-001).'
+      parameters:
+      - name: dishId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                dish_category_id: {type: string, format: uuid}
+                sort_order: {type: integer, minimum: 0}
+      responses:
+        '200':
+          description: Dish updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Dish'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: DISH_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /dishes/{dishId}/activate:
+    post:
+      operationId: dishActivate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Show a dish again (idempotent).'
+      parameters:
+      - name: dishId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Dish activated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Dish'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: DISH_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /dishes/{dishId}/deactivate:
+    post:
+      operationId: dishDeactivate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Hide a dish (idempotent). There is no delete (MENU-005).'
+      parameters:
+      - name: dishId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Dish deactivated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Dish'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: DISH_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /meals:
+    get:
+      operationId: mealList
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'List meals with their option groups, options and pricing status, in menu order. Filters: active, menu_group_id.'
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: active
+        in: query
+        schema: {type: boolean}
+      - name: menu_group_id
+        in: query
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: description
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/Meal'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: mealCreate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Create a meal. This also creates its hidden backing product and its pricing option group (a CHOICE group, exactly one pick, named pricing_group_name, default Main), so a meal always has exactly one group that prices it (MENU-003). The name is unique ignoring case.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                menu_group_id:
+                  anyOf:
+                  - {type: string, format: uuid}
+                  - {type: 'null'}
+                sort_order: {type: integer, minimum: 0}
+                pricing_group_name: {type: string}
+      responses:
+        '201':
+          description: Meal created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Meal'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meals/reorder:
+    post:
+      operationId: mealReorder
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Put every meal in order. ids must list every meal exactly once (422 on ids).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The meals in their new order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Meal'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meals/{mealId}:
+    get:
+      operationId: mealGet
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'One meal with its option groups, options and pricing status (the dish categories and add-ons that still have no price in force).'
+      parameters:
+      - name: mealId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The meal
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Meal'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+    patch:
+      operationId: mealUpdate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Rename (the backing product follows), place in a menu group, and/or re-sort a meal.'
+      parameters:
+      - name: mealId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                menu_group_id:
+                  anyOf:
+                  - {type: string, format: uuid}
+                  - {type: 'null'}
+                sort_order: {type: integer, minimum: 0}
+      responses:
+        '200':
+          description: Meal updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Meal'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meals/{mealId}/activate:
+    post:
+      operationId: mealActivate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Offer a meal again (idempotent).'
+      parameters:
+      - name: mealId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Meal activated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Meal'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /meals/{mealId}/deactivate:
+    post:
+      operationId: mealDeactivate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Hide a meal (idempotent). There is no delete (MENU-005).'
+      parameters:
+      - name: mealId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Meal deactivated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Meal'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /meals/{mealId}/option-groups:
+    post:
+      operationId: mealOptionGroupCreate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Add an option group to a meal. kind is CHOICE (dishes) or ADDON (labelled extras) and never changes. min_select <= max_select and max_select >= 1 (422). A new group does not price the meal; move that flag with mealOptionGroupUpdate.'
+      parameters:
+      - name: mealId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                kind: {type: string, enum: [CHOICE, ADDON]}
+                min_select: {type: integer, minimum: 0}
+                max_select: {type: integer, minimum: 0}
+                popup_after_choice: {type: boolean}
+                step_order: {type: integer, minimum: 0}
+      responses:
+        '201':
+          description: Option group created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MealOptionGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meals/{mealId}/option-groups/reorder:
+    post:
+      operationId: mealOptionGroupReorder
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Put the option groups of a meal in step order. ids must list every group of the meal exactly once (422 on ids).'
+      parameters:
+      - name: mealId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The groups in their new order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/MealOptionGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meal-option-groups/{groupId}:
+    patch:
+      operationId: mealOptionGroupUpdate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Change a group. prices_the_meal: true MOVES the flag to this group (it must be an active CHOICE group with exactly one pick); false is refused because a meal always has one pricing group. The pricing group must stay 1 to 1. kind is rejected.'
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                min_select: {type: integer, minimum: 0}
+                max_select: {type: integer, minimum: 0}
+                popup_after_choice: {type: boolean}
+                step_order: {type: integer, minimum: 0}
+                prices_the_meal: {type: boolean}
+      responses:
+        '200':
+          description: Option group updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MealOptionGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_OPTION_GROUP_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meal-option-groups/{groupId}/activate:
+    post:
+      operationId: mealOptionGroupActivate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Show an option group again (idempotent).'
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Option group activated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MealOptionGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_OPTION_GROUP_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /meal-option-groups/{groupId}/deactivate:
+    post:
+      operationId: mealOptionGroupDeactivate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Hide an option group (idempotent). The group that prices the meal cannot be hidden (422): hide the meal, or move the pricing flag first.'
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Option group deactivated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MealOptionGroup'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_OPTION_GROUP_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meal-option-groups/{groupId}/options:
+    post:
+      operationId: mealOptionCreate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Offer an option in a group. A CHOICE group takes dish_id (an active dish of the store, offered once per group); an ADDON group takes a label (unique in the group) and gets its own hidden backing product (422 otherwise).'
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dish_id:
+                  anyOf:
+                  - {type: string, format: uuid}
+                  - {type: 'null'}
+                label: {type: string}
+                sort_order: {type: integer, minimum: 0}
+      responses:
+        '201':
+          description: Option created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MealOption'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_OPTION_GROUP_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meal-option-groups/{groupId}/options/reorder:
+    post:
+      operationId: mealOptionReorder
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Put the options of a group in order. ids must list every option of the group exactly once (422 on ids).'
+      parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The options in their new order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/MealOption'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_OPTION_GROUP_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meal-options/{optionId}:
+    patch:
+      operationId: mealOptionUpdate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Change an add-on options label (its backing product follows) and/or any options position. A dish option takes its name from the dish (label is rejected with 422).'
+      parameters:
+      - name: optionId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: {type: string}
+                sort_order: {type: integer, minimum: 0}
+      responses:
+        '200':
+          description: Option updated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MealOption'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_OPTION_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meal-options/{optionId}/activate:
+    post:
+      operationId: mealOptionActivate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Offer an option again (idempotent).'
+      parameters:
+      - name: optionId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Option activated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MealOption'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_OPTION_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /meal-options/{optionId}/deactivate:
+    post:
+      operationId: mealOptionDeactivate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Hide an option (idempotent). There is no delete (MENU-005).'
+      parameters:
+      - name: optionId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Option deactivated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MealOption'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_OPTION_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /meals/{mealId}/prices:
+    get:
+      operationId: menuPriceGrid
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'The price grid of a meal: one row per dish category offered in its pricing group and one per add-on option, each with the price in force now (current) and the next scheduled one (upcoming).'
+      parameters:
+      - name: mealId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The price grid
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MenuPriceGrid'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+    post:
+      operationId: menuPriceSet
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'Set a price: append a new menu_prices row (MENU-004); no row is ever updated. Give exactly one of dish_category_id (a category the meal offers) and meal_option_id (an add-on of the meal), the amount, optionally effective_from (now by default; a time in the past is 422) and a reason. 201 with the new row, or 200 with the row already in force when the amount is unchanged (nothing is recorded).'
+      parameters:
+      - name: mealId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dish_category_id:
+                  anyOf:
+                  - {type: string, format: uuid}
+                  - {type: 'null'}
+                meal_option_id:
+                  anyOf:
+                  - {type: string, format: uuid}
+                  - {type: 'null'}
+                amount: {$ref: '#/components/schemas/Money'}
+                effective_from: {type: string, format: date-time}
+                reason: {type: string}
+      responses:
+        '201':
+          description: Price appended
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MenuPrice'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_NOT_FOUND
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /meals/{mealId}/prices/history:
+    get:
+      operationId: menuPriceHistory
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'The price history of a meal and its add-ons, newest first. Filters: dish_category_id, meal_option_id. Names are todays names; rows are keyed by id.'
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      - name: mealId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: dish_category_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: meal_option_id
+        in: query
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: description
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/MenuPrice'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: MEAL_NOT_FOUND
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
@@ -3261,6 +4222,160 @@ components:
         name: {type: string}
         sort_order: {type: integer}
         active: {type: boolean}
+    DishCategory:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        code: {type: string}
+        name: {type: string}
+        sort_order: {type: integer}
+        active: {type: boolean}
+    Dish:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        dish_category_id: {type: string, format: uuid}
+        sort_order: {type: integer}
+        active: {type: boolean}
+    MealOption:
+      type: object
+      description: 'A dish option carries the dish (dish_id, dish_name, dish_category_id); an add-on option carries a label. Live configuration, never read back by a sale (MENU-001).'
+      properties:
+        id: {type: string, format: uuid}
+        meal_option_group_id: {type: string, format: uuid}
+        dish_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        dish_name:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        dish_category_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        label:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        sort_order: {type: integer}
+        active: {type: boolean}
+    MealOptionGroup:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        meal_id: {type: string, format: uuid}
+        name: {type: string}
+        kind: {type: string, enum: [CHOICE, ADDON]}
+        min_select: {type: integer}
+        max_select: {type: integer}
+        prices_the_meal: {type: boolean}
+        popup_after_choice: {type: boolean}
+        step_order: {type: integer}
+        active: {type: boolean}
+        options:
+          type: array
+          items: {$ref: '#/components/schemas/MealOption'}
+    Meal:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        menu_group_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        backing_product_id: {type: string, format: uuid}
+        sort_order: {type: integer}
+        active: {type: boolean}
+        option_groups:
+          type: array
+          items: {$ref: '#/components/schemas/MealOptionGroup'}
+        pricing:
+          type: object
+          description: 'What still has no price in force now: dish categories offered by an active dish option, and active add-ons.'
+          properties:
+            unpriced_dish_category_ids:
+              type: array
+              items: {type: string, format: uuid}
+            unpriced_option_ids:
+              type: array
+              items: {type: string, format: uuid}
+    MenuPrice:
+      type: object
+      description: 'One row of the append-only price history. Exactly one of dish_category_id and meal_option_id is set.'
+      properties:
+        id: {type: string, format: uuid}
+        meal_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        dish_category_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        dish_category_name:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        meal_option_id:
+          anyOf:
+          - {type: string, format: uuid}
+          - {type: 'null'}
+        meal_option_label:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        amount: {$ref: '#/components/schemas/Money'}
+        effective_from: {type: string, format: date-time}
+        changed_by: {type: string, format: uuid}
+        changed_by_name:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        reason:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        created_at: {type: string, format: date-time}
+    MenuPriceSummary:
+      type: object
+      properties:
+        amount: {$ref: '#/components/schemas/Money'}
+        effective_from: {type: string, format: date-time}
+    MenuPriceGrid:
+      type: object
+      properties:
+        meal_id: {type: string, format: uuid}
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: {type: string, enum: [DISH_CATEGORY, ADDON]}
+              dish_category_id:
+                anyOf:
+                - {type: string, format: uuid}
+                - {type: 'null'}
+              meal_option_id:
+                anyOf:
+                - {type: string, format: uuid}
+                - {type: 'null'}
+              label: {type: string}
+              active: {type: boolean}
+              dishes:
+                type: array
+                items: {type: string}
+              current:
+                anyOf:
+                - {$ref: '#/components/schemas/MenuPriceSummary'}
+                - {type: 'null'}
+              upcoming:
+                anyOf:
+                - {$ref: '#/components/schemas/MenuPriceSummary'}
+                - {type: 'null'}
     Brand:
       type: object
       properties:

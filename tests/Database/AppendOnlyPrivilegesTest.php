@@ -209,6 +209,36 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $this->assertTrue($this->refuses(fn () => MenuGroup::query()->delete()), 'a menu group must not be deletable');
     }
 
+    public function test_the_meal_menu_admin_works_as_the_restricted_role_a_price_row_cannot_be_updated_and_nothing_can_be_deleted(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+        $as = fn () => $this->asUser($w['manager']);
+
+        $beef = $as()->postJson('/api/v1/dish-categories', ['name' => 'Beef'])->assertStatus(201)->json('id');
+        $as()->patchJson("/api/v1/dish-categories/{$beef}", ['name' => 'Beef dishes'])->assertOk();
+        $dish = $as()->postJson('/api/v1/dishes', ['name' => 'Beef nilaga', 'dish_category_id' => $beef])->assertStatus(201)->json('id');
+        $as()->patchJson("/api/v1/dishes/{$dish}", ['name' => 'Beef nilaga special'])->assertOk();
+        $as()->postJson('/api/v1/dishes/reorder', ['dish_category_id' => $beef, 'ids' => [$dish]])->assertOk();
+        $meal = $as()->postJson('/api/v1/meals', ['name' => 'Standard Meal'])->assertStatus(201)->json();
+        $as()->patchJson("/api/v1/meals/{$meal['id']}", ['name' => 'Regular Meal'])->assertOk();
+        $group = $as()->postJson("/api/v1/meals/{$meal['id']}/option-groups", ['name' => 'Extra rice', 'kind' => 'ADDON'])->assertStatus(201)->json('id');
+        $as()->patchJson("/api/v1/meal-option-groups/{$group}", ['popup_after_choice' => true])->assertOk();
+        $option = $as()->postJson("/api/v1/meal-option-groups/{$meal['option_groups'][0]['id']}/options", ['dish_id' => $dish])->assertStatus(201)->json('id');
+        $rice = $as()->postJson("/api/v1/meal-option-groups/{$group}/options", ['label' => 'Whole rice'])->assertStatus(201)->json('id');
+        $as()->postJson("/api/v1/meal-options/{$option}/deactivate")->assertOk();
+
+        $as()->postJson("/api/v1/meals/{$meal['id']}/prices", ['dish_category_id' => $beef, 'amount' => '68.00'])->assertStatus(201);
+        $this->travel(1)->minutes();
+        $as()->postJson("/api/v1/meals/{$meal['id']}/prices", ['dish_category_id' => $beef, 'amount' => '70.00'])->assertStatus(201);
+        $as()->postJson("/api/v1/meals/{$meal['id']}/prices", ['meal_option_id' => $rice, 'amount' => '15.00'])->assertStatus(201);
+        $as()->getJson("/api/v1/meals/{$meal['id']}/prices/history")->assertOk()->assertJson(['meta' => ['total' => 3]]);
+
+        $this->assertTrue($this->refuses(fn () => DB::table('menu_prices')->update(['amount' => '1.00'])), 'a menu price row must not be updatable');
+        foreach (['menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options'] as $table) {
+            $this->assertTrue($this->refuses(fn () => DB::table($table)->delete()), "{$table} must not be deletable");
+        }
+    }
+
     public function test_the_tables_the_app_is_allowed_to_delete_from_are_exactly_the_ones_that_hold_no_money_or_audit_data(): void
     {
         $this->worldUnderTheHardenedRole();
@@ -218,7 +248,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }

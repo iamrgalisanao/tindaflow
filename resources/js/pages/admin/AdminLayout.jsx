@@ -20,6 +20,12 @@ const CATALOG_NAV = [
     { to: '/admin/catalog/brands', label: 'Brands' },
 ];
 
+const MENU_NAV = [
+    { to: '/admin/menu/dishes', label: 'Dishes' },
+    { to: '/admin/menu/meals', label: 'Meals' },
+    { to: '/admin/menu/prices', label: 'Meal prices' },
+];
+
 const SALES_NAV = [
     { to: '/admin/sales', label: 'Sales history' },
     { to: '/admin/sales/approvals', label: 'Approvals', capability: 'SALE_VOID_APPROVE' },
@@ -124,6 +130,12 @@ const ICONS = {
             <path d="M4 6h16M4 12h16M4 18h16" />
         </Icon>
     ),
+    meal: (
+        <Icon>
+            <path d="M7 3v8M4 3v5a3 3 0 0 0 6 0V3M7 11v10" />
+            <path d="M17 21V3c-2.5 1.5-3.5 4.5-3.5 8H17" />
+        </Icon>
+    ),
     close: (
         <Icon>
             <path d="M6 6l12 12M18 6L6 18" />
@@ -192,6 +204,15 @@ const SECTIONS = [
         capability: 'CATALOG_MANAGE',
         matches: (path) => path.startsWith('/admin/catalog'),
         links: CATALOG_NAV,
+    },
+    {
+        id: 'menu',
+        label: 'Meal menu',
+        to: '/admin/menu/dishes',
+        icon: 'meal',
+        capability: 'CATALOG_MANAGE',
+        matches: (path) => path.startsWith('/admin/menu'),
+        links: MENU_NAV,
     },
     {
         id: 'inventory',

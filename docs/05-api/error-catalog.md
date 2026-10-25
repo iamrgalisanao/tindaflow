@@ -94,6 +94,11 @@ with the envelope above.
 | `FISCAL_DAY_NOT_FOUND` | 404 | Referenced fiscal day does not exist, exists only for a different terminal than the credential presented, or (for `fiscalDayZReadingGet`) exists but has not closed yet and so has no Z-Reading — one deliberately non-enumerating outcome for `fiscalDayZReadingGet`'s two distinct "not found" causes, matching the project's existing non-enumeration convention (e.g. `ENROLLMENT_TOKEN_INVALID`) | Shift-close module implementation discovery — `fiscalDayClose`/`fiscalDayZReadingGet`'s `404` `NotFound` responses already referenced the generic `Error` envelope with no code registered |
 | `PRODUCT_NOT_FOUND` | 404 | Referenced product does not exist | — |
 | `MENU_GROUP_NOT_FOUND` | 404 | Referenced menu group does not exist, or exists only in a different store than the authenticated actor's own — indistinguishable from "does not exist" | ADR-016 slice 1.1 (2026-10-25) — follows the resource-specific-404 pattern of `PRODUCT_NOT_FOUND`/`TERMINAL_NOT_FOUND` |
+| `DISH_CATEGORY_NOT_FOUND` | 404 | Referenced dish category does not exist, or exists only in a different store than the authenticated actor's own — indistinguishable from "does not exist" | ADR-016 slice 1.2 (2026-10-25) — resource-specific-404 pattern of `MENU_GROUP_NOT_FOUND` |
+| `DISH_NOT_FOUND` | 404 | Referenced dish does not exist, or exists only in a different store | ADR-016 slice 1.2 (2026-10-25) |
+| `MEAL_NOT_FOUND` | 404 | Referenced meal does not exist, or exists only in a different store | ADR-016 slice 1.2 (2026-10-25) |
+| `MEAL_OPTION_GROUP_NOT_FOUND` | 404 | Referenced meal option group does not exist, or belongs to a meal of a different store | ADR-016 slice 1.2 (2026-10-25) |
+| `MEAL_OPTION_NOT_FOUND` | 404 | Referenced meal option does not exist, or belongs to a meal of a different store | ADR-016 slice 1.2 (2026-10-25) |
 | `PRODUCT_INACTIVE` | 422 | Referenced product is deactivated and cannot be sold | Module C |
 | `BARCODE_NOT_FOUND` | 404 | No product matches the scanned barcode | Module D |
 | `INSUFFICIENT_PAYMENT` | 422 | Sum of payments is less than the server-computed grand total | Stage 2 invariant #8 |

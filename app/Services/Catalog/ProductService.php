@@ -49,7 +49,7 @@ final class ProductService
 
     public function find(string $storeId, string $productId): Product
     {
-        $product = Product::where('store_id', $storeId)->find($productId);
+        $product = Product::where('store_id', $storeId)->where('menu_hidden', false)->find($productId);
 
         if ($product === null) {
             throw ProductNotFoundException::forId($productId);
@@ -99,7 +99,7 @@ final class ProductService
 
     private function lock(string $storeId, string $productId): Product
     {
-        $product = Product::where('store_id', $storeId)->lockForUpdate()->find($productId);
+        $product = Product::where('store_id', $storeId)->where('menu_hidden', false)->lockForUpdate()->find($productId);
 
         if ($product === null) {
             throw ProductNotFoundException::forId($productId);

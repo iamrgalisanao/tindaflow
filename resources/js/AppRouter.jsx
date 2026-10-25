@@ -16,6 +16,9 @@ import TaxRegistrations from './pages/admin/TaxRegistrations';
 import ProductsPage from './pages/admin/catalog/ProductsPage';
 import CatalogNamesPage from './pages/admin/catalog/CatalogNamesPage';
 import MenuGroupsPage from './pages/admin/catalog/MenuGroupsPage';
+import DishesPage from './pages/admin/menu/DishesPage';
+import MealPricesPage from './pages/admin/menu/MealPricesPage';
+import MealsPage from './pages/admin/menu/MealsPage';
 import UsersPage from './pages/admin/users/UsersPage';
 import StockPage from './pages/admin/inventory/StockPage';
 import SalesPage from './pages/admin/sales/SalesPage';
@@ -296,6 +299,38 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <MenuGroupsPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/menu/dishes"
+                    element={
+                        <RequireAuth>
+                            <DishesPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/menu/meals"
+                    element={
+                        <RequireAuth>
+                            <MealsPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/menu/prices"
+                    element={
+                        <RequireAuth>
+                            <MealPricesPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/menu/prices/:mealId"
+                    element={
+                        <RequireAuth>
+                            <MealPricesPage />
                         </RequireAuth>
                     }
                 />

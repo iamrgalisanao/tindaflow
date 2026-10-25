@@ -15,6 +15,13 @@ export const AUDIT_TYPES = [
     { id: 'MENU_GROUP_CREATED', label: 'Menu group created' },
     { id: 'MENU_GROUP_UPDATED', label: 'Menu group changed' },
     { id: 'MENU_GROUP_REORDERED', label: 'Menu groups reordered' },
+    { id: 'MENU_DISH_CREATED', label: 'Dish created' },
+    { id: 'MENU_DISH_RENAMED', label: 'Dish renamed' },
+    { id: 'MENU_DISH_UPDATED', label: 'Dish changed' },
+    { id: 'MENU_DISH_HIDDEN', label: 'Dish hidden' },
+    { id: 'MENU_DISH_SHOWN', label: 'Dish shown' },
+    { id: 'MENU_PRICE_CHANGED', label: 'Meal price changed' },
+    { id: 'MENU_STRUCTURE_CHANGED', label: 'Meal menu changed' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -187,6 +194,20 @@ export function describeAudit(event) {
             return `Menu group "${after.name ?? '—'}" created${after.parent_id ? ' as a sub-group' : ''}`;
         case 'MENU_GROUP_UPDATED':
             return `Menu group "${after.name ?? '—'}" changed: ${describeMenuGroupChange(event.before_metadata ?? {}, after) || 'no listed field'}`;
+        case 'MENU_DISH_CREATED':
+            return `Dish "${after.name ?? '—'}" created`;
+        case 'MENU_DISH_RENAMED':
+            return `Dish renamed: "${event.before_metadata?.name ?? '—'}" → "${after.name ?? '—'}"`;
+        case 'MENU_DISH_UPDATED':
+            return `Dish "${after.name ?? '—'}" changed: ${Object.keys(event.before_metadata ?? {}).join(', ') || 'no listed field'}`;
+        case 'MENU_DISH_HIDDEN':
+            return `Dish "${after.name ?? '—'}" hidden from the picker`;
+        case 'MENU_DISH_SHOWN':
+            return `Dish "${after.name ?? '—'}" shown in the picker`;
+        case 'MENU_PRICE_CHANGED':
+            return `Meal price ${event.before_metadata ? `${event.before_metadata.amount} → ` : 'set to '}${after.amount ?? '—'}, effective ${after.effective_from ?? '—'}${event.reason ? ` (${event.reason})` : ''}`;
+        case 'MENU_STRUCTURE_CHANGED':
+            return `Meal menu ${String(event.entity_type ?? '').replaceAll('_', ' ')} ${after.change ?? 'changed'}${after.name ?? after.label ? `: ${after.name ?? after.label}` : ''}`;
         case 'MENU_GROUP_REORDERED':
             return `Menu groups reordered: ${(after.order ?? []).length} ${after.parent_id ? 'sub-groups' : 'groups'} in a new order`;
         case 'PRODUCT_BARCODE_ADDED':

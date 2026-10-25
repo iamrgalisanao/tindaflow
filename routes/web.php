@@ -11,7 +11,9 @@ use App\Http\Controllers\InventoryLocationController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceSeriesController;
 use App\Http\Controllers\JournalEntryController;
+use App\Http\Controllers\MenuController;
 use App\Http\Controllers\MenuGroupController;
+use App\Http\Controllers\MenuPriceController;
 use App\Http\Controllers\ProductBarcodeController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\RefundController;
@@ -254,6 +256,49 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
     Route::post('/menu-groups/{menuGroupId}/deactivate', [MenuGroupController::class, 'deactivate'])->whereUuid('menuGroupId')
         ->middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE']);
+
+    // Meal menu configuration (ADR-016, slice 1.2): dish categories, dishes, meals, option groups, options and prices. Every
+    // operation, reads included, is CATALOG_MANAGE (the till gets its own read-only payload in slice 1.3). There is no delete:
+    // hiding is deactivate (MENU-005); a price edit appends a row (MENU-004).
+    Route::middleware(['auth', EnsureUserIsActive::class, 'can:CATALOG_MANAGE'])->group(function () {
+        Route::get('/dish-categories', [MenuController::class, 'dishCategoryList']);
+        Route::post('/dish-categories', [MenuController::class, 'dishCategoryCreate']);
+        Route::post('/dish-categories/reorder', [MenuController::class, 'dishCategoryReorder']);
+        Route::patch('/dish-categories/{dishCategoryId}', [MenuController::class, 'dishCategoryUpdate'])->whereUuid('dishCategoryId');
+        Route::post('/dish-categories/{dishCategoryId}/activate', [MenuController::class, 'dishCategoryActivate'])->whereUuid('dishCategoryId');
+        Route::post('/dish-categories/{dishCategoryId}/deactivate', [MenuController::class, 'dishCategoryDeactivate'])->whereUuid('dishCategoryId');
+
+        Route::get('/dishes', [MenuController::class, 'dishList']);
+        Route::post('/dishes', [MenuController::class, 'dishCreate']);
+        Route::post('/dishes/reorder', [MenuController::class, 'dishReorder']);
+        Route::patch('/dishes/{dishId}', [MenuController::class, 'dishUpdate'])->whereUuid('dishId');
+        Route::post('/dishes/{dishId}/activate', [MenuController::class, 'dishActivate'])->whereUuid('dishId');
+        Route::post('/dishes/{dishId}/deactivate', [MenuController::class, 'dishDeactivate'])->whereUuid('dishId');
+
+        Route::get('/meals', [MenuController::class, 'mealList']);
+        Route::post('/meals', [MenuController::class, 'mealCreate']);
+        Route::post('/meals/reorder', [MenuController::class, 'mealReorder']);
+        Route::get('/meals/{mealId}', [MenuController::class, 'mealGet'])->whereUuid('mealId');
+        Route::patch('/meals/{mealId}', [MenuController::class, 'mealUpdate'])->whereUuid('mealId');
+        Route::post('/meals/{mealId}/activate', [MenuController::class, 'mealActivate'])->whereUuid('mealId');
+        Route::post('/meals/{mealId}/deactivate', [MenuController::class, 'mealDeactivate'])->whereUuid('mealId');
+        Route::post('/meals/{mealId}/option-groups', [MenuController::class, 'optionGroupCreate'])->whereUuid('mealId');
+        Route::post('/meals/{mealId}/option-groups/reorder', [MenuController::class, 'optionGroupReorder'])->whereUuid('mealId');
+
+        Route::patch('/meal-option-groups/{groupId}', [MenuController::class, 'optionGroupUpdate'])->whereUuid('groupId');
+        Route::post('/meal-option-groups/{groupId}/activate', [MenuController::class, 'optionGroupActivate'])->whereUuid('groupId');
+        Route::post('/meal-option-groups/{groupId}/deactivate', [MenuController::class, 'optionGroupDeactivate'])->whereUuid('groupId');
+        Route::post('/meal-option-groups/{groupId}/options', [MenuController::class, 'optionCreate'])->whereUuid('groupId');
+        Route::post('/meal-option-groups/{groupId}/options/reorder', [MenuController::class, 'optionReorder'])->whereUuid('groupId');
+
+        Route::patch('/meal-options/{optionId}', [MenuController::class, 'optionUpdate'])->whereUuid('optionId');
+        Route::post('/meal-options/{optionId}/activate', [MenuController::class, 'optionActivate'])->whereUuid('optionId');
+        Route::post('/meal-options/{optionId}/deactivate', [MenuController::class, 'optionDeactivate'])->whereUuid('optionId');
+
+        Route::get('/meals/{mealId}/prices', [MenuPriceController::class, 'grid'])->whereUuid('mealId');
+        Route::post('/meals/{mealId}/prices', [MenuPriceController::class, 'set'])->whereUuid('mealId');
+        Route::get('/meals/{mealId}/prices/history', [MenuPriceController::class, 'history'])->whereUuid('mealId');
+    });
 
     // openapi.yaml Inventory tag. Reads are session-only. Receipts/adjustments attribute the
     // movement to a physical terminal and are idempotent (operation-inventory.md: terminal

@@ -55,6 +55,16 @@ class BarcodeLookupHttpTest extends PostgresSchemaTestCase
         }
     }
 
+    public function test_a_meals_hidden_backing_product_is_never_found_by_scanning_its_barcode(): void
+    {
+        $w = $this->world();
+        $product = Product::factory()->create(['store_id' => $w['storeId'], 'barcode' => '4800016009999', 'menu_hidden' => true]);
+
+        $this->scan($w, '4800016009999')->assertStatus(404)->assertJson(['error' => ['code' => 'BARCODE_NOT_FOUND']]);
+        ProductBarcode::create(['product_id' => $product->id, 'store_id' => $w['storeId'], 'barcode' => '4800016008888', 'is_primary' => false]);
+        $this->scan($w, '4800016008888')->assertStatus(404);
+    }
+
     public function test_the_match_is_exact_not_a_prefix_or_a_case_fold(): void
     {
         $w = $this->world();

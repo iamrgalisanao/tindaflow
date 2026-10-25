@@ -37,7 +37,8 @@ class ProductController extends Controller
     {
         $actor = Auth::guard('web')->user();
 
-        $query = Product::where('store_id', $actor->store_id);
+        // A meal's hidden backing product (ADR-016 section 3) is never on the grid, in search, or in the admin list.
+        $query = Product::where('store_id', $actor->store_id)->where('menu_hidden', false);
 
         if ($request->filled('category_id')) {
             // A value that is not a UUID can match no row; comparing it to a uuid column is a database error.
@@ -87,7 +88,7 @@ class ProductController extends Controller
         $barcode = trim($barcode);
         $storeId = Auth::guard('web')->user()->store_id;
 
-        $product = $barcode === '' ? null : Product::where('store_id', $storeId)
+        $product = $barcode === '' ? null : Product::where('store_id', $storeId)->where('menu_hidden', false)
             ->where(fn ($query) => $query
                 ->where('barcode', $barcode)
                 ->orWhereIn('id', ProductBarcode::where('store_id', $storeId)->where('barcode', $barcode)->select('product_id')))
@@ -106,7 +107,7 @@ class ProductController extends Controller
         $storeId = Auth::guard('web')->user()->store_id;
         $categories = Category::where('store_id', $storeId)->pluck('name', 'id');
         $brands = Brand::where('store_id', $storeId)->pluck('name', 'id');
-        $query = Product::where('store_id', $storeId)->orderBy('sku')->orderBy('id');
+        $query = Product::where('store_id', $storeId)->where('menu_hidden', false)->orderBy('sku')->orderBy('id');
 
         return response()->stream(function () use ($query, $categories, $brands) {
             $out = fopen('php://output', 'wb');
