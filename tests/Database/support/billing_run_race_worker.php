@@ -1,0 +1,57 @@
+<?php
+
+/**
+ * Standalone worker process for BillingRunConcurrencyTest: a real OS process with its own PostgreSQL connection, released at a file
+ * barrier together with its competitors, that saves billing runs through the real service.
+ *
+ * argv: [1]=jobFile (JSON) [2]=readyFile [3]=goFile [4]=outputFile [5]=databaseName
+ *
+ * job: {"user_id", "count", "from", "to"}
+ */
+
+require __DIR__.'/../../../vendor/autoload.php';
+
+use App\Models\User;
+use App\Services\Billing\BillingService;
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\DB;
+use Tests\Database\PostgresTestConnection;
+
+[, $jobFile, $readyFile, $goFile, $outputFile, $databaseName] = $argv;
+
+$app = require __DIR__.'/../../../bootstrap/app.php';
+$app->make(Kernel::class)->bootstrap();
+
+config(PostgresTestConnection::settings($databaseName));
+DB::purge('pgsql');
+DB::setDefaultConnection('pgsql');
+
+$job = json_decode(file_get_contents($jobFile), true);
+
+file_put_contents($readyFile, '1');
+
+$deadline = microtime(true) + 15;
+while (! file_exists($goFile)) {
+    if (microtime(true) > $deadline) {
+        file_put_contents($outputFile, json_encode(['outcome' => 'exception', 'class' => 'BarrierTimeout', 'message' => 'timed out waiting for barrier']));
+        exit(1);
+    }
+    usleep(500);
+}
+
+try {
+    $user = User::findOrFail($job['user_id']);
+    $service = $app->make(BillingService::class);
+    $numbers = [];
+    for ($i = 1; $i <= $job['count']; $i++) {
+        $numbers[] = $service->generate($user, ['from' => $job['from'], 'to' => $job['to']])->run_number;
+    }
+
+    file_put_contents($outputFile, json_encode(['outcome' => 'success', 'numbers' => $numbers]));
+} catch (Throwable $e) {
+    file_put_contents($outputFile, json_encode([
+        'outcome' => 'exception',
+        'class' => (new ReflectionClass($e))->getShortName(),
+        'message' => $e->getMessage(),
+    ]));
+}

@@ -172,6 +172,7 @@ addition is disclosed here, not silently made — see §28):
 | `FISCAL_CONFIGURATION_MANAGE` | Tax-registration changes, fiscal-installation records |
 | `EMPLOYEE_MANAGE` | (ADR-016 slice 3.1, 2026-10-25) Employees: create, list, edit, deactivate, ID-card data, and a read of the credit limit per employee type. ADMIN and MANAGER (MANAGER added 2026-10-26) |
 | `EMPLOYEE_POLICY_MANAGE` | (ADR-016 amendment 2026-10-26) Change the credit limit per employee type; CSV import of employees. ADMIN only |
+| `BILLING_MANAGE` | (ADR-016 section 8, slice 4.1, 2026-10-26) Generate, view, save, print and export the billing statement and the saved billing runs. ADMIN and MANAGER |
 
 This is **contract vocabulary — a fixed enum of string constants — not a
 dynamic/configurable RBAC system.** Every sensitive operation's required
@@ -211,6 +212,7 @@ change, since call sites ask `can($user, CAPABILITY)`, never `if role ==
 | `FISCAL_CONFIGURATION_MANAGE` | only while unlocked (ADR-014) | — | — |
 | `EMPLOYEE_MANAGE` | ✓ | ✓ | — |
 | `EMPLOYEE_POLICY_MANAGE` | ✓ | — | — |
+| `BILLING_MANAGE` | ✓ | ✓ | — |
 
 This matches the governing brief's own role sketch (Manager: "POS,
 products, inventory, reports, shifts, approve void/refund, limited

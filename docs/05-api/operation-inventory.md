@@ -350,6 +350,17 @@ Tag `CreditOverride`. **`CREDIT_LIMIT_OVERRIDE` is held by MANAGER and ADMIN, ne
 
 **Changed existing operation (additive, ADR-016 slice 3.3):** `saleFinalize` accepts an optional `credit_override_token` (64 hex characters) on a credit sale; with CASH or any non-credit tender it is `CREDIT_EMPLOYEE_REQUIRED` (422). The token is part of the idempotency hash. New refusals: `CREDIT_OVERRIDE_INVALID` (422), `CREDIT_OVERRIDE_EXPIRED` (409), `CREDIT_OVERRIDE_NOT_ALLOWED` (403). `UserSummary.capabilities` can now include `CREDIT_LIMIT_OVERRIDE`.
 
+## Billing (4) — ADR-016 section 8, slice 4.1 (2026-10-26), forward-committed
+
+Tag `Billing`. **`BILLING_MANAGE` is held by MANAGER and ADMIN, never CASHIER** and gates everything here, reads and CSV exports included. The statement is a READ over the credit ledger and the sale snapshots: `billingStatementGet` recomputes it on every call for a named cut-off (`cutoff_month` + `cutoff_half`) or any `from`/`to` (Manila calendar dates, inclusive, at most 366 days), optionally for one `employee_type` or one `employee_id`, "as of" any instant (`as_of`, default now). Account (employee) -> Meal type -> Item/dish, with returned quantities and amounts and flagged adjustments (voids and refunds count in the range of the ORIGINAL sale). The total must equal the ledger's CHARGE minus REVERSAL or the call fails with `BILLING_RECONCILIATION_FAILED` (500) and nothing is shown or saved. `billingRunCreate` saves the statement as the next numbered, append-only run (`BR-000001`, gap-free per store); it has no `Idempotency-Key` (a back-office action has no terminal; every call is meant to create a new run). `Accept: text/csv` on `billingStatementGet` and `billingRunGet` returns the CSV (`csv-export-contract.md`). Audit events: `BILLING_RUN_CREATED`, `BILLING_EXPORTED`.
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /billing/statement | billingStatementGet | session | false | `BILLING_MANAGE` | no | `cutoff_month`+`cutoff_half` or `from`+`to`; `employee_type?`, `employee_id?`, `as_of?` | 200 `{data: BillingStatement}` (or CSV) | 403, 422, `BILLING_RECONCILIATION_FAILED` (500) |
+| GET | /billing-runs | billingRunList | session | false | `BILLING_MANAGE` | no | `page`, `per_page` | 200 Paginated BillingRun (no statement) | 403 |
+| POST | /billing-runs | billingRunCreate | session | false | `BILLING_MANAGE` | no | as billingStatementGet, in the body | 201 `{data: BillingRunWithStatement}` | 403, 422, `BILLING_RECONCILIATION_FAILED` (500) |
+| GET | /billing-runs/{runId} | billingRunGet | session | false | `BILLING_MANAGE` | no | — | 200 `{data: BillingRunWithStatement}` (`statement_intact`) or CSV | 403, `BILLING_RUN_NOT_FOUND` (404, also another store's) |
+
 ## Shifts (8)
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
@@ -658,6 +669,7 @@ ran the reverse check too:
 | `FISCAL_CONFIGURATION_MANAGE` | 4 fiscal-configuration operations, plus `saleDocumentModeSet` (ADR-016) |
 | `EMPLOYEE_MANAGE` | 8 operations: `employeeList`, `employeeCreate`, `employeeIdCards`, `employeeGet`, `employeeUpdate`, `employeeActivate`, `employeeDeactivate`, `creditPolicyList` (ADR-016 slice 3.1; ADMIN and MANAGER from 2026-10-26). `employeeLookup` needs only the session |
 | `EMPLOYEE_POLICY_MANAGE` | 2 operations: `employeeImport`, `creditPolicySetLimit` (ADR-016 amendment 2026-10-26; ADMIN only) |
+| `BILLING_MANAGE` | 4 operations: `billingStatementGet`, `billingRunList`, `billingRunCreate`, `billingRunGet` (ADR-016 slice 4.1; MANAGER and ADMIN) |
 
 Three capabilities show "(none directly)" for a documented reason, not an
 oversight — see api-design.md §4 for why a capability that only gates

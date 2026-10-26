@@ -13,6 +13,7 @@ tags:
 - {name: Menu}
 - {name: Employees}
 - {name: CreditOverride}
+- {name: Billing}
 - {name: Inventory}
 - {name: Sales}
 - {name: Invoices}
@@ -2196,6 +2197,103 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
   # ----------------------------------------------------------- Supervisor override of the credit limit (ADR-016 section 6, slice 3.3)
+  # ----------------------------------------------------------- Billing (ADR-016 section 8, slice 4.1)
+  /billing/statement:
+    get:
+      operationId: billingStatementGet
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'The billing statement for the store''s one billing party (TSC; subcontractor employees are on the same bill), recomputed from the credit ledger and the sale snapshots for a named cut-off or any from/to range. Account (employee) -> meal type -> item/dish, with sold, returned and net quantity and amount, subtotals, a grand total, and every void and refund as a flagged adjustment in the range of the ORIGINAL charge. Equals the ledger net (CHARGE minus REVERSAL); a statement that does not reconcile is refused with BILLING_RECONCILIATION_FAILED (500). Stores nothing. `comparison` shows what changed since the latest earlier saved run for the same range and filters. `Accept: text/csv` returns the CSV (csv-export-contract.md, "Billing statement") and records BILLING_EXPORTED. MANAGER and ADMIN; a cashier gets 403.'
+      parameters:
+      - {name: cutoff_month, in: query, schema: {type: string, pattern: '^\d{4}-\d{2}$'}, description: 'A named cut-off: the month, with cutoff_half. Use this OR from/to, not both.'}
+      - {name: cutoff_half, in: query, schema: {type: integer, enum: [1, 2]}, description: '1 = the 1st to the 15th, 2 = the 16th to the last day of the month (28, 29, 30 or 31).'}
+      - {name: from, in: query, schema: {type: string, format: date}, description: 'First Manila calendar date, inclusive. With to. from must not be after to; the range is at most 366 days.'}
+      - {name: to, in: query, schema: {type: string, format: date}}
+      - {name: employee_type, in: query, schema: {$ref: '#/components/schemas/EmployeeType'}}
+      - {name: employee_id, in: query, schema: {type: string, format: uuid}, description: 'One employee of this store (another store''s is a 422).'}
+      - {name: as_of, in: query, schema: {type: string, format: date-time}, description: 'Reproduce the statement as the ledger stood at this instant (entries recorded later are ignored). Default: now.'}
+      responses:
+        '200':
+          description: The statement (JSON), or the CSV when Accept is text/csv
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/BillingStatement'}
+            text/csv:
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /billing-runs:
+    get:
+      operationId: billingRunList
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'Saved billing runs of the store, newest first, without the frozen statement.'
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      responses:
+        '200':
+          description: Paginated runs
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/BillingRun'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      operationId: billingRunCreate
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'Saves the statement for the given range and filters as the next billing run (BR-000001, gap-free per store): an append-only, numbered, frozen copy that can be reprinted exactly later. Every call creates a NEW run (a re-run is never an edit); the run carries `comparison` with the latest earlier run for the same range. Not idempotent by key (a back-office action has no terminal); the screen disables the button while saving. Audit BILLING_RUN_CREATED. Same parameters as billingStatementGet, in the JSON body.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BillingRequest'}
+      responses:
+        '201':
+          description: The saved run, with its statement
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/BillingRunWithStatement'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /billing-runs/{runId}:
+    get:
+      operationId: billingRunGet
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'One saved run with its frozen statement; `statement_intact` is false if the stored statement no longer hashes to `statement_sha256`. `Accept: text/csv` returns the CSV of the frozen statement and records BILLING_EXPORTED. Another store''s run is BILLING_RUN_NOT_FOUND (404).'
+      parameters:
+      - {name: runId, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: The run (JSON), or the CSV when Accept is text/csv
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/BillingRunWithStatement'}
+            text/csv:
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /credit-override-approvers:
     get:
       operationId: creditOverrideApproverList
@@ -4702,7 +4800,7 @@ components:
       description: 'The full Stage 2 capability catalog (domain-model.md §2.2), including the six additions synced back into Stage 2 during Stage 4 remediation pass 2 (2026-09-16) — CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE — so this enum and Stage 2''s canonical list never drift again. This is a fixed enum of string constants, not a dynamic/configurable permission system — see api-design.md §4 for the role→capability mapping and rationale.
 
         '
-      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE, EMPLOYEE_MANAGE, EMPLOYEE_POLICY_MANAGE, CREDIT_LIMIT_OVERRIDE]
+      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE, EMPLOYEE_MANAGE, EMPLOYEE_POLICY_MANAGE, CREDIT_LIMIT_OVERRIDE, BILLING_MANAGE]
     UserSummary:
       type: object
       properties:
@@ -4835,6 +4933,155 @@ components:
       required: [password]
       properties:
         password: {type: string, format: password, writeOnly: true, description: 'The administrator''s own password.'}
+    BillingRequest:
+      type: object
+      description: 'A range is EITHER cutoff_month + cutoff_half OR from + to (Manila calendar dates, inclusive; from <= to; at most 366 days).'
+      properties:
+        cutoff_month: {type: string, pattern: '^\d{4}-\d{2}$'}
+        cutoff_half: {type: integer, enum: [1, 2]}
+        from: {type: string, format: date}
+        to: {type: string, format: date}
+        employee_type: {$ref: '#/components/schemas/EmployeeType'}
+        employee_id: {type: string, format: uuid}
+        as_of: {type: string, format: date-time}
+    BillingStatement:
+      type: object
+      description: 'ADR-016 section 8. Amounts are two-decimal strings, quantities three-decimal strings. `returned_*` is what voids and refunds took back (positive here; shown negative on paper). `net` = sold - returned. A charge belongs to the range by the Manila date of its sale; a reversal belongs to the range of the charge it reverses.'
+      properties:
+        version: {type: integer}
+        party: {type: object, properties: {id: {type: string, format: uuid}, name: {type: string}}}
+        criteria:
+          type: object
+          properties:
+            from: {type: string, format: date}
+            to: {type: string, format: date}
+            period_label: {type: string}
+            cutoff_month: {type: [string, 'null']}
+            cutoff_half: {type: [integer, 'null']}
+            employee_type: {type: [string, 'null']}
+            employee_id: {type: [string, 'null']}
+            employee_code: {type: [string, 'null']}
+            as_of: {type: string, format: date-time}
+        generated_at: {type: string, format: date-time}
+        accounts:
+          type: array
+          items:
+            type: object
+            properties:
+              employee_id: {type: string, format: uuid}
+              employee_code: {type: string}
+              employee_name: {type: string}
+              employee_type: {$ref: '#/components/schemas/EmployeeType'}
+              sale_count: {type: integer}
+              sold_amount: {$ref: '#/components/schemas/Money'}
+              returned_amount: {$ref: '#/components/schemas/Money'}
+              net_amount: {$ref: '#/components/schemas/Money'}
+              meal_types:
+                type: array
+                description: 'Sorted by name, "Other items" last. A meal and its add-ons: the meal name snapshot; a plain product: its menu group path snapshot, else "Other items".'
+                items:
+                  type: object
+                  properties:
+                    meal_type: {type: string}
+                    sold_amount: {$ref: '#/components/schemas/Money'}
+                    returned_amount: {$ref: '#/components/schemas/Money'}
+                    net_amount: {$ref: '#/components/schemas/Money'}
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          item: {type: string, description: 'Chosen dishes joined with " + " (DISH), the add-on label (ADDON), or the product name (PRODUCT), all from the sale snapshots.'}
+                          kind: {type: string, enum: [DISH, ADDON, PRODUCT]}
+                          quantity_sold: {$ref: '#/components/schemas/Quantity'}
+                          sold_amount: {$ref: '#/components/schemas/Money'}
+                          quantity_returned: {$ref: '#/components/schemas/Quantity'}
+                          returned_amount: {$ref: '#/components/schemas/Money'}
+                          quantity_net: {type: string}
+                          net_amount: {$ref: '#/components/schemas/Money'}
+        adjustments:
+          type: array
+          description: 'Every void and refund counted, oldest first.'
+          items:
+            type: object
+            properties:
+              entry_id: {type: string, format: uuid}
+              type: {type: string, enum: [VOID, REFUND]}
+              recorded_at: {type: string, format: date-time}
+              sale_id: {type: string, format: uuid}
+              document_reference: {type: [string, 'null']}
+              sold_on: {type: string, format: date, description: 'The date of the ORIGINAL sale (the period the reversal belongs to).'}
+              employee_id: {type: string, format: uuid}
+              employee_code: {type: string}
+              employee_name: {type: string}
+              employee_type: {type: string}
+              amount: {$ref: '#/components/schemas/Money'}
+              reason: {type: [string, 'null']}
+              lines:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    meal_type: {type: string}
+                    item: {type: string}
+                    kind: {type: string}
+                    quantity: {$ref: '#/components/schemas/Quantity'}
+                    amount: {$ref: '#/components/schemas/Money'}
+        totals:
+          type: object
+          properties:
+            sold_amount: {$ref: '#/components/schemas/Money'}
+            returned_amount: {$ref: '#/components/schemas/Money'}
+            net_amount: {$ref: '#/components/schemas/Money'}
+            employee_count: {type: integer}
+            sale_count: {type: integer}
+            adjustment_count: {type: integer}
+            by_employee_type: {type: object, additionalProperties: {type: object, properties: {employee_count: {type: integer}, net_amount: {$ref: '#/components/schemas/Money'}}}}
+        reconciliation:
+          type: object
+          description: 'BILL-001. ledger_net is SUM(CHARGE) - SUM(REVERSAL) read straight from the ledger; matches is always true on a statement that is returned.'
+          properties:
+            ledger_net: {$ref: '#/components/schemas/Money'}
+            statement_net: {$ref: '#/components/schemas/Money'}
+            items_net: {$ref: '#/components/schemas/Money'}
+            matches: {type: boolean}
+        comparison:
+          type: [object, 'null']
+          description: 'Against the latest EARLIER saved run for the same party, range and filters; null when there is none.'
+          properties:
+            previous_run: {type: object, properties: {id: {type: string, format: uuid}, run_number: {type: string}, generated_at: {type: string, format: date-time}, as_of: {type: string, format: date-time}, sold_amount: {$ref: '#/components/schemas/Money'}, returned_amount: {$ref: '#/components/schemas/Money'}, net_amount: {$ref: '#/components/schemas/Money'}}}
+            sold_change: {type: string}
+            returned_change: {type: string}
+            net_change: {type: string}
+            changed: {type: boolean}
+            added_adjustments: {type: array, items: {type: object}}
+            removed_adjustments: {type: array, items: {type: object}}
+    BillingRun:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        run_number: {type: string, example: BR-000001}
+        from: {type: string, format: date}
+        to: {type: string, format: date}
+        period_label: {type: [string, 'null']}
+        employee_type: {type: [string, 'null']}
+        employee_code: {type: [string, 'null']}
+        as_of: {type: string, format: date-time}
+        generated_at: {type: string, format: date-time}
+        generated_by: {type: object, properties: {id: {type: string, format: uuid}, name: {type: [string, 'null']}}}
+        sold_amount: {$ref: '#/components/schemas/Money'}
+        returned_amount: {$ref: '#/components/schemas/Money'}
+        net_amount: {$ref: '#/components/schemas/Money'}
+        employee_count: {type: integer}
+        sale_count: {type: integer}
+        statement_sha256: {type: string}
+    BillingRunWithStatement:
+      allOf:
+      - {$ref: '#/components/schemas/BillingRun'}
+      - type: object
+        properties:
+          statement_intact: {type: boolean}
+          statement: {$ref: '#/components/schemas/BillingStatement'}
     EmployeeCreditLookupResult:
       description: 'EmployeeLookupResult plus the credit status of the CURRENT cut-off (1st-15th, or 16th to the end of the month, in the store''s timezone).'
       allOf:

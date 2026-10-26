@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuditEventController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CreditOverrideController;
@@ -325,6 +326,17 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     Route::middleware(['auth', EnsureUserIsActive::class, 'can:EMPLOYEE_POLICY_MANAGE'])->group(function () {
         Route::post('/employees/import', [EmployeeController::class, 'import']);
         Route::put('/credit-policies/{employeeType}', [EmployeeController::class, 'creditPolicySetLimit']);
+    });
+
+    // Billing (ADR-016 section 8, slice 4.1). Every operation, reads and CSV exports included, is BILLING_MANAGE (MANAGER and ADMIN; a
+    // cashier gets 403). billingStatementGet recomputes the statement from the ledger and stores nothing; billingRunCreate saves it as a
+    // frozen, numbered, append-only run (no Idempotency-Key: a back-office action has no terminal, and every re-run is meant to be a new
+    // run). There is no update or delete of a run.
+    Route::middleware(['auth', EnsureUserIsActive::class, 'can:BILLING_MANAGE'])->group(function () {
+        Route::get('/billing/statement', [BillingController::class, 'statement']);
+        Route::get('/billing-runs', [BillingController::class, 'runList']);
+        Route::post('/billing-runs', [BillingController::class, 'runCreate']);
+        Route::get('/billing-runs/{runId}', [BillingController::class, 'runGet'])->whereUuid('runId');
     });
 
     // Meal menu configuration (ADR-016, slice 1.2): dish categories, dishes, meals, option groups, options and prices. Every

@@ -32,6 +32,11 @@ const EMPLOYEE_NAV = [
     { to: '/admin/employees/cards', label: 'Print ID cards' },
 ];
 
+const BILLING_NAV = [
+    { to: '/admin/billing', label: 'Statement' },
+    { to: '/admin/billing/runs', label: 'Billing runs' },
+];
+
 const SALES_NAV = [
     { to: '/admin/sales', label: 'Sales history' },
     { to: '/admin/sales/approvals', label: 'Approvals', capability: 'SALE_VOID_APPROVE' },
@@ -246,6 +251,16 @@ const SECTIONS = [
         capability: 'EMPLOYEE_MANAGE',
         matches: (path) => path.startsWith('/admin/employees'),
         links: EMPLOYEE_NAV,
+    },
+    {
+        // ADR-016 section 8 (slice 4.1): the billing statement and the saved billing runs. BILLING_MANAGE is MANAGER and ADMIN, never CASHIER.
+        id: 'billing',
+        label: 'Billing',
+        to: '/admin/billing',
+        icon: 'records',
+        capability: 'BILLING_MANAGE',
+        matches: (path) => path.startsWith('/admin/billing'),
+        links: BILLING_NAV,
     },
     {
         // ADR-016 section 6: a manager or administrator sets their own credit-override code here (CREDIT_LIMIT_OVERRIDE; never a cashier).

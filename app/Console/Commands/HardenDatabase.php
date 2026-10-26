@@ -121,6 +121,10 @@ class HardenDatabase extends Command
             'credit_override_grants must allow UPDATE of consumed_at only (an approval is never widened or revived) and refuse DELETE' => "select has_column_privilege('{$role}', 'credit_override_grants', 'consumed_at', 'UPDATE') and bool_and(not has_column_privilege('{$role}', 'credit_override_grants', c, 'UPDATE')) and has_table_privilege('{$role}', 'credit_override_grants', 'INSERT') and not has_table_privilege('{$role}', 'credit_override_grants', 'DELETE') from unnest(array['terminal_id','employee_id','cashier_id','approver_id','max_amount','token_hash','expires_at','store_id']) as c",
             'employee_credit_entries must refuse UPDATE of the override grant link' => "select not has_column_privilege('{$role}', 'employee_credit_entries', 'override_grant_id', 'UPDATE')",
             'billing_parties must allow UPDATE but refuse DELETE' => "select has_table_privilege('{$role}', 'billing_parties', 'UPDATE') and not has_table_privilege('{$role}', 'billing_parties', 'DELETE')",
+            'billing_runs must refuse UPDATE (a saved billing run is a frozen statement; a re-run is a new row)' => "select not has_table_privilege('{$role}', 'billing_runs', 'UPDATE')",
+            'billing_runs must refuse DELETE' => "select not has_table_privilege('{$role}', 'billing_runs', 'DELETE')",
+            'billing_runs must allow INSERT (a run is saved in one transaction with its number)' => "select has_table_privilege('{$role}', 'billing_runs', 'INSERT')",
+            'billing_run_counters must allow UPDATE of the running number only and refuse DELETE' => "select has_column_privilege('{$role}', 'billing_run_counters', 'last_number', 'UPDATE') and not has_column_privilege('{$role}', 'billing_run_counters', 'store_id', 'UPDATE') and has_table_privilege('{$role}', 'billing_run_counters', 'INSERT') and not has_table_privilege('{$role}', 'billing_run_counters', 'DELETE')",
             'sales must allow UPDATE of the status (void and refund)' => "select has_column_privilege('{$role}', 'sales', 'status', 'UPDATE')",
         ];
 

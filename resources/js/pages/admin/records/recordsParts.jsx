@@ -36,6 +36,8 @@ export const AUDIT_TYPES = [
     { id: 'CREDIT_OVERRIDE_LOCKED', label: 'Manager locked out' },
     { id: 'OVERRIDE_CODE_SET', label: 'Override code set' },
     { id: 'OVERRIDE_CODE_RESET', label: 'Override code cleared' },
+    { id: 'BILLING_RUN_CREATED', label: 'Billing run saved' },
+    { id: 'BILLING_EXPORTED', label: 'Billing exported' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -266,6 +268,10 @@ export function describeAudit(event) {
             return (event.before_metadata ?? {}).has_code ? 'Override code changed by its owner' : 'Override code set by its owner';
         case 'OVERRIDE_CODE_RESET':
             return `Override code of ${after.user_name ?? 'a user'}${after.role ? ` (${after.role})` : ''} cleared by an administrator${(event.before_metadata ?? {}).locked ? ' (it was locked)' : ''}`;
+        case 'BILLING_RUN_CREATED':
+            return `Billing run ${after.run_number ?? '—'} saved for ${after.from ?? '—'} to ${after.to ?? '—'}${after.employee_type ? ` (${EMPLOYEE_TYPE_NAMES[after.employee_type] ?? after.employee_type} only)` : ''}${after.employee_code ? `, ${after.employee_code} only` : ''}: total due ${money(after.net_amount)} for ${after.employee_count ?? 0} employees`;
+        case 'BILLING_EXPORTED':
+            return `Billing ${after.run_number ? `run ${after.run_number}` : `statement for ${after.from ?? '—'} to ${after.to ?? '—'}`} exported as CSV (total due ${money(after.net_amount)})`;
         case 'MENU_DISH_CREATED':
             return `Dish "${after.name ?? '—'}" created`;
         case 'MENU_DISH_RENAMED':

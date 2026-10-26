@@ -569,7 +569,7 @@ second review pass.
 
 ## Canteen extension (new — ADR-016, proposed 2026-10-25, not yet built)
 
-Items 82-96. Nothing above is weakened: #8 is met by a `CREDIT` payment row, #2/#7 cover the new snapshot tables, #35/#36/#42 keep
+Items 82-99. Nothing above is weakened: #8 is met by a `CREDIT` payment row, #2/#7 cover the new snapshot tables, #35/#36/#42 keep
 applying to the business day in slip mode.
 
 82. **MENU-001 — snapshot immutability.** A meal line's menu group path, meal name, chosen dish and option names, dish category and prices
@@ -609,8 +609,16 @@ applying to the business day in slip mode.
 93. **OVR-002 — override codes are secret and locked out.** Codes are stored only as slow hashes, differ from the login password, and five wrong
     attempts lock that approver for a period; failure counts are committed outside the checkout transaction so a rolled-back sale cannot erase them.
     *Built in slice 3.3 (2026-10-26):* `user_override_codes` (6 to 8 digits, `Hash::make`, NULL after an administrator clears it; the approver sets it for themselves after re-entering the account password; it must differ from that password and not be a repeated digit, a straight run or a repeated short block). The approver is NAMED at the till; the check runs in its own committed transaction with the approver's row locked `FOR UPDATE`; five wrong codes set `locked_until` (15 minutes) and zero the counter; a refusal never says whether an approver exists, is active, may approve or has a code (one generic `CREDIT_OVERRIDE_INVALID`). The verify endpoint is also throttled per terminal and per user (10 in 15 minutes, `RATE_LIMITED`). Checkout never touches a code, so a rolled-back sale cannot erase a count, and the verifier refuses to run inside any transaction (`LogicException`) so a wrapping rollback cannot either. No code, hash or token is written to a log or an audit payload. Tests: `CreditOverrideHttpTest`, `CreditOverrideLockoutTest` (real commits seen from a second connection).
-94. **BILL-001 — a billing statement is derived.** Statements are recomputed from `employee_credit_entry`; a saved `billing_run` is a frozen
-    snapshot that is never edited; a later re-run shows differences as adjustments.
+94. **BILL-001 — a billing statement is derived and reconciles.** Statements are recomputed from `employee_credit_entry` and the sale snapshots;
+    a saved `billing_run` is a frozen snapshot that is never edited; a later re-run shows differences as adjustments. The statement's net equals
+    SUM(CHARGE) - SUM(REVERSAL) of the same sales in the ledger, and so does the sum of its item lines; a statement that does not reconcile is
+    refused (`BILLING_RECONCILIATION_FAILED`) and never shown or saved.
+    *Built in slice 4.1 (2026-10-26):* `BillingStatementBuilder::reconcile()` compares three independent figures (the accounts' total, the item
+    lines, a separate ledger query) and, for a named cut-off, also the ledger's stored `period_start` grouping. Grouping reads snapshots only
+    (MENU-001): Account = the CHARGE's employee snapshot (code, name, type); Meal type = the meal name snapshot for a meal line AND its add-on
+    lines, the menu-group path snapshot for a plain product in a group, otherwise "Other items"; Item = the chosen dishes joined with " + ", the
+    add-on label (its own row, counted as an item) or the product name. Amounts are `sale_items.net_line_amount` (DISC-006: they add up to the
+    charge); a void reverses every line, a refund the `refund_items` it recorded. Tests: `BillingStatementHttpTest`.
 95. **BILL-002 — cheques only reduce what is owed.** `billing_cheque_allocation` rows are append-only, their sum per cheque never exceeds the
     cheque amount, and recording a cheque never creates a `cash_movement` or touches a shift.
 96. **SLIP-001 — one document per sale, in the store's mode.** A sale has exactly one of an `invoice` or a `sale_slip`, matching `sale.document_mode`.
@@ -623,3 +631,13 @@ applying to the business day in slip mode.
     `CHECK (document_mode IN ('INVOICE','SLIP'))`. There is no database trigger tying `sales.document_mode` to the presence of an `invoices`
     or `sale_slips` row; `tests/Database/SlipModeHttpTest` and `InvoiceModeUnchangedTest` pin it. The slip carries no invoice wording (it
     never says "invoice" or "official receipt"; the store's footer line is the only free text).
+97. **BILL-003 — a reversal belongs to the original period.** For a statement, a charge belongs to a date range by the Manila calendar date of its
+    sale, and a void or refund belongs to the range of the charge it reverses, whenever it was recorded (CREDIT-004). A statement "as of" an
+    instant ignores every entry recorded after it, so any past statement can be reproduced, and a re-run after a later refund differs from the
+    earlier run by exactly that adjustment. A named cut-off ends on the real last day of the month (28, 29, 30 or 31). Tests: `BillingStatementHttpTest`.
+98. **BILL-004 — a saved billing run is immutable.** `billing_runs` is append-only (the application role has neither UPDATE nor DELETE); a re-run is a
+    new row. The row stores the whole statement and the SHA-256 of its canonical JSON, so a stored statement that no longer matches its hash is
+    reported (`statement_intact: false`). Tests: `BillingStatementHttpTest`, `AppendOnlyPrivilegesTest`.
+99. **BILL-005 — run numbers are gap-free per store.** `BR-000001`, `BR-000002` ... come from `billing_run_counters`, locked `FOR UPDATE` and bumped
+    in the same transaction as the insert, so a failed save leaves no gap and concurrent saves get distinct numbers. Tests:
+    `BillingRunConcurrencyTest` (two processes), `BillingStatementHttpTest`.

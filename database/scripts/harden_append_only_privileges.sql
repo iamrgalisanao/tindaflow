@@ -92,8 +92,15 @@ REVOKE UPDATE ON
     credit_policies, -- ADR-016 slice 3.1: lifecycle -- the current limit; re-granted by column below
     employee_credit_entries, -- ADR-016 slice 3.2, CREDIT-004: the credit ledger (CHARGE / REVERSAL); never changed, the balance is derived
     user_override_codes,   -- ADR-016 slice 3.3: lifecycle -- UPDATE is revoked here and re-granted by column below (not user_id / store_id)
-    credit_override_grants -- ADR-016 slice 3.3, OVR-001: an approval of one over-limit sale; append-only except consumed_at (re-granted below)
+    credit_override_grants, -- ADR-016 slice 3.3, OVR-001: an approval of one over-limit sale; append-only except consumed_at (re-granted below)
+    billing_runs,   -- ADR-016 slice 4.1, BILL-004: a saved billing run (a frozen statement); never changed, a re-run is a new row
+    billing_run_counters -- ADR-016 slice 4.1: lifecycle -- the run number counter; UPDATE is revoked here and re-granted by column below
 FROM tindaflow_app;
+
+-- billing_run_counters is the last billing run number of each store. The transaction that saves a run bumps `last_number` (and stamps
+-- `updated_at`) and inserts a store's first row; nothing else about a counter changes. Never deleted (the store-wide REVOKE DELETE). A run
+-- that rolls back rolls its number back, so committed run numbers are gap-free.
+GRANT UPDATE (last_number, updated_at) ON billing_run_counters TO tindaflow_app;
 
 -- user_override_codes (ADR-016 slice 3.3) is an approver's override code: a lifecycle row, set, changed, cleared by an administrator and
 -- counted for wrong attempts, never deleted (the store-wide REVOKE DELETE). The UPDATE is narrowed to exactly the columns those operations

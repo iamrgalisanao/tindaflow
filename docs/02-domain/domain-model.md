@@ -133,6 +133,7 @@ TERMINAL_MANAGE        -- enroll/decommission terminals
 FISCAL_CONFIGURATION_MANAGE  -- edit tax_registration / fiscal_installation records
 EMPLOYEE_MANAGE        -- (ADR-016 slice 3.1; MANAGER added 2026-10-26) employees, their ID cards, read of the credit limits; ADMIN and MANAGER
 EMPLOYEE_POLICY_MANAGE -- (ADR-016 amendment 2026-10-26) change the credit limit per type, CSV bulk import of employees; ADMIN only
+BILLING_MANAGE         -- (ADR-016 slice 4.1, 2026-10-26) generate, view, save, print and export the billing statement and billing runs; ADMIN and MANAGER
 ```
 
 **Amendment (Stage 4 remediation, 2026-09-16):** the six capabilities
@@ -755,9 +756,11 @@ SUBCONTRACTOR 1,000.00 (client, 2026-10-25), created by the migration for existi
 
 **Built in slice 3.3 (2026-10-26).** `user_override_code`: `user_id` (key), `store_id`, `code_hash` (slow hash, NULL after a clear), `failed_attempts`, `locked_until`, `set_at`, `set_by`; lifecycle, one row per approver, application UPDATE limited to those columns. `credit_override_grant`: `store_id`, `terminal_id`, `employee_id`, `cashier_id`, `approver_id` (CHECK differs from the cashier), `max_amount`, `token_hash` (unique SHA-256), `expires_at`, `consumed_at`, `created_at`; append-only except `consumed_at`. `employee_credit_entry.override_grant_id` (nullable, UNIQUE) names the grant that let a CHARGE past the limit. Lock order: shift, fiscal day, employee, **override grant**, sale. The override approves one over-limit credit sale and nothing else: discounts and every other action stay capability-gated.
 
-**Capabilities added** (catalog grows from 17 to 20; `EMPLOYEE_MANAGE` is built, slice 3.1, 2026-10-25, and `CREDIT_LIMIT_OVERRIDE`, slice 3.3, 2026-10-26): `EMPLOYEE_MANAGE` (ADMIN, and MANAGER from 2026-10-26), `EMPLOYEE_POLICY_MANAGE` (ADMIN, 2026-10-26), `CREDIT_LIMIT_OVERRIDE` (MANAGER, ADMIN),
-`BILLING_MANAGE` (MANAGER, ADMIN). Menu editing reuses `CATALOG_MANAGE`; billing read reuses `REPORT_VIEW`; changing the sale document
+**Capabilities added** (catalog grows from 17 to 21; `EMPLOYEE_MANAGE` is built, slice 3.1, 2026-10-25, `CREDIT_LIMIT_OVERRIDE`, slice 3.3, 2026-10-26, and `BILLING_MANAGE`, slice 4.1, 2026-10-26): `EMPLOYEE_MANAGE` (ADMIN, and MANAGER from 2026-10-26), `EMPLOYEE_POLICY_MANAGE` (ADMIN, 2026-10-26), `CREDIT_LIMIT_OVERRIDE` (MANAGER, ADMIN),
+`BILLING_MANAGE` (MANAGER, ADMIN; built in slice 4.1, it covers viewing the statement as well as saving runs and, in slice 4.2, cheques). Menu editing reuses `CATALOG_MANAGE`; changing the sale document
 mode reuses `FISCAL_CONFIGURATION_MANAGE` (vendor unlock, ADR-014). The V1 roles stay ADMIN/MANAGER/CASHIER: the client's "supervisor" is a MANAGER.
+
+**Built in slice 4.1 (2026-10-26): `billing_run` / `billing_run_counter`.** `billing_run` (append-only): `store_id`, `billing_party_id`, `sequence` and `run_number` (`BR-000001`, unique per store), `from_date` / `to_date` (Manila calendar dates, inclusive), `period_label`, the optional filters (`employee_type`, `employee_id` and its `employee_code`), `as_of`, `generated_by`, `generated_at`, `charges_total` / `reversals_total` / `net_total` (CHECK net = charges - reversals), `account_count`, `sale_count`, `statement` (jsonb: the whole statement, adjustments and the comparison with the previous run) and `statement_sha256` (of the canonical JSON). `billing_run_counter` (`store_id` key, `last_number`): lifecycle, locked and bumped in the saving transaction. The statement itself is not a table: it is computed from `employee_credit_entry`, `sale_item` and `sale_item_selection` (see BILL-001, BILL-003).
 
 **`sale_slip` / `slip_counter` (slice 2.2a, built 2026-10-25).** `sale_slip`: `store_id`, `sale_id` (unique), `terminal_id`, `slip_number` (`<terminal code>-<6 digits>`, unique per store), `slip_sequence` (unique per terminal), `slip_snapshot_json`, `created_at`; append-only. `slip_counter`: `terminal_id` (key), `last_number`; lifecycle, incremented inside the checkout transaction. `store_settings` gains `sale_document_mode` and `slip_footer`; `sale.document_mode` is written once at the sale. A slip sale has no `invoice` and no `INVOICE` journal entry.
 

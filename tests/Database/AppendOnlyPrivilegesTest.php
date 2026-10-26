@@ -350,6 +350,33 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $this->assertTrue($this->refuses(fn () => DB::table('billing_parties')->delete()), 'a billing party must not be deletable');
     }
 
+    public function test_billing_runs_are_saved_by_the_restricted_role_and_are_append_only(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+        $created = $this->asUser($w['admin'])->postJson('/api/v1/employees', ['employee_type' => 'DIRECT', 'first_name' => 'Ana', 'last_name' => 'Reyes'])->assertStatus(201);
+        $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
+            'items' => [['product_id' => $w['product']->id, 'quantity' => '2']],
+            'payments' => [['method' => 'CREDIT', 'amount' => '200.00']],
+            'employee_id' => $created->json('id'),
+        ], $this->key())->assertStatus(201);
+        $month = now()->setTimezone('Asia/Manila')->format('Y-m');
+        $half = now()->setTimezone('Asia/Manila')->day <= 15 ? 1 : 2;
+
+        // The manager reads the statement, saves two runs (the counter row is locked and bumped), and exports one, all as the restricted role.
+        $this->asUser($w['manager'])->getJson('/api/v1/billing/statement?cutoff_month='.$month.'&cutoff_half='.$half)->assertOk()->assertJsonPath('data.totals.net_amount', '200.00');
+        $first = $this->asUser($w['manager'])->postJson('/api/v1/billing-runs', ['cutoff_month' => $month, 'cutoff_half' => $half])->assertStatus(201);
+        $second = $this->asUser($w['manager'])->postJson('/api/v1/billing-runs', ['cutoff_month' => $month, 'cutoff_half' => $half])->assertStatus(201);
+        $this->assertSame(['BR-000001', 'BR-000002'], [$first->json('data.run_number'), $second->json('data.run_number')]);
+        $this->asUser($w['manager'])->get('/api/v1/billing-runs/'.$first->json('data.id'), ['Accept' => 'text/csv'])->assertOk();
+
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_runs')->update(['net_total' => '1.00'])), 'a saved run must not be updatable');
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_runs')->update(['statement' => '{}'])), 'the frozen statement must not be updatable');
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_runs')->delete()), 'a saved run must not be deletable');
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_run_counters')->update(['store_id' => $w['storeId']])), 'a counter keeps its store');
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_run_counters')->delete()), 'a counter must not be deletable');
+        $this->assertSame(2, (int) DB::table('billing_run_counters')->where('store_id', $w['storeId'])->value('last_number'));
+    }
+
     public function test_credit_sales_void_and_refund_work_as_the_restricted_role_and_the_ledger_is_append_only(): void
     {
         $w = $this->worldUnderTheHardenedRole();
@@ -430,7 +457,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries', 'billing_runs', 'billing_run_counters'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }

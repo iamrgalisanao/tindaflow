@@ -58,6 +58,9 @@ or removing an existing column is breaking.
 | Shift Report | `reportShifts` | `shift_id, terminal_id, cashier_id, opened_at, closed_at, opening_cash, declared_cash, expected_cash, variance` |
 | Cash Variance Report | `reportCashVariance` | `shift_id, terminal_id, cashier_id, closed_at, expected_cash, declared_cash, variance` |
 | Electronic Journal export | `journalEntryList` (`Accept: text/csv`) | `occurred_at, event_type, source_type, source_id, terminal_id, audit_event_id` |
+| Billing statement | `billingStatementGet`, `billingRunGet` (`Accept: text/csv`) | `row_type, employee_code, employee_name, employee_type, meal_type, item, item_kind, quantity_sold, amount_sold, quantity_returned, amount_returned, quantity_net, amount_net, adjustment_type, adjustment_date, sold_on, document_reference, reason` |
+
+**Billing statement rows (ADR-016 slice 4.1).** One flat table. `row_type` is `ITEM` (one per employee / meal type / item), `MEAL_TYPE_TOTAL`, `ADJUSTMENT` (one per void or refund line; `quantity_net` and `amount_net` are NEGATIVE so the file adds up; `adjustment_type` is VOID or REFUND, `adjustment_date` when it was recorded, `sold_on` the date of the original sale, `document_reference` its invoice or slip number), `EMPLOYEE_TOTAL` and a final `GRAND_TOTAL`. A text cell that starts with `=`, `+`, `-` or `@` is prefixed with an apostrophe so a spreadsheet cannot read it as a formula. The saved run exports exactly the CSV that its frozen statement gives.
 
 Every monetary column above (`gross_sales`, `discount_total`,
 `taxable_sales`, `vat_amount`, `grand_total`, `opening_cash`,

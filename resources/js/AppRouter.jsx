@@ -17,6 +17,9 @@ import TaxRegistrations from './pages/admin/TaxRegistrations';
 import ProductsPage from './pages/admin/catalog/ProductsPage';
 import CatalogNamesPage from './pages/admin/catalog/CatalogNamesPage';
 import MenuGroupsPage from './pages/admin/catalog/MenuGroupsPage';
+import BillingPage from './pages/admin/billing/BillingPage';
+import BillingRunPage from './pages/admin/billing/BillingRunPage';
+import BillingRunsPage from './pages/admin/billing/BillingRunsPage';
 import EmployeeCardsPage from './pages/admin/employees/EmployeeCardsPage';
 import EmployeesPage from './pages/admin/employees/EmployeesPage';
 import DishesPage from './pages/admin/menu/DishesPage';
@@ -197,6 +200,30 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <EmployeeCardsPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/billing"
+                    element={
+                        <RequireAuth>
+                            <BillingPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/billing/runs"
+                    element={
+                        <RequireAuth>
+                            <BillingRunsPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/billing/runs/:runId"
+                    element={
+                        <RequireAuth>
+                            <BillingRunPage />
                         </RequireAuth>
                     }
                 />
