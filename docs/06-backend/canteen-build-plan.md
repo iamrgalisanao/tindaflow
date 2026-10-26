@@ -74,12 +74,12 @@ Menu and employee data loading scripts for go-live; extend `docs/02-domain/invar
 1.1 -> 1.2 -> 1.3. 2.1 and 2.2a can start after 1.3 (or in parallel with 1.2 if two people). 2.2b follows 2.2a. 3.1 can run parallel to 2.2. 3.2 needs 2.1, 3.1 and 2.2a. 3.3 needs 3.2. 4.1 needs 3.2. 4.2 needs 4.1. Customer-visible order of value: Phase 1, then 2, then 3, 4.
 
 ## Open items (client or owner)
-1. **Combo Meal prices. (Client, 2026-10-25: configurable, initially 85.)** The price stays editable on the price grid. Still to confirm: is 85 for every Combo meal, or 85 beef and 80 chicken/pork/fish as seeded? Either is a setting, not a build change.
+1. **Combo Meal prices. RESOLVED (client, 2026-10-26):** Beef 85 and Chicken/Pork/Fish 80, as seeded by `tindaflow:load-canteen-menu`. The price stays editable on the price grid (dated history), so a change later needs no build.
 2. **Vegetable-only meal.** Which dishes, price 60 assumed, does it include rice, is it a Standard Meal variant (modelled as a Vegetable dish category).
 3. **Cut-off end date. RESOLVED (client, 2026-10-25):** 1st to 15th, then 16th to the end of the month.
 4. **SUB billing target. RESOLVED (client, 2026-10-25):** SUB employees are billed to TSC only (one billing party). The credit limit is per employee type: TSC 1,500, SUB 1,000 (a `credit_policies` row per type, slice 3.1).
 5. **"Account name" in the billing report.** Read as the employee; confirm it is not the company.
-6. **End-of-day totals.** Does the client want any end-of-day report in slip mode, or only shift close and cash count?
+6. **End-of-day totals. RESOLVED (client, 2026-10-26): yes, wanted in slip mode.** The slip-mode Z-reading already prints as the END OF DAY REPORT with the stored totals (payment breakdown including CREDIT as its own non-cash line, cash count; no tax lines). Whether the client needs more on it (for example totals per meal type or per dish) is not yet asked; billing (slice 4.1) covers the per-employee view.
 7. **Tax treatment of the slip.** Which tax registration/classification the canteen's meal products carry (the calculator needs one, NON_VAT is supported); the slip prints no tax breakdown either way.
 8. **Mixed tender.** Credit plus cash on one sale is excluded; is a part-credit sale ever needed?
 9. **Who approves. RESOLVED (client, 2026-10-25):** the Manager provides the override code; Manager is the supervisor role (no new role).
@@ -87,5 +87,5 @@ Menu and employee data loading scripts for go-live; extend `docs/02-domain/invar
 11. **Bounced cheques and write-offs.** Is "returned" enough, or is a write-off adjustment needed?
 12. **Drawer cash bug.** The memory note on expected cash ignoring change given must be confirmed fixed before slice 3.2's drawer assertions are written.
 13. **Start-of-sale screen. RESOLVED (client, 2026-10-25):** both options are shown first, as two large buttons, Cash and Credit; Cash is a single big tap (slice 3.2).
-14. **Slip footer text.** The client's reply ("yes") did not say what to print at the bottom of the slip. The footer is a store setting, blank by default; ask what it should say, or leave it blank.
+14. **Slip footer text. RESOLVED (client, 2026-10-26):** "THIS DOCUMENT IS NOT A BIR-REGISTERED INVOICE AND IS NOT VALID FOR CLAIM OF INPUT TAX" (85 characters; the setting allows 200). It is the client's own compliance wording and is entered on Admin > Store setup > Sale documents; it is not built into the software. On the 58 mm slip it wraps to about three lines of paper per sale.
 15. **QR image on the ID card. RESOLVED (owner, 2026-10-26):** the `qrcode` npm package (1.5.4, MIT) was approved and added. `resources/js/components/QrCode.jsx` draws the code as an inline SVG from the library's matrix (no HTML injection), with a four-module quiet zone; the ID-card sheet prints it beside the large-text code. A scanner types the code into the till's lookup box; a hardware scanner in keyboard mode is needed at the till. Decoding was checked with OpenCV for TSC00001 and SUB00123. The lockfile gained only the library and its 27 sub-dependencies (the `libc` markers for native packages were kept).
