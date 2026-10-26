@@ -135,6 +135,9 @@ class HardenDatabase extends Command
             'billing_cheque_allocations must refuse UPDATE (the periods a cheque pays are fixed; a returned cheque keeps them)' => "select not has_table_privilege('{$role}', 'billing_cheque_allocations', 'UPDATE')",
             'billing_cheque_allocations must refuse DELETE' => "select not has_table_privilege('{$role}', 'billing_cheque_allocations', 'DELETE')",
             'billing_cheque_allocations must allow INSERT (written in the transaction that records the cheque)' => "select has_table_privilege('{$role}', 'billing_cheque_allocations', 'INSERT')",
+            'billing_write_offs must refuse UPDATE (a write-off is cancelled by a REVERSAL row, never edited)' => "select not has_table_privilege('{$role}', 'billing_write_offs', 'UPDATE')",
+            'billing_write_offs must refuse DELETE' => "select not has_table_privilege('{$role}', 'billing_write_offs', 'DELETE')",
+            'billing_write_offs must allow INSERT' => "select has_table_privilege('{$role}', 'billing_write_offs', 'INSERT')",
             'sales must allow UPDATE of the status (void and refund)' => "select has_column_privilege('{$role}', 'sales', 'status', 'UPDATE')",
         ];
 

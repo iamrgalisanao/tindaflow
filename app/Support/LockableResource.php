@@ -28,7 +28,8 @@ enum LockableResource: string
     // A sale never takes BillingParty or BillingCheque. Void and refund write no daily rows (cooked food is never put back).
     case StockBalance = 'stock_balance';
     // ADR-016 slice 4.2: the billing party row (FOR UPDATE) that serialises recording or returning a cheque, so two cheques cannot over-allocate a period.
-    // A cheque operation takes no other lock, so it sits last; it never runs inside a sale.
+    // A cheque operation takes no other lock, so it sits last; it never runs inside a sale. Slice 4.3: recording or reversing a write-off takes this SAME lock
+    // and nothing else, so a cheque and a write-off for the same period queue behind each other (BILL-008).
     case BillingParty = 'billing_party';
     // ADR-016 slice 4.2: the cheque row a return changes, taken after the party.
     case BillingCheque = 'billing_cheque';

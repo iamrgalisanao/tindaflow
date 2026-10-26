@@ -97,6 +97,7 @@ REVOKE UPDATE ON
     billing_run_counters, -- ADR-016 slice 4.1: lifecycle -- the run number counter; UPDATE is revoked here and re-granted by column below
     billing_cheques,      -- ADR-016 slice 4.2, BILL-002: lifecycle -- UPDATE is revoked here and re-granted by column below (the return columns only)
     billing_cheque_allocations, -- ADR-016 slice 4.2, BILL-002: which cut-off periods a cheque pays; append-only
+    billing_write_offs,   -- ADR-016 slice 4.3, BILL-008/BILL-009: write-offs and their reversals; append-only (a mistake is cancelled by a REVERSAL row)
     stock_override_grants, -- ADR-017 slice A, STK-005: the approval of one blocked sale; append-only except consumed_at / sale_id (re-granted below)
     stock_entry_grants -- ADR-017 slice B, STK-007: a manager's approval of a cashier's daily stock entry; append-only except consumed_at (re-granted below)
 FROM tindaflow_app;

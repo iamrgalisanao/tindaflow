@@ -39,3 +39,18 @@ describe('cheque audit events', () => {
         expect(describeAudit({ event_type: 'BILLING_EXPORTED', after_metadata: { report: 'cheques', cheque_count: 4 } })).toBe('Cheque list exported as CSV (4 cheques)');
     });
 });
+
+// ADR-016 slice 4.3: the write-off audit events.
+describe('write-off audit events', () => {
+    it('are in the filter and read in plain words with the amount, period, reason and cheque', () => {
+        const ids = AUDIT_TYPES.map((type) => type.id);
+        expect(ids).toContain('BILLING_WRITE_OFF_RECORDED');
+        expect(ids).toContain('BILLING_WRITE_OFF_REVERSED');
+        expect(auditLabel('BILLING_WRITE_OFF_RECORDED')).toBe('Amount written off');
+        expect(auditLabel('BILLING_WRITE_OFF_REVERSED')).toBe('Write-off reversed');
+        expect(describeAudit({ event_type: 'BILLING_WRITE_OFF_RECORDED', reason: 'TSC will not pay', after_metadata: { amount: '350.00', period_start: '2026-10-01', period_end: '2026-10-15', cheque_number: '0012', bank: 'BDO', owed_before: '500.00', owed_after: '150.00' } }))
+            .toMatch(/.*350\.00.* of the period 2026-10-01 to 2026-10-15 written off \(cheque 0012 from BDO\): TSC will not pay; owed went from .*500\.00.* to .*150\.00/);
+        expect(describeAudit({ event_type: 'BILLING_WRITE_OFF_REVERSED', reason: 'Written off by mistake', after_metadata: { amount: '350.00', period_start: '2026-10-01', period_end: '2026-10-15', owed_before: '150.00', owed_after: '500.00' } }))
+            .toMatch(/Write-off of .*350\.00.* for the period 2026-10-01 to 2026-10-15 reversed: Written off by mistake; owed went from .*150\.00.* to .*500\.00/);
+    });
+});

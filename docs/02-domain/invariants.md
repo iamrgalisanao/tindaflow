@@ -656,6 +656,22 @@ applying to the business day in slip mode.
     new row; a second RECEIVED cheque with the same bank and number is refused (`CHEQUE_DUPLICATE`). The application role may UPDATE only
     `status`, `returned_on`, `returned_at`, `returned_by`, `return_reason`. Tests: `BillingChequeHttpTest`, `BillingChequeConcurrencyTest`,
     `AppendOnlyPrivilegesTest`.
+    BILL-008 — **a write-off never exceeds what is owed, and is not money received.** A `billing_write_offs` row of kind WRITE_OFF names one real
+    cut-off period, an amount > 0 and a required reason, and is at most what that period owes at the moment (billed - received - net written off),
+    checked under the same row lock on the billing party a cheque takes, so a cheque and a write-off (or two write-offs) cannot both claim the same
+    owed money. Owed is derived: billed - received - (SUM(WRITE_OFF) - SUM(REVERSAL)); nothing stores it. A write-off never creates a
+    `cash_movement`, a sale, a payment, a ledger entry, a journal entry, a reading or a billing statement change, and never touches a shift or
+    expected cash. A period that owes zero or less cannot be written off. If a later void or refund leaves more written off than is unpaid, the
+    excess is reported (`write_off_excess_amount`, status OVER_WRITTEN_OFF), never shown as a credit to the party. A linked cheque, when given, must
+    be a RETURNED cheque of the same store that paid that period. *Built in slice 4.3 (2026-10-26):* `BillingWriteOffService::record`,
+    `BillingBalanceService`. Tests: `BillingWriteOffHttpTest`, `BillingWriteOffConcurrencyTest` (real processes), `AppendOnlyPrivilegesTest`.
+    BILL-009 — **write-offs are append-only; a mistake is cancelled by a reversal.** `billing_write_offs` has neither UPDATE nor DELETE for the
+    application role. A REVERSAL row carries exactly the amount and period of the write-off it cancels (composite foreign key), points at it
+    through a UNIQUE `reverses_write_off_id` (a write-off is reversed at most once: `WRITE_OFF_ALREADY_REVERSED`), needs a reason, and cannot itself
+    be reversed (`WRITE_OFF_NOT_REVERSIBLE`); writing the amount off again is a new write-off, checked against owed again. Every write-off and
+    reversal writes an audit event in its own transaction (actor, period, amount, reason, cheque, owed before and after); a refused attempt writes
+    none. Recording and reversing need `BILLING_MANAGE`. A retried `request_id` returns the original row. Tests: `BillingWriteOffHttpTest`,
+    `BillingWriteOffConcurrencyTest`, `AppendOnlyPrivilegesTest`.
 96. **SLIP-001 — one document per sale, in the store's mode.** A sale has exactly one of an `invoice` or a `sale_slip`, matching `sale.document_mode`.
     A slip sale never consumes an invoice number; a slip number is a per-terminal running integer allocated in the finalize transaction (no gap
     from a rolled-back sale), formatted so it cannot be mistaken for an invoice number. The store's `sale_document_mode` changes only under

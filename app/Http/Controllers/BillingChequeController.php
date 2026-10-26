@@ -39,7 +39,7 @@ class BillingChequeController extends Controller
         $balance = $service->balance($this->actor(), $asOf);
 
         if ($request->header('Accept') === 'text/csv') {
-            $auditor->chequeReportExported($this->actor(), 'balance', ['as_of' => $balance['as_of'], 'owed_amount' => $balance['totals']['owed_amount'], 'period_count' => $balance['totals']['period_count']]);
+            $auditor->chequeReportExported($this->actor(), 'balance', ['as_of' => $balance['as_of'], 'owed_amount' => $balance['totals']['owed_amount'], 'written_off_amount' => $balance['totals']['written_off_amount'], 'period_count' => $balance['totals']['period_count']]);
 
             return $this->csvResponse($csv->renderBalance($balance), 'billing_balance');
         }

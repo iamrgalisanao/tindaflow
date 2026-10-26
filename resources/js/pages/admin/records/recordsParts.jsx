@@ -50,6 +50,8 @@ export const AUDIT_TYPES = [
     { id: 'BILLING_EXPORTED', label: 'Billing exported' },
     { id: 'BILLING_CHEQUE_RECORDED', label: 'Cheque recorded' },
     { id: 'BILLING_CHEQUE_RETURNED', label: 'Cheque returned' },
+    { id: 'BILLING_WRITE_OFF_RECORDED', label: 'Amount written off' },
+    { id: 'BILLING_WRITE_OFF_REVERSED', label: 'Write-off reversed' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -339,6 +341,10 @@ export function describeAudit(event) {
             return `Cheque ${after.cheque_number ?? '—'} from ${after.bank ?? '—'} for ${money(after.amount)} recorded, received ${after.received_on ?? '—'}, paying ${(after.allocations ?? []).length} cut-off period${(after.allocations ?? []).length === 1 ? '' : 's'}`;
         case 'BILLING_CHEQUE_RETURNED':
             return `Cheque ${after.cheque_number ?? '—'} from ${after.bank ?? '—'} for ${money(after.amount)} marked returned on ${after.returned_on ?? '—'}${event.reason ? ` (${event.reason})` : ''}; the amount is owed again`;
+        case 'BILLING_WRITE_OFF_RECORDED':
+            return `${money(after.amount)} of the period ${after.period_start ?? '—'} to ${after.period_end ?? '—'} written off${after.cheque_number ? ` (cheque ${after.cheque_number} from ${after.bank ?? '—'})` : ''}${event.reason ? `: ${event.reason}` : ''}; owed went from ${money(after.owed_before)} to ${money(after.owed_after)}`;
+        case 'BILLING_WRITE_OFF_REVERSED':
+            return `Write-off of ${money(after.amount)} for the period ${after.period_start ?? '—'} to ${after.period_end ?? '—'} reversed${event.reason ? `: ${event.reason}` : ''}; owed went from ${money(after.owed_before)} to ${money(after.owed_after)}`;
         case 'BILLING_EXPORTED':
             if (after.report === 'balance') {
                 return `Cheques balance exported as CSV (still owed ${money(after.owed_amount)})`;

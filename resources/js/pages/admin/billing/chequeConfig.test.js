@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { checkAllocations, chequePayload, emptyChequeForm, fromCents, openPeriods, proposeAllocation, toCents, validateCheque } from './chequeConfig';
+import {
+    PERIOD_STATUS,
+    canWriteOff,
+    checkAllocations,
+    chequePayload,
+    emptyChequeForm,
+    emptyWriteOffForm,
+    fromCents,
+    newRequestId,
+    openPeriods,
+    periodStatusLabel,
+    proposeAllocation,
+    returnedChequesOf,
+    toCents,
+    validateCheque,
+    validateWriteOff,
+    writeOffPayload,
+    writeOffStatusLabel,
+} from './chequeConfig';
 
 const periods = [
     { period_start: '2026-10-16', owed_amount: '300.00' },
@@ -92,5 +110,57 @@ describe('validateCheque and chequePayload', () => {
             cheque_number: '0012345', bank: 'BDO', cheque_date: '2026-11-02', amount: '600.00', received_on: '2026-11-02', notes: 'Oct payroll',
             allocations: [{ period_start: '2026-10-01', amount: '400.00' }, { period_start: '2026-10-16', amount: '200.00' }],
         });
+    });
+});
+
+describe('write-offs (slice 4.3)', () => {
+    const period = { period_start: '2026-10-01', owed_amount: '300.00', cheques: [
+        { cheque_id: 'a', status: 'RETURNED', bank: 'BDO', cheque_number: '1', amount: '100.00' },
+        { cheque_id: 'b', status: 'RECEIVED', bank: 'BPI', cheque_number: '2', amount: '50.00' },
+    ] };
+
+    it('offers a write-off only where something is owed', () => {
+        expect(canWriteOff(period)).toBe(true);
+        expect(canWriteOff({ owed_amount: '0.00' })).toBe(false);
+        expect(canWriteOff({ owed_amount: '-5.00' })).toBe(false);
+        expect(canWriteOff(undefined)).toBe(false);
+    });
+
+    it('defaults the amount to what is owed and offers only returned cheques', () => {
+        expect(emptyWriteOffForm(period)).toEqual({ amount: '300.00', reason: '', chequeId: '' });
+        expect(emptyWriteOffForm(period, 'a').chequeId).toBe('a');
+        expect(returnedChequesOf(period).map((cheque) => cheque.cheque_id)).toEqual(['a']);
+    });
+
+    it('requires a reason and an amount between zero and what is owed', () => {
+        expect(validateWriteOff({ amount: '300.00', reason: 'Will not pay' }, period)).toEqual({});
+        expect(validateWriteOff({ amount: '300.01', reason: 'Will not pay' }, period).amount).toMatch(/Only .*300\.00 is owed/);
+        expect(validateWriteOff({ amount: '0', reason: 'Will not pay' }, period).amount).toMatch(/more than zero/);
+        expect(validateWriteOff({ amount: '', reason: 'Will not pay' }, period).amount).toBeTruthy();
+        expect(validateWriteOff({ amount: '10', reason: '  ' }, period).reason).toBeTruthy();
+        expect(validateWriteOff({ amount: '10', reason: 'ab' }, period).reason).toBeTruthy();
+        expect(validateWriteOff({ amount: '10', reason: 'abc' }, { owed_amount: '0.00' }).amount).toBe('Nothing is owed for this period.');
+    });
+
+    it('builds the request body with two-decimal money, a trimmed reason and the request id', () => {
+        expect(writeOffPayload({ amount: '120.5', reason: ' TSC will not pay ', chequeId: 'a' }, period, 'rid')).toEqual({
+            period_start: '2026-10-01', amount: '120.50', reason: 'TSC will not pay', cheque_id: 'a', request_id: 'rid',
+        });
+        expect(writeOffPayload({ amount: '1', reason: 'abc', chequeId: '' }, period, 'rid').cheque_id).toBeNull();
+    });
+
+    it('makes a different id each time, shaped like a uuid', () => {
+        const first = newRequestId();
+        expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+        expect(newRequestId()).not.toBe(first);
+    });
+
+    it('has plain labels for the new period states and the list rows', () => {
+        expect(periodStatusLabel('WRITTEN_OFF')).toBe('Written off');
+        expect(periodStatusLabel('OVER_WRITTEN_OFF')).toBe('Written off too much');
+        expect(PERIOD_STATUS.WRITTEN_OFF.tone).toBe('violet');
+        expect(writeOffStatusLabel({ kind: 'WRITE_OFF', status: 'ACTIVE' })).toBe('Written off');
+        expect(writeOffStatusLabel({ kind: 'WRITE_OFF', status: 'REVERSED' })).toBe('Reversed');
+        expect(writeOffStatusLabel({ kind: 'REVERSAL', status: null })).toBe('Reversal');
     });
 });

@@ -15,6 +15,8 @@ export const PERIOD_STATUS = {
     PAID: { label: 'Paid', tone: 'emerald' },
     OVERPAID: { label: 'Overpaid (credit to TSC)', tone: 'rose' },
     NO_CHARGES: { label: 'No charges', tone: 'slate' },
+    WRITTEN_OFF: { label: 'Written off', tone: 'violet' },
+    OVER_WRITTEN_OFF: { label: 'Written off too much', tone: 'rose' },
 };
 
 export function periodStatusLabel(status) {
@@ -171,4 +173,66 @@ export function emptyChequeForm(now = new Date()) {
 /** "Oct 1-15" style summary of what a cheque paid, for the list. */
 export function allocationSummary(cheque) {
     return (cheque.allocations ?? []).map((allocation) => `${allocation.period_start} to ${allocation.period_end}: ${formatMoney(allocation.amount)}`);
+}
+
+// ---------------------------------------------------------------------------------------------------- write-offs (slice 4.3)
+
+/** A period can be written off only while it still owes something. */
+export function canWriteOff(period) {
+    const cents = toCents(period?.owed_amount ?? '');
+    return cents !== null && cents > 0n;
+}
+
+/** The returned cheques that paid a period, from the balance row: the ones a write-off can be linked to. */
+export function returnedChequesOf(period) {
+    return (period?.cheques ?? []).filter((cheque) => cheque.status === 'RETURNED');
+}
+
+/** The first form of a write-off: everything the period owes, no reason yet, no cheque linked (unless one is given). */
+export function emptyWriteOffForm(period, chequeId = '') {
+    return { amount: period?.owed_amount ?? '', reason: '', chequeId };
+}
+
+/** Field checks before sending: { field: message }. The server re-checks against what is owed at that moment. */
+export function validateWriteOff(form, period) {
+    const errors = {};
+    const cents = toCents(form.amount);
+    const owed = toCents(period?.owed_amount ?? '');
+    if (cents === null || cents <= 0n) {
+        errors.amount = 'Enter the amount to write off in pesos, more than zero.';
+    } else if (owed === null || cents > owed) {
+        errors.amount = owed !== null && owed > 0n ? `Only ${formatMoney(period.owed_amount)} is owed for this period.` : 'Nothing is owed for this period.';
+    }
+    if (String(form.reason ?? '').trim().length < 3) {
+        errors.reason = 'Say why this amount is being written off.';
+    }
+    return errors;
+}
+
+/** The body of billingWriteOffRecord. `requestId` is created once per dialog so a double click or a retry writes off once. */
+export function writeOffPayload(form, period, requestId) {
+    return {
+        period_start: period.period_start,
+        amount: normalizeMoney(form.amount),
+        reason: form.reason.trim(),
+        cheque_id: form.chequeId ? form.chequeId : null,
+        request_id: requestId,
+    };
+}
+
+/** A fresh id for one attempt; falls back where crypto.randomUUID does not exist. */
+export function newRequestId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    const hex = () => Math.floor(Math.random() * 16).toString(16);
+    return 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, hex);
+}
+
+/** One line for the write-off list's status column. */
+export function writeOffStatusLabel(row) {
+    if (row.kind === 'REVERSAL') {
+        return 'Reversal';
+    }
+    return row.status === 'REVERSED' ? 'Reversed' : 'Written off';
 }

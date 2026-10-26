@@ -690,6 +690,8 @@ shift  →  fiscal_day  →  employee  →  override_grant  →  sale  →  sale
 (`employee` was inserted at position 2 by ADR-016 slice 3.2, 2026-10-26; `slip_counter` was appended by slice 2.2a. In code:
 `LockableResource` Shift 0, FiscalDay 1, **Employee 2**, **OverrideGrant 3** (ADR-016 slice 3.3, 2026-10-26: the supervisor grant a credit sale consumes, taken `FOR UPDATE` only when the charge exceeds the limit, after the employee and before the sale exists), Sale 4, SaleItem 5, InvoiceSeries 6, SlipCounter 7, **StockBalance 8** (ADR-017 slice A, 2026-10-26: the stock balance rows a sale writes, `FOR UPDATE` in the canonical stock order, taken last of the sale's locks; counts, transfers and stock entry take only these), **BillingParty 9** and **BillingCheque 10** (ADR-016 slice 4.2, 2026-10-26: the billing party row `FOR UPDATE` that serialises recording or returning a cheque, then the cheque row of a return; no other operation takes either, so no existing order changes beyond their numbers).)
 
+Slice 4.3 (2026-10-26): recording or reversing a billing write-off takes the `billing_party` lock and nothing else (the same lock a cheque takes), so the order above is unchanged.
+
 Every operation acquires a **subset** of this list, always in this
 relative order (an operation may skip a level it doesn't need, but never
 acquires a later-listed resource before an earlier-listed one it also

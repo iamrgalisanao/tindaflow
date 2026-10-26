@@ -2322,7 +2322,7 @@ paths:
       operationId: billingBalanceGet
       tags: [Billing]
       x-capability: BILLING_MANAGE
-      summary: 'What the billing party (TSC) owes per cut-off period, derived and never stored: billed (the credit ledger''s CHARGE minus REVERSAL, the figure the billing statement of the same cut-off shows) minus received (the allocations of cheques that have not been returned). A period paid more than it now owes (a refund arrived after the cheque) is OVERPAID with a NEGATIVE owed amount, shown as a credit and never netted against other periods; `totals.owed_amount` adds the periods that owe, `totals.credit_amount` the credit. `as_of` reproduces a past balance. `Accept: text/csv` returns the CSV and records BILLING_EXPORTED (report = balance). MANAGER and ADMIN; a cashier gets 403.'
+      summary: 'What the billing party (TSC) owes per cut-off period, derived and never stored: billed (the credit ledger''s CHARGE minus REVERSAL, the figure the billing statement of the same cut-off shows) minus received (the allocations of cheques that have not been returned) minus net written off (slice 4.3, billingWriteOffRecord). A period paid more than it now owes (a refund arrived after the cheque) is OVERPAID with a NEGATIVE owed amount, shown as a credit and never netted against other periods; `totals.owed_amount` adds the periods that owe, `totals.credit_amount` the credit. `as_of` reproduces a past balance. `Accept: text/csv` returns the CSV and records BILLING_EXPORTED (report = balance). MANAGER and ADMIN; a cashier gets 403.'
       parameters:
       - {name: as_of, in: query, schema: {type: string, format: date-time}, description: 'Ignore ledger entries and cheques recorded after this instant, and count a cheque as received if it was returned only after it. Default: now.'}
       responses:
@@ -2432,6 +2432,90 @@ paths:
                 type: object
                 properties:
                   data: {$ref: '#/components/schemas/BillingCheque'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  # ----------------------------------------------------------- Writing off an unpaid amount (ADR-016 section 8, slice 4.3)
+  /billing-write-offs:
+    get:
+      operationId: billingWriteOffList
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'Write-offs and their reversals, newest first. A WRITE_OFF row shows `status` ACTIVE or REVERSED and, when reversed, its `reversal` (who, when, why); a REVERSAL row is listed on its own with `reverses_write_off_id`. Nothing in this list is ever edited or deleted. MANAGER and ADMIN; a cashier gets 403.'
+      parameters:
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      responses:
+        '200':
+          description: Paginated write-offs
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/BillingWriteOff'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+    post:
+      operationId: billingWriteOffRecord
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'Writes off an unpaid amount of ONE cut-off period as bad debt (BILL-008). It is NOT money received: no payment, cash movement, sale or ledger entry, and no change to any billing statement; it only lowers the period''s owed amount (billed - received - net written off). The amount must be more than zero and at most what the period owes right now, checked under the same lock on the billing party a cheque takes, so a cheque and a write-off cannot both claim the same owed money (WRITE_OFF_EXCEEDS_OWED, 409). A reason is required. `cheque_id` optionally links a RETURNED cheque of this store that paid the period (WRITE_OFF_CHEQUE_INVALID, 409). `request_id` (optional UUID) makes a retry idempotent: the same id and content returns the original with 200 and writes nothing; the same id with different content is WRITE_OFF_REQUEST_REUSED (409). No Idempotency-Key (a back-office action has no terminal). Audit BILLING_WRITE_OFF_RECORDED. MANAGER and ADMIN.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BillingWriteOffRequest'}
+      responses:
+        '200':
+          description: The request_id was already used with the same content; the original write-off is returned and nothing new is written
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/BillingWriteOff'}
+        '201':
+          description: The write-off
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/BillingWriteOff'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}  # WRITE_OFF_EXCEEDS_OWED, WRITE_OFF_CHEQUE_INVALID or WRITE_OFF_REQUEST_REUSED; nothing is written
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /billing-write-offs/{writeOffId}/reverse:
+    post:
+      operationId: billingWriteOffReverse
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'Cancels a write-off by appending a REVERSAL row of exactly the same period and amount (BILL-009): the amount is owed again, by derivation, and the write-off stays in the list marked REVERSED. A write-off is reversed at most once (WRITE_OFF_ALREADY_REVERSED, 409) and a reversal cannot be reversed (WRITE_OFF_NOT_REVERSIBLE, 409); to write the amount off again, make a new write-off. A reason is required. Another store''s write-off is WRITE_OFF_NOT_FOUND (404). No Idempotency-Key (the unique reversal refuses a repeat clearly). Audit BILLING_WRITE_OFF_REVERSED. MANAGER and ADMIN.'
+      parameters:
+      - {name: writeOffId, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BillingWriteOffReverseRequest'}
+      responses:
+        '201':
+          description: The reversal row
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/BillingWriteOff'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
@@ -5461,6 +5545,43 @@ components:
       properties:
         returned_on: {type: string, format: date, description: 'Manila calendar date, not in the future.'}
         reason: {type: string, minLength: 3, maxLength: 255}
+    BillingWriteOff:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        kind: {type: string, enum: [WRITE_OFF, REVERSAL]}
+        period_start: {type: string, format: date}
+        period_end: {type: string, format: date}
+        period_label: {type: string, example: 'Oct 1-15, 2026'}
+        amount: {$ref: '#/components/schemas/Money'}
+        reason: {type: string}
+        cheque: {type: [object, 'null'], description: 'The returned cheque this write-off relates to, if any.', properties: {id: {type: string, format: uuid}, cheque_number: {type: string}, bank: {type: string}}}
+        reverses_write_off_id: {type: [string, 'null'], format: uuid, description: 'Set on a REVERSAL: the write-off it cancels.'}
+        status: {type: [string, 'null'], enum: [ACTIVE, REVERSED, null], description: 'WRITE_OFF rows only; null on a REVERSAL.'}
+        written_by: {type: object, properties: {id: {type: string, format: uuid}, name: {type: [string, 'null']}}}
+        written_at: {type: string, format: date-time}
+        reversal:
+          type: [object, 'null']
+          description: 'On a reversed WRITE_OFF: who cancelled it, when and why.'
+          properties:
+            id: {type: string, format: uuid}
+            reason: {type: string}
+            reversed_by: {type: object, properties: {id: {type: string, format: uuid}, name: {type: [string, 'null']}}}
+            reversed_at: {type: string, format: date-time}
+    BillingWriteOffRequest:
+      type: object
+      required: [period_start, amount, reason]
+      properties:
+        period_start: {type: string, format: date, description: 'The 1st or the 16th of a month.'}
+        amount: {$ref: '#/components/schemas/Money'}
+        reason: {type: string, minLength: 3, maxLength: 255}
+        cheque_id: {type: [string, 'null'], format: uuid, description: 'A RETURNED cheque of this store that paid the period.'}
+        request_id: {type: [string, 'null'], format: uuid, description: 'Client-generated id that makes a retry idempotent.'}
+    BillingWriteOffReverseRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: {type: string, minLength: 3, maxLength: 255}
     BillingBalance:
       type: object
       properties:
@@ -5480,16 +5601,21 @@ components:
               billed_amount: {$ref: '#/components/schemas/Money'}
               received_amount: {$ref: '#/components/schemas/Money'}
               returned_cheques_amount: {$ref: '#/components/schemas/Money'}
-              owed_amount: {type: string, description: 'billed - received; NEGATIVE when the period was paid more than it now owes.'}
-              status: {type: string, enum: [OPEN, PARTLY_PAID, PAID, OVERPAID, NO_CHARGES]}
+              written_off_amount: {$ref: '#/components/schemas/Money'}
+              owed_amount: {type: string, description: 'billed - received - net written off (slice 4.3); NEGATIVE when the period was paid more than it now owes, or when more was written off than is now unpaid (see write_off_excess_amount).'}
+              credit_amount: {$ref: '#/components/schemas/Money'}
+              write_off_excess_amount: {$ref: '#/components/schemas/Money'}
+              status: {type: string, enum: [OPEN, PARTLY_PAID, PAID, OVERPAID, NO_CHARGES, WRITTEN_OFF, OVER_WRITTEN_OFF], description: 'WRITTEN_OFF: owed 0 and something written off. OVER_WRITTEN_OFF: more written off than is now unpaid (a refund came after); reverse the write-off. Not a credit to the party.'}
               cheques: {type: array, items: {type: object, properties: {cheque_id: {type: string, format: uuid}, cheque_number: {type: string}, bank: {type: string}, received_on: {type: string, format: date}, amount: {$ref: '#/components/schemas/Money'}, status: {type: string, enum: [RECEIVED, RETURNED]}}}}
         totals:
           type: object
           properties:
             billed_amount: {$ref: '#/components/schemas/Money'}
             received_amount: {$ref: '#/components/schemas/Money'}
+            written_off_amount: {$ref: '#/components/schemas/Money'}
             owed_amount: {$ref: '#/components/schemas/Money'}
             credit_amount: {$ref: '#/components/schemas/Money'}
+            write_off_excess_amount: {$ref: '#/components/schemas/Money'}
             returned_cheques_amount: {$ref: '#/components/schemas/Money'}
             period_count: {type: integer}
             open_period_count: {type: integer}

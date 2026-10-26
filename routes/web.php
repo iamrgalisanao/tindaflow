@@ -4,6 +4,7 @@ use App\Http\Controllers\AuditEventController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BillingChequeController;
 use App\Http\Controllers\BillingController;
+use App\Http\Controllers\BillingWriteOffController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CreditOverrideController;
@@ -365,6 +366,11 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         Route::post('/billing-cheques', [BillingChequeController::class, 'store']);
         Route::get('/billing-cheques/{chequeId}', [BillingChequeController::class, 'show'])->whereUuid('chequeId');
         Route::post('/billing-cheques/{chequeId}/return', [BillingChequeController::class, 'markReturned'])->whereUuid('chequeId');
+        // Slice 4.3: writing off an unpaid amount (bad debt) and cancelling a write-off. BILLING_MANAGE like the rest of billing. The write-off POST is
+        // idempotent through an optional client `request_id`; a reversal is refused the second time by a unique row (409).
+        Route::get('/billing-write-offs', [BillingWriteOffController::class, 'index']);
+        Route::post('/billing-write-offs', [BillingWriteOffController::class, 'store']);
+        Route::post('/billing-write-offs/{writeOffId}/reverse', [BillingWriteOffController::class, 'reverse'])->whereUuid('writeOffId');
     });
 
     // Meal menu configuration (ADR-016, slice 1.2): dish categories, dishes, meals, option groups, options and prices. Every

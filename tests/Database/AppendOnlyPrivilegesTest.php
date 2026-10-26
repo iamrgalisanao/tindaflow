@@ -413,6 +413,32 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $this->assertSame(['billing_cheque', 'billing_cheque'], DB::table('audit_events')->whereIn('event_type', ['BILLING_CHEQUE_RECORDED', 'BILLING_CHEQUE_RETURNED'])->pluck('entity_type')->all());
     }
 
+    public function test_write_offs_and_reversals_are_inserted_by_the_restricted_role_and_never_updated_or_deleted(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+        $created = $this->asUser($w['admin'])->postJson('/api/v1/employees', ['employee_type' => 'DIRECT', 'first_name' => 'Ana', 'last_name' => 'Reyes'])->assertStatus(201);
+        $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
+            'items' => [['product_id' => $w['product']->id, 'quantity' => '2']],
+            'payments' => [['method' => 'CREDIT', 'amount' => '200.00']],
+            'employee_id' => $created->json('id'),
+        ], $this->key())->assertStatus(201);
+        $period = CutOff::containing(now(), 'Asia/Manila')->startDate();
+
+        // Writing off takes the party row lock (needs UPDATE on billing_parties) and inserts the row; the reversal does the same.
+        $row = $this->asUser($w['manager'])->postJson('/api/v1/billing-write-offs', ['period_start' => $period, 'amount' => '120.00', 'reason' => 'TSC will not pay'])->assertStatus(201);
+        $this->asUser($w['manager'])->getJson('/api/v1/billing/balance')->assertOk()->assertJsonPath('data.totals.owed_amount', '80.00')->assertJsonPath('data.totals.written_off_amount', '120.00');
+
+        foreach (['amount' => '1.00', 'reason' => 'edited', 'period_start' => '2020-01-01', 'written_by' => $w['manager']->id, 'kind' => 'REVERSAL'] as $column => $value) {
+            $this->assertTrue($this->refuses(fn () => DB::table('billing_write_offs')->update([$column => $value])), "{$column} of a write-off must not be updatable");
+        }
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_write_offs')->delete()), 'a write-off must not be deletable');
+
+        $this->asUser($w['manager'])->postJson('/api/v1/billing-write-offs/'.$row->json('data.id').'/reverse', ['reason' => 'Written off by mistake'])->assertStatus(201);
+        $this->asUser($w['manager'])->getJson('/api/v1/billing/balance')->assertOk()->assertJsonPath('data.totals.owed_amount', '200.00')->assertJsonPath('data.totals.written_off_amount', '0.00');
+        $this->assertSame(2, DB::table('billing_write_offs')->count());
+        $this->assertSame(['billing_write_off', 'billing_write_off'], DB::table('audit_events')->whereIn('event_type', ['BILLING_WRITE_OFF_RECORDED', 'BILLING_WRITE_OFF_REVERSED'])->pluck('entity_type')->all());
+    }
+
     public function test_credit_sales_void_and_refund_work_as_the_restricted_role_and_the_ledger_is_append_only(): void
     {
         $w = $this->worldUnderTheHardenedRole();
@@ -555,7 +581,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries', 'billing_runs', 'billing_run_counters', 'billing_cheques', 'billing_cheque_allocations', 'stock_override_grants', 'stock_entry_grants', 'daily_stock_balances'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries', 'billing_runs', 'billing_run_counters', 'billing_cheques', 'billing_cheque_allocations', 'billing_write_offs', 'stock_override_grants', 'stock_entry_grants', 'daily_stock_balances'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }
