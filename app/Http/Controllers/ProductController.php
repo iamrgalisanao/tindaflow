@@ -127,6 +127,7 @@ class ProductController extends Controller
                     $product->track_inventory ? 'true' : 'false',
                     $product->reorder_level,
                     $product->active ? 'true' : 'false',
+                    $product->shelf_life_days,
                 ], ',', '"', '');
             }
             fclose($out);

@@ -22,7 +22,7 @@ class Product extends Model
     protected $fillable = [
         'store_id', 'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'menu_group_id',
         'unit_of_measure', 'cost', 'selling_price', 'tax_class', 'track_inventory',
-        'reorder_level', 'active', 'menu_hidden', 'stock_mode', 'dish_id', 'stock_portion',
+        'reorder_level', 'active', 'menu_hidden', 'stock_mode', 'dish_id', 'stock_portion', 'shelf_life_days',
     ];
 
     public const MODE_NONE = 'NONE';

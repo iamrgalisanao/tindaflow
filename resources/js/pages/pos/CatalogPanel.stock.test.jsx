@@ -134,3 +134,39 @@ describe('CatalogPanel daily stock marks', () => {
         expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ id: 'none' }));
     });
 });
+
+// ADR-017 slice C: a small "Check freshness" note on a tile whose newest delivery is older than the product's shelf life. Advisory: it never blocks.
+describe('CatalogPanel check freshness note', () => {
+    const freshStock = (blocking) =>
+        stockFromResponse({
+            blocking,
+            override_available: true,
+            low_stock_default_threshold: 3,
+            items: [
+                { product_id: 'plenty', remaining: '12.000', threshold: 3, check_freshness: true },
+                { product_id: 'low', remaining: '2.000', threshold: 3, check_freshness: true },
+                { product_id: 'none', remaining: '0.000', threshold: 3, check_freshness: false },
+            ],
+        });
+
+    it('shows the note on flagged tiles only and keeps them tappable even when the store blocks sales', async () => {
+        const onAdd = vi.fn();
+        render(panel(freshStock(true), onAdd));
+
+        await screen.findByText('12 in stock');
+        expect(screen.getAllByText('Check freshness')).toHaveLength(2);
+        const soda = screen.getByRole('button', { name: 'Soda, 12 in stock, check freshness' });
+        expect(soda.disabled).toBe(false);
+        expect(screen.getByRole('button', { name: 'Juice, Only 2 left, check freshness' }).querySelector('[data-freshness]')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Pandesal, No stock' }).querySelector('[data-freshness]')).toBeNull();
+        fireEvent.click(soda);
+        expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ id: 'plenty' }));
+    });
+
+    it('shows nothing when the answer carries no flag', async () => {
+        render(panel(stockOf()));
+        await screen.findByText('12 in stock');
+
+        expect(screen.queryByText('Check freshness')).toBeNull();
+    });
+});

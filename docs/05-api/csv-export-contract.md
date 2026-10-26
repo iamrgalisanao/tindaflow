@@ -56,6 +56,8 @@ or removing an existing column is breaking.
 | Low Stock | `reportLowStock` | `product_id, sku, product_name, quantity_on_hand, reorder_level, shortfall` |
 
 *ADR-017 slice A (2026-10-26): in the two inventory reports `reorder_level` is the EFFECTIVE low-stock threshold (the product's own, else the store default), and Low Stock lists products whose on-hand is at or below it (`shortfall` may be 0). The product catalog CSV is unchanged in shape; a blank `reorder_level` there means the store default.*
+
+*ADR-017 slice C (2026-10-28): the product catalog CSV (`productExport`, `productImport`) gains one column APPENDED at the end, `shelf_life_days` (whole days 1 to 3650, blank = none), so an older file without it still imports. Nothing else in any export changed.*
 | Daily Stock (leftover) | `reportDailyStock` | `stock_date, item_type, item_name, category, cooked, removed, sold, returned, leftover, oversold` |
 | Inventory Movement | `reportInventoryMovement` | `occurred_at, product_id, sku, movement_type, quantity, reference_type, reference_id, reason, created_by` |
 | Shift Report | `reportShifts` | `shift_id, terminal_id, cashier_id, opened_at, closed_at, opening_cash, declared_cash, expected_cash, variance` |

@@ -22,6 +22,8 @@ use Throwable;
  *   description, category, brand, cost) and is an error for a required one. Blank track_inventory,
  *   reorder_level and active cells leave an existing product alone (a new one gets the defaults; a new product's blank
  *   reorder_level means "use the store's low-stock default", ADR-017 section 2).
+ * - A blank shelf_life_days cell also leaves an existing product alone (a new product has none); the import cannot clear a shelf life, which is
+ *   done on the product form (ADR-017 slice C).
  * - Rows succeed or fail independently, each in its own savepoint. A problem with the file as a whole (no
  *   `sku` column, an unrecognised heading, not UTF-8, too large) is a 422 and nothing is read further.
  * - Categories and brands are matched by name, case-insensitively; they are never created here.
@@ -353,6 +355,14 @@ final class ProductImportService
                 $attributes['reorder_level'] = (int) $cells['reorder_level'];
             } else {
                 $problems[] = "The reorder level \"{$cells['reorder_level']}\" must be a whole number, zero or more.";
+            }
+        }
+
+        if (array_key_exists('shelf_life_days', $cells) && $cells['shelf_life_days'] !== '') {
+            if (ctype_digit($cells['shelf_life_days']) && (int) $cells['shelf_life_days'] >= 1 && (int) $cells['shelf_life_days'] <= 3650) {
+                $attributes['shelf_life_days'] = (int) $cells['shelf_life_days'];
+            } else {
+                $problems[] = "The shelf life \"{$cells['shelf_life_days']}\" must be a whole number of days from 1 to 3650, or blank.";
             }
         }
 

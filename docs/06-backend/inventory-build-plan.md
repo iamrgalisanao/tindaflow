@@ -1,6 +1,6 @@
 # Inventory build plan (ADR-017)
 
-Status: proposed 2026-10-26. **Slice A (A1 and A2) built 2026-10-26; slice B (B1, B2 and B3 together) built 2026-10-27** (not committed at the time of writing; see the second amendment of the ADR for the client's final decisions, which supersede the figures below: Combo side 1.0, ala carte 2.0, cooked food never put back, cutover 05:00, the manager switches the rules, a cashier may enter stock with a manager's code); C and Phase X are still design only. Linked from [canteen-build-plan.md](canteen-build-plan.md). Design and rationale: [ADR-017](../03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md). Estimates are working days for one developer including tests, audit events, hardening updates and the help-page update for that slice; the range is best case to realistic.
+Status: proposed 2026-10-26. **Slice A (A1 and A2) built 2026-10-26; slice B (B1, B2 and B3 together) built 2026-10-27** (not committed at the time of writing; see the second amendment of the ADR for the client's final decisions, which supersede the figures below: Combo side 1.0, ala carte 2.0, cooked food never put back, cutover 05:00, the manager switches the rules, a cashier may enter stock with a manager's code); **slice C (rough shelf life) built 2026-10-28** (not committed at the time of writing; see the third amendment of the ADR; the inventory-on-hand report was deliberately not changed); Phase X is still design only. Linked from [canteen-build-plan.md](canteen-build-plan.md). Design and rationale: [ADR-017](../03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md). Estimates are working days for one developer including tests, audit events, hardening updates and the help-page update for that slice; the range is best case to realistic.
 
 **Total: 15 to 20 days (midpoint about 17.5).** The 12 to 15 day target holds only if the stock override (A2, 2 to 3 days) is dropped and freshness (C) is deferred: 13 to 17 without them. Why it is above the target: the daily-stock slice touches the ledger, checkout, void, refund, the menu builder and three screens (7 to 8 days on its own), and every new stock path needs a multi-process concurrency test like stage 28's.
 
@@ -54,7 +54,7 @@ Depends on slice A (the demand resolver, the check and the setting) and on ADR-0
 - Tests: figures reconcile with the ledger for a scripted day (entry, sales, a refund, a removal); a late return shows on its original date; a range spanning days; permission `REPORT_VIEW`; CSV shape.
 - Help: update `reports.js`.
 
-## Slice C — Rough shelf life flag: 1 to 1.5 days
+## Slice C — Rough shelf life flag: 1 to 1.5 days (BUILT 2026-10-28)
 
 Depends on slice A1 (`stock_mode`, the stock view); independent of B.
 - Scope: `products.shelf_life_days` on the product form, CSV and `ProductAuditor`; a derived `check_freshness` flag (on hand > 0 and latest receipt older than the shelf life in Manila days) on the stock list, the low-stock list and the inventory-on-hand report; a filter "Check freshness"; no batch or expiry fields anywhere.

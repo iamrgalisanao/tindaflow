@@ -16,7 +16,7 @@ final class ProductCsv
     /** The pinned column order. New columns may only be appended (csv-export-contract.md). */
     public const COLUMNS = [
         'sku', 'barcode', 'name', 'description', 'category', 'brand', 'unit_of_measure',
-        'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level', 'active',
+        'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level', 'active', 'shelf_life_days',
     ];
 
     /** Columns whose cells are free text and so need the formula guard. */

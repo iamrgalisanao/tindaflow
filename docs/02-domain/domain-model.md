@@ -166,7 +166,7 @@ Unchanged.
 `name`, `description`, `category_id`, `brand_id`, `unit_of_measure`,
 `cost`, `selling_price`, `tax_class`
 (`VATABLE`|`VAT_EXEMPT`|`ZERO_RATED`|`NON_VAT`), `track_inventory`,
-`reorder_level`, `active`. Unchanged in revision 1. *ADR-017 (slice B built 2026-10-27; `shelf_life_days` is slice C, not built)* adds `stock_mode` (`NONE`|`RUNNING`|`DAILY`, consistent with
+`reorder_level`, `active`. Unchanged in revision 1. *ADR-017 (slice B built 2026-10-27; slice C built 2026-10-28 adds `shelf_life_days`, a nullable smallint 1 to 3650, rough days a RUNNING product keeps after receipt; advisory only)* adds `stock_mode` (`NONE`|`RUNNING`|`DAILY`, consistent with
 `track_inventory`), `shelf_life_days` (nullable), `dish_id` + `stock_portion` (an ala carte product that draws from a daily dish) and makes
 `reorder_level` nullable (NULL = the store's default low-stock threshold). See §2.14.
 
@@ -776,7 +776,7 @@ end-of-day report. Shift open/close, cash count and X-reading are unchanged.
 
 ### 2.14 Stock rules: blocking, daily dish stock, shelf life (ADR-017, slices A and B built; C proposed)
 
-Additive; full rationale in [ADR-017](../03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md). **Slice A (2026-10-26):** the `store_settings` columns `block_sale_without_stock`, `stock_override_enabled`, `low_stock_default_threshold`; `product.reorder_level` nullable; the `STOCK_SALE_OVERRIDE` capability; `stock_override_grant` (lifecycle: only `consumed_at` and `sale_id` are updated). **Slice B (2026-10-27):** daily stock for cooked items, as follows. Slice C (shelf life) is not built.
+Additive; full rationale in [ADR-017](../03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md). **Slice A (2026-10-26):** the `store_settings` columns `block_sale_without_stock`, `stock_override_enabled`, `low_stock_default_threshold`; `product.reorder_level` nullable; the `STOCK_SALE_OVERRIDE` capability; `stock_override_grant` (lifecycle: only `consumed_at` and `sale_id` are updated). **Slice B (2026-10-27):** daily stock for cooked items, as follows. **Slice C (2026-10-28):** `products.shelf_life_days`, no new table; the "check freshness" flag is derived on read from the stock ledger (see invariant STK-006).
 
 - **Stock modes.** `product.stock_mode` `NONE|RUNNING|DAILY`, kept equal to `track_inventory` (tracked exactly when not NONE; backfilled from it). RUNNING = balances
   carry over; DAILY = stock exists for one stock date. `dish.stock_mode` `NONE|DAILY`; a DAILY dish owns a hidden **pool product** (`dish.stock_product_id`: hidden,

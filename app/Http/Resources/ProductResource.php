@@ -40,6 +40,7 @@ class ProductResource extends JsonResource
             'stock_mode' => $this->resource->stock_mode,
             'dish_id' => $this->resource->dish_id,
             'stock_portion' => $this->resource->stock_portion,
+            'shelf_life_days' => $this->resource->shelf_life_days === null ? null : (int) $this->resource->shelf_life_days,
             'active' => $this->resource->active,
         ];
     }

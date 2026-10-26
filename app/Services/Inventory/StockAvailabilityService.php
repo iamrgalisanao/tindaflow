@@ -131,7 +131,7 @@ final class StockAvailabilityService
         $dailyConfigured = false;
         $dailyEntered = false;
         if ($locationId !== null) {
-            $rows = DB::table('products')
+            $rowsQuery = DB::table('products')
                 ->leftJoin('stock_balances', fn ($join) => $join->on('stock_balances.product_id', '=', 'products.id')->where('stock_balances.location_id', $locationId))
                 ->leftJoin('daily_stock_balances', fn ($join) => $join->on('daily_stock_balances.product_id', '=', 'products.id')
                     ->where('daily_stock_balances.location_id', $locationId)->where('daily_stock_balances.stock_date', $stockDate))
@@ -140,7 +140,9 @@ final class StockAvailabilityService
                 ->where('products.active', true)
                 ->where('products.menu_hidden', false)
                 ->orderBy('products.name')->orderBy('products.id')
-                ->get(['products.id', 'products.reorder_level', 'products.stock_mode', 'products.dish_id', 'products.stock_portion', 'stock_balances.quantity_on_hand', 'daily_stock_balances.quantity_on_hand as daily_on_hand']);
+                ->select(['products.id', 'products.reorder_level', 'products.stock_mode', 'products.dish_id', 'products.stock_portion', 'products.shelf_life_days', 'stock_balances.quantity_on_hand', 'daily_stock_balances.quantity_on_hand as daily_on_hand']);
+            StockFreshness::select($rowsQuery); // ADR-017 slice C: age of the latest receipt, in the same read
+            $rows = $rowsQuery->get();
 
             $dishRows = DB::table('dishes')
                 ->leftJoin('daily_stock_balances', fn ($join) => $join->on('daily_stock_balances.product_id', '=', 'dishes.stock_product_id')
@@ -195,6 +197,8 @@ final class StockAvailabilityService
                     'threshold' => $threshold,
                     'low' => bccomp($remaining, '0', 3) > 0 && bccomp($remaining, (string) $threshold, 3) <= 0,
                     'sold_out' => bccomp($remaining, '0', 3) <= 0,
+                    // Advisory (never blocks): true when a shelf life is set, stock remains and the latest receipt is older than it.
+                    'check_freshness' => StockFreshness::flag($row->shelf_life_days, $remaining, $row->last_received_at, $row->freshness_days_old) !== null,
                 ];
             }
         }

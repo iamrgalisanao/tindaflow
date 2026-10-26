@@ -180,6 +180,7 @@ erDiagram
         enum tax_class "VATABLE | VAT_EXEMPT | ZERO_RATED | NON_VAT"
         boolean track_inventory
         int reorder_level "nullable: NULL = the store's low_stock_default_threshold (ADR-017)"
+        smallint shelf_life_days "nullable 1..3650: rough shelf life, advisory (ADR-017 slice C)"
         boolean active
     }
     PRODUCT_BARCODE {

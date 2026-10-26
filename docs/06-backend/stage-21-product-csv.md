@@ -13,7 +13,7 @@ stayed green.
 
 | Gap | Resolution |
 |---|---|
-| `productExport` had no column contract (api-design.md §29.3 flagged it) | Pinned: `sku, barcode, name, description, category, brand, unit_of_measure, cost, selling_price, tax_class, track_inventory, reorder_level, active` (see §2). New columns may only be appended, as for every other CSV export. |
+| `productExport` had no column contract (api-design.md §29.3 flagged it) | Pinned: `sku, barcode, name, description, category, brand, unit_of_measure, cost, selling_price, tax_class, track_inventory, reorder_level, active` (see §2), plus `shelf_life_days` appended by ADR-017 slice C (2026-10-28). New columns may only be appended, as for every other CSV export. |
 | `ProductInput` carries `category_id` / `brand_id` (UUIDs) | The CSV uses **names** (`category`, `brand`): a spreadsheet user cannot be expected to know UUIDs, and a UUID column would make the file useless for onboarding. |
 | `ProductInput` has no `active` | The CSV has one, so an export→edit→import round trip is lossless. `CATALOG_MANAGE` already covers activate/deactivate. |
 | `ImportResult` has `created`, `updated`, `failed`, `errors` | Read as **upsert on SKU with partial success**: valid rows are applied, invalid rows are reported. |
@@ -48,6 +48,7 @@ note that `cost` is therefore visible to every signed-in role, exactly as it alr
   `cost`) and is an error for a required one. Blank `track_inventory`, `reorder_level` and `active` leave an
   existing product alone and default a new one (`true`, blank, `true`; *amended by ADR-017 slice A, 2026-10-26: a blank `reorder_level` is NULL, "use the store's low-stock default", and the export writes NULL as a blank, so an exported file imports back unchanged; an explicit `0` is a real value*). Creating a product needs
   `name, unit_of_measure, selling_price, tax_class` in the file.
+- **`shelf_life_days` (ADR-017 slice C, appended last):** a whole number of days from 1 to 3650; anything else (0, negative, decimal, text, above 3650) fails that row. A blank cell leaves an existing product alone (and a new product has none), like `reorder_level`; **the import therefore cannot clear a shelf life**: clear it on the product form (blank field), which is audited. The export writes a blank for none. A change is audited as `PRODUCT_UPDATED` (`shelf_life_days` before and after).
 - **Lenient where a spreadsheet is lossy:** money may be `55` or `55.5` (Excel drops trailing zeros) and is
   completed to two places; more than two decimals is an error, never rounded. Tax class accepts `non-vat` and
   `VAT EXEMPT`. Headings are case-insensitive; a BOM, CRLF, blank rows and empty-heading columns are tolerated.

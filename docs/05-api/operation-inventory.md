@@ -152,7 +152,7 @@ Configuration behind the till's meal picker (`docs/06-backend/canteen-build-plan
 
 | Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
 |---|---|---|---|---|---|---|---|---|---|
-| GET | /inventory/stock | inventoryStockList | session | false | — | no | — | 200 paginated | 401 |
+| GET | /inventory/stock | inventoryStockList | session | false | — | no | — | 200 paginated (rows also carry `shelf_life_days`, `last_received_on`, `check_freshness`, `days_old`; optional `?check_freshness=true` filter. ADR-017 slice C) | 401 |
 | GET | /inventory/low-stock | inventoryLowStockList | session | false | — | no | — | 200 paginated (each row carries `low_stock_threshold`: the product's `reorder_level`, else the store default; a row is listed when on hand `<=` it. ADR-017 slice A) | 401 |
 | GET | /inventory/movements | inventoryMovementList | session | false | — | no | filters | 200 paginated | 401 |
 | POST | /inventory/receipts | inventoryReceiptCreate | session | true | `STOCK_ADJUST` | **yes** | product/qty/type | 201 StockMovement | 404, 422 |
@@ -714,3 +714,5 @@ oversight — see api-design.md §4 for why a capability that only gates
 single `x-capability` value. `SALE_VOID_APPROVE`/`SALE_REFUND_APPROVE`
 were the only capabilities that had **no** operation and **no** documented
 reason — that was the real gap this pass closes.
+
+**Changed existing operations (additive, ADR-017 slice C):** `Product` and `ProductInput` gain `shelf_life_days` (integer 1 to 3650, nullable; `productCreate`/`productUpdate` keep their `CATALOG_MANAGE` gate, so ADMIN and MANAGER may set it and a cashier gets 403; a bad value is 422 `VALIDATION_FAILED` on `shelf_life_days`). `inventoryStockList` and `inventoryLowStockList` rows gain `shelf_life_days`, `last_received_on`, `check_freshness` and `days_old`, and both accept `?check_freshness=true`. `stockAvailabilityGet` RUNNING items gain `check_freshness` (a flag only; the shelf life itself is not sent to the till). The product CSV gains a trailing `shelf_life_days` column. No new operation, capability or error code.

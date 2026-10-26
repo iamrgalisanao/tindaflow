@@ -21,6 +21,24 @@ const thresholdOf = (row, product) => row.low_stock_threshold ?? product?.reorde
 /** "3" for a level the product set, "3 (store default)" for one it inherits. */
 const levelText = (row, product) => `${quantityText(thresholdOf(row, product))}${product && product.reorder_level == null ? ' (store default)' : ''}`;
 
+/** ADR-017 slice C: the rough shelf life reminder. Advisory only; the server decides (check_freshness) from the ledger. */
+function Freshness({ row }) {
+    if (!row.check_freshness) {
+        return null;
+    }
+    return (
+        <span
+            title={`Last received ${row.last_received_on}, ${row.days_old} days ago. Shelf life is ${row.shelf_life_days} days. Look at what is on the shelf; receive fresh stock or remove spoiled units with an Adjust.`}
+            className="inline-flex w-fit items-center rounded border border-amber-700/70 px-1 py-0.5 font-mono text-[10px] text-amber-400"
+        >
+            Check freshness &middot; {row.days_old} days old
+        </span>
+    );
+}
+
+/** When the product last arrived (a receipt or opening stock), as the server reports it. */
+const receivedText = (row) => (row.last_received_on ? row.last_received_on : '—');
+
 function OnHand({ row, reorderLevel }) {
     const negative = toThousandths(row.quantity_on_hand) < 0;
     const low = !negative && toThousandths(row.quantity_on_hand) <= toThousandths(reorderLevel ?? '0');
@@ -44,6 +62,7 @@ export default function StockPage() {
     const lookups = useInventoryLookups();
     const [view, setView] = useState('all');
     const [productId, setProductId] = useState('');
+    const [freshnessOnly, setFreshnessOnly] = useState(false);
     const [page, setPage] = useState(1);
     const [reloadKey, setReloadKey] = useState(0);
     const [result, setResult] = useState(null);
@@ -74,6 +93,9 @@ export default function StockPage() {
         if (productId) {
             params.set('product_id', productId);
         }
+        if (freshnessOnly) {
+            params.set('check_freshness', 'true');
+        }
         setLoading(true);
         setFailure(null);
         request(`${VIEWS.find((option) => option.id === view).path}?${params.toString()}`).then((response) => {
@@ -88,7 +110,7 @@ export default function StockPage() {
                 setFailure(response);
             }
         });
-    }, [view, productId, page, reloadKey]);
+    }, [view, productId, freshnessOnly, page, reloadKey]);
 
     function reload() {
         setReloadKey((key) => key + 1);
@@ -219,6 +241,18 @@ export default function StockPage() {
                         ))}
                     </div>
                 </div>
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-slate-200 lg:min-h-0">
+                    <input
+                        type="checkbox"
+                        checked={freshnessOnly}
+                        onChange={(event) => {
+                            setFreshnessOnly(event.target.checked);
+                            setPage(1);
+                        }}
+                        className="h-4 w-4 accent-emerald-500"
+                    />
+                    Check freshness only
+                </label>
                 <div className="md:w-72">
                     <EntityCombobox
                         id="stock_product_filter"
@@ -254,7 +288,9 @@ export default function StockPage() {
 
             {result && rows.length === 0 && (
                 <div className="rounded-lg border border-dashed border-slate-800 p-8 text-center">
-                    {view === 'low' ? (
+                    {freshnessOnly ? (
+                        <p className="text-sm text-slate-200">Nothing needs a freshness check right now.</p>
+                    ) : view === 'low' ? (
                         <p className="text-sm text-slate-200">Nothing is at or below its reorder level.</p>
                     ) : productId ? (
                         <>
@@ -278,7 +314,7 @@ export default function StockPage() {
                         <table className="w-full min-w-max text-left text-sm">
                             <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
                                 <tr>
-                                    {['Product', 'Location', 'On hand', 'Reorder level', 'Updated', ''].map((heading) => (
+                                    {['Product', 'Location', 'On hand', 'Reorder level', 'Last received', 'Updated', ''].map((heading) => (
                                         <th key={heading || 'actions'} className="border-b border-slate-800 px-3 py-2 font-mono">
                                             {heading}
                                         </th>
@@ -298,8 +334,14 @@ export default function StockPage() {
                                             <td className="px-3 py-2">
                                                 <OnHand row={row} reorderLevel={thresholdOf(row, product)} />
                                                 {product && <span className="ml-1 text-[11px] text-slate-500">{product.unit_of_measure}</span>}
+                                                {row.check_freshness && (
+                                                    <div className="mt-1">
+                                                        <Freshness row={row} />
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="px-3 py-2 font-mono tabular-nums text-slate-400">{product ? levelText(row, product) : '—'}</td>
+                                            <td className="px-3 py-2 font-mono text-[12px] text-slate-400">{receivedText(row)}</td>
                                             <td className="px-3 py-2 font-mono text-[12px] text-slate-500">{formatDateTime(row.updated_at)}</td>
                                             <td className="px-3 py-2">{rowActions(row)}</td>
                                         </tr>
@@ -322,6 +364,11 @@ export default function StockPage() {
                                         <OnHand row={row} reorderLevel={thresholdOf(row, product)} />
                                         <span className="text-[11px] text-slate-500">Reorder at {product ? levelText(row, product) : '—'}</span>
                                     </div>
+                                    {row.check_freshness && (
+                                        <div className="mt-1">
+                                            <Freshness row={row} />
+                                        </div>
+                                    )}
                                     <div className="mt-1 border-t border-slate-800 pt-1">{rowActions(row)}</div>
                                 </li>
                             );

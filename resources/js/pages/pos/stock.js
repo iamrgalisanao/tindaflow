@@ -43,6 +43,7 @@ export function stockFromResponse(body) {
                 mode: item.mode ?? 'RUNNING',
                 dishId: item.dish_id ?? null,
                 portion: item.stock_portion ? (signedThousandths(item.stock_portion) ?? 1000n) : null,
+                ...(item.check_freshness === true ? { checkFreshness: true } : {}), // ADR-017 slice C: advisory, never blocks
             };
         }
     }
@@ -142,10 +143,10 @@ export function tileStock(stock, productId) {
         return { tone: 'out', text: 'No stock', blocked: stock.blocking };
     }
     if (remaining <= BigInt(threshold) * 1000n) {
-        return { tone: 'low', text: `Only ${quantityLabel(remaining)} left`, blocked: false };
+        return { tone: 'low', text: `Only ${quantityLabel(remaining)} left`, blocked: false, ...(tracked.checkFreshness ? { checkFreshness: true } : {}) };
     }
 
-    return { tone: 'ok', text: `${quantityLabel(remaining)} in stock`, blocked: false };
+    return { tone: 'ok', text: `${quantityLabel(remaining)} in stock`, blocked: false, ...(tracked.checkFreshness ? { checkFreshness: true } : {}) };
 }
 
 /**

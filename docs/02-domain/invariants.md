@@ -716,5 +716,8 @@ applying to the business day in slip mode.
     (`products.dish_id`) never writes its own balance. "Create ala carte items" makes one per daily dish without one, is idempotent and audited, and
     never invents a price. `products.stock_mode` equals `track_inventory` (tracked exactly when not NONE). Pool products never appear in the running
     stock views, the product list, the CSV or the pre-flight. *Built, ADR-017 slice B.* Tests: `DailyStockAdminTest`.
-105. **STK-006 — shelf life is advisory.** `product.shelf_life_days` only drives a derived "check freshness" flag (stock on hand and the latest
-    receipt older than the shelf life); it never blocks a sale, never changes a balance and stores no expiry date or batch. *Planned, ADR-017 slice C.*
+105. **STK-006 — shelf life is advisory.** `product.shelf_life_days` (1 to 3650, NULL = none; set with `CATALOG_MANAGE`, so ADMIN and MANAGER) only drives a
+    derived "check freshness" flag: a RUNNING product with stock on hand whose latest `OPENING_STOCK` or `PURCHASE_RECEIPT` is more than `shelf_life_days`
+    store-local calendar days old (`TRANSFER_IN`, returns and adjustments do not count; a product never received is not flagged). It is computed on read
+    from the ledger, never stored, never blocks a sale, never changes a balance, and stores no expiry date or batch. A fresh receipt on top of old units
+    clears it (accepted weakness). *Built, ADR-017 slice C.* Tests: `StockFreshnessHttpTest`, `ProductCsvHttpTest`.

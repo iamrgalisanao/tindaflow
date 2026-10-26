@@ -28,6 +28,8 @@ final class ProductAuditor
         'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level', 'active',
         // ADR-017 slice B: daily stock and the ala carte link to a dish.
         'stock_mode', 'dish_id', 'stock_portion',
+        // ADR-017 slice C: the rough shelf life behind the "Check freshness" warning.
+        'shelf_life_days',
     ];
 
     /**

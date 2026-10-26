@@ -26,7 +26,7 @@ final class ProductService
 
     private const FIELDS = [
         'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'menu_group_id', 'unit_of_measure',
-        'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level', 'stock_mode', 'dish_id', 'stock_portion',
+        'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level', 'stock_mode', 'dish_id', 'stock_portion', 'shelf_life_days',
     ];
 
     /** @param  array<string, mixed>  $data  the already-validated ProductInput */

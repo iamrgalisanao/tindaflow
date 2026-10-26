@@ -57,6 +57,8 @@ class ProductInputRequest extends FormRequest
             'stock_mode' => ['sometimes', Rule::in(['NONE', 'RUNNING', 'DAILY'])],
             'dish_id' => ['sometimes', 'nullable', 'uuid', Rule::exists('dishes', 'id')->where('store_id', $storeId)],
             'stock_portion' => ['sometimes', 'nullable', 'regex:/^\d{1,7}(\.\d{1,3})?$/', 'gt:0'],
+            // ADR-017 slice C: a rough shelf life in whole days; null (or blank) means none. Advisory only: it drives the "Check freshness" warning.
+            'shelf_life_days' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:3650'],
         ];
     }
 
@@ -88,6 +90,9 @@ class ProductInputRequest extends FormRequest
             'selling_price.regex' => 'The selling price must be a decimal with exactly two places, e.g. 55.00.',
             'stock_portion.regex' => 'Portions are a number with up to three decimals, e.g. 2 or 0.5.',
             'stock_portion.gt' => 'Portions must be more than zero.',
+            'shelf_life_days.integer' => 'The shelf life is a whole number of days, e.g. 3, or leave it blank.',
+            'shelf_life_days.min' => 'The shelf life must be at least 1 day, or leave it blank.',
+            'shelf_life_days.max' => 'The shelf life cannot be more than 3650 days (10 years).',
             'cost.regex' => 'The cost must be a decimal with exactly two places, e.g. 40.00.',
         ];
     }

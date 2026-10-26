@@ -2581,6 +2581,10 @@ paths:
       - name: product_id
         in: query
         schema: {type: string, format: uuid}
+      - name: check_freshness
+        in: query
+        description: 'ADR-017 slice C. true narrows the list to rows whose check_freshness is true (also accepted by inventoryLowStockList).'
+        schema: {type: boolean}
       responses:
         '200':
           description: Paginated stock balances
@@ -5768,6 +5772,7 @@ components:
         stock_mode: {type: string, enum: [NONE, RUNNING, DAILY], description: 'ADR-017 slice B. Kept equal to track_inventory (tracked exactly when not NONE). RUNNING carries over; DAILY is cooked per stock date (entered in Today''s stock). Changing it is refused while the product holds stock (STOCK_MODE_CHANGE_BLOCKED, 409).'}
         dish_id: {type: [string, 'null'], format: uuid, description: 'An ala carte product that draws from this DAILY dish''s pool (its own balance is never written).'}
         stock_portion: {$ref: '#/components/schemas/Quantity'}
+        shelf_life_days: {type: [integer, 'null'], minimum: 1, maximum: 3650, description: 'ADR-017 slice C. Rough shelf life in whole days; null = none. Only drives the advisory "check freshness" flag on the stock lists and the till; never blocks a sale. Editable with CATALOG_MANAGE (ADMIN, MANAGER).'}
         active: {type: boolean}
         note: {type: string, readOnly: true, description: 'selling_price/tax_class here are current catalog values for cashier preview only — never authoritative for a historical sale_item, which carries its own immutable snapshot.'}
     ProductInput:
@@ -5809,6 +5814,11 @@ components:
         stock_mode: {type: string, enum: [NONE, RUNNING, DAILY], description: 'ADR-017 slice B. Kept equal to track_inventory (tracked exactly when not NONE). RUNNING carries over; DAILY is cooked per stock date (entered in Today''s stock). Changing it is refused while the product holds stock (STOCK_MODE_CHANGE_BLOCKED, 409).'}
         dish_id: {type: [string, 'null'], format: uuid, description: 'An ala carte product that draws from this DAILY dish''s pool (its own balance is never written).'}
         stock_portion: {$ref: '#/components/schemas/Quantity'}
+        shelf_life_days:
+          anyOf:
+          - {type: integer, minimum: 1, maximum: 3650}
+          - {type: 'null'}
+          description: 'ADR-017 slice C. Whole days from 1 to 3650, or null. On update, absent leaves it alone and null clears it. Anything else is 422 VALIDATION_FAILED on shelf_life_days.'
     ImportResult:
       type: object
       properties:
@@ -5829,6 +5839,10 @@ components:
         location_id: {type: string, format: uuid}
         quantity_on_hand: {$ref: '#/components/schemas/Quantity'}
         low_stock_threshold: {type: [integer, 'null'], description: 'The effective low-stock threshold: the product''s reorder_level, else the store default (ADR-017 section 2). Present on the stock and low-stock lists.'}
+        shelf_life_days: {type: [integer, 'null'], description: 'ADR-017 slice C. The product''s rough shelf life, or null.'}
+        last_received_on: {type: [string, 'null'], format: date, description: 'ADR-017 slice C. Store-local date of the product''s latest OPENING_STOCK or PURCHASE_RECEIPT (any location); null when it was never received (stock from adjustments, returns or transfers only).'}
+        check_freshness: {type: boolean, description: 'ADR-017 slice C. True when shelf_life_days is set, quantity_on_hand > 0 and last_received_on is more than shelf_life_days store-local calendar days before today. Derived on read; advisory; never blocks a sale.'}
+        days_old: {type: [integer, 'null'], description: 'Calendar days since last_received_on; present (not null) only when check_freshness is true.'}
         updated_at: {type: string, format: date-time}
     StockRulesInput:
       type: object
@@ -5879,6 +5893,7 @@ components:
               threshold: {type: integer}
               low: {type: boolean, description: 'RUNNING items only; a daily item is never "low", it sells out.'}
               sold_out: {type: boolean}
+              check_freshness: {type: boolean, description: 'ADR-017 slice C, RUNNING items only (absent on DAILY items). Advisory; the till shows a small "Check freshness" note and never blocks.'}
         dishes:
           type: array
           description: 'Every active DAILY dish with the portions left for stock_date.'

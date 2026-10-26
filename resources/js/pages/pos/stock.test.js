@@ -167,3 +167,14 @@ describe('the approval failure words', () => {
         expect(isStockOverrideRefusal(failed(409, 'INSUFFICIENT_STOCK'))).toBe(false);
     });
 });
+
+// ADR-017 slice C: the freshness flag rides along on a running item's tile; it is a note and never makes a tile blocked.
+describe('tileStock check freshness', () => {
+    const stock = stockFromResponse(availability([{ ...item('old', '5.000'), check_freshness: true }, { ...item('oldLow', '2.000'), check_freshness: true }, item('plain', '5.000')]));
+
+    it('carries the flag on an ok or low tile, never blocks, and is absent otherwise', () => {
+        expect(tileStock(stock, 'old')).toEqual({ tone: 'ok', text: '5 in stock', blocked: false, checkFreshness: true });
+        expect(tileStock(stock, 'oldLow')).toMatchObject({ tone: 'low', blocked: false, checkFreshness: true });
+        expect(tileStock(stock, 'plain').checkFreshness).toBeUndefined();
+    });
+});

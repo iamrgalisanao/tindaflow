@@ -60,6 +60,10 @@ export default {
             },
         },
         {
+            title: 'Set a shelf life for food that goes off (optional)',
+            body: 'For groceries and baked goods, open the product (**Catalog**, then **Products**), type a rough **Shelf life (days)**, such as 3 for brownies, 3 for banana bread, 2 for pandesal or 1 for empanada, and save. When the newest delivery of that product is older than its shelf life and some is still on hand, **Stock** shows an amber **Check freshness** tag with the date it last arrived, and the till shows a small **Check freshness** note on its tile. Go and look at the shelf, then remove spoiled units with an **Adjust stock** of **Expired**, or receive fresh stock. The reminder never stops a sale and is not an expiry date: it only measures from the newest delivery, so a fresh delivery on top of old units clears it. Leave the box blank for no reminder. Click **Check freshness only** above the list to see just the flagged products.',
+        },
+        {
             title: 'Fix a mistake with an adjustment',
             body: 'Click **Adjust stock**, choose the product, then **What happened**: **Add stock**, **Remove stock**, **Damaged** or **Expired**. Type the **Quantity** and a **Reason**, which is kept so the change can be explained later. Click **Record adjustment**.',
             figure: {

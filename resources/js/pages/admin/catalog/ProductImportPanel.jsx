@@ -4,7 +4,7 @@ import { downloadProductsCsv, failureMessage, request } from './catalogApi';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const REQUIRED_FOR_NEW = ['name', 'unit_of_measure', 'selling_price', 'tax_class'];
-const OPTIONAL = ['barcode', 'description', 'category', 'brand', 'cost', 'track_inventory', 'reorder_level', 'active'];
+const OPTIONAL = ['barcode', 'description', 'category', 'brand', 'cost', 'track_inventory', 'reorder_level', 'active', 'shelf_life_days'];
 
 function importFailure(result) {
     if (result.status === 422) {

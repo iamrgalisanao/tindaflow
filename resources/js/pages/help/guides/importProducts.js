@@ -15,7 +15,7 @@ export default {
                 alt: 'The Import products panel with a download link, a file chooser and a preview summary.',
                 marks: [{ type: 'click', target: 'download', label: 'Download the catalog', detail: 'Click Download current catalog (CSV) to get a file with the correct columns.' }],
             },
-            note: 'The columns are `sku`, `barcode`, `name`, `description`, `category`, `brand`, `unit_of_measure`, `cost`, `selling_price`, `tax_class`, `track_inventory`, `reorder_level` and `active`. Products are matched on **sku**: a new SKU creates a product, an existing SKU updates it.',
+            note: 'The columns are `sku`, `barcode`, `name`, `description`, `category`, `brand`, `unit_of_measure`, `cost`, `selling_price`, `tax_class`, `track_inventory`, `reorder_level`, `active` and `shelf_life_days` (optional: the whole days a food product keeps; a blank cell leaves it unchanged, so clear one on the product form). Products are matched on **sku**: a new SKU creates a product, an existing SKU updates it.',
         },
         {
             title: 'Choose your file and read the preview',

@@ -246,7 +246,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                                     type="button"
                                     onClick={() => onAdd(product)}
                                     disabled={onHand?.blocked === true}
-                                    aria-label={onHand ? `${product.name}, ${onHand.text}` : undefined}
+                                    aria-label={onHand ? `${product.name}, ${onHand.text}${onHand.checkFreshness ? ', check freshness' : ''}` : undefined}
                                     className={`flex min-h-28 w-full flex-col rounded-lg border border-slate-800 border-b-2 border-b-slate-950 p-3 text-left ${
                                         onHand?.blocked
                                             ? 'cursor-not-allowed bg-slate-900/60 opacity-60'
@@ -264,6 +264,11 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                                             }`}
                                         >
                                             {onHand.text}
+                                        </span>
+                                    )}
+                                    {onHand?.checkFreshness && (
+                                        <span data-freshness="check" className="mt-1 w-fit rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-amber-300">
+                                            Check freshness
                                         </span>
                                     )}
                                     <span className="mt-auto flex items-end justify-between gap-2 pt-2">

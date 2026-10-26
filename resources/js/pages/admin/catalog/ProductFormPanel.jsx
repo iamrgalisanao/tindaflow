@@ -25,6 +25,7 @@ function initialValues(product) {
         dish_id: product?.dish_id ?? '',
         stock_portion: product?.stock_portion ? String(Number(product.stock_portion)) : '1',
         reorder_level: product?.reorder_level == null ? '' : String(product.reorder_level), // blank = the store's low-stock default (ADR-017)
+        shelf_life_days: product?.shelf_life_days == null ? '' : String(product.shelf_life_days), // blank = no shelf life (ADR-017 slice C)
     };
 }
 
@@ -47,6 +48,9 @@ function validate(values) {
     }
     if (values.reorder_level.trim() !== '' && !/^\d+$/.test(values.reorder_level.trim())) {
         errors.reorder_level = 'Enter a whole number, 0 or more, or leave it blank.';
+    }
+    if (values.shelf_life_days.trim() !== '' && !(/^\d+$/.test(values.shelf_life_days.trim()) && Number(values.shelf_life_days) >= 1 && Number(values.shelf_life_days) <= 3650)) {
+        errors.shelf_life_days = 'Enter a whole number of days from 1 to 3650, or leave it blank.';
     }
     if (values.track_inventory && values.stock_mode === 'DAILY' && values.dish_id !== '' && !(/^\d{1,7}(\.\d{1,3})?$/.test(values.stock_portion.trim()) && Number(values.stock_portion) > 0)) {
         errors.stock_portion = 'Enter the portions of the dish one unit uses, above zero.';
@@ -227,6 +231,7 @@ export default function ProductFormPanel({
             dish_id: values.track_inventory && values.stock_mode === 'DAILY' && values.dish_id !== '' ? values.dish_id : null,
             ...(values.track_inventory && values.stock_mode === 'DAILY' && values.dish_id !== '' ? { stock_portion: values.stock_portion.trim() } : {}),
             reorder_level: values.reorder_level.trim() === '' ? null : Number(values.reorder_level),
+            shelf_life_days: values.shelf_life_days.trim() === '' ? null : Number(values.shelf_life_days),
         };
         const result = await request(editing ? `/api/v1/products/${product.id}` : '/api/v1/products', {
             method: editing ? 'PATCH' : 'POST',
@@ -530,6 +535,25 @@ export default function ProductFormPanel({
                                     <option value="DAILY">Daily stock (cooked each day)</option>
                                 </select>
                             </Field>
+                            {values.stock_mode === 'RUNNING' && (
+                                <Field
+                                    id="product_shelf_life"
+                                    label="Shelf life (days)"
+                                    error={errors.shelf_life_days}
+                                    hint="Optional. About how many days it keeps after you receive it, e.g. 3 for brownies. When the newest delivery is older than this and some is still on hand, Stock and the till show a 'Check freshness' reminder. It never stops a sale. Blank = no reminder."
+                                >
+                                    <input
+                                        id="product_shelf_life"
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={values.shelf_life_days}
+                                        placeholder="No shelf life"
+                                        aria-invalid={Boolean(errors.shelf_life_days)}
+                                        onChange={(event) => set('shelf_life_days', event.target.value)}
+                                        className={`${inputClass(errors.shelf_life_days, true)} text-right`}
+                                    />
+                                </Field>
+                            )}
                             {values.stock_mode === 'DAILY' && (
                                 <div className="grid grid-cols-2 items-end gap-3">
                                     <Field id="product_dish" label="Draws from dish" hint="Optional. An ala carte item of a dish shares the dish's count with its meals.">

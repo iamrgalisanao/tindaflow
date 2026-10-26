@@ -360,7 +360,7 @@ class StockBlockingHttpTest extends PostgresSchemaTestCase
         $this->assertTrue($body['override_available']);
         $this->assertSame(3, $body['low_stock_default_threshold']);
         $row = collect($body['items'])->firstWhere('product_id', $plain->id);
-        $this->assertSame(['product_id', 'mode', 'dish_id', 'stock_portion', 'remaining', 'threshold', 'low', 'sold_out'], array_keys($row));
+        $this->assertSame(['product_id', 'mode', 'dish_id', 'stock_portion', 'remaining', 'threshold', 'low', 'sold_out', 'check_freshness'], array_keys($row));
         $this->assertSame('RUNNING', $row['mode']);
         $this->assertSame('7.000', $row['remaining']);
         $this->assertStringNotContainsString('cost', json_encode($body));

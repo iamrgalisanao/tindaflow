@@ -2,6 +2,7 @@
 
 namespace Tests\Database;
 
+use App\Models\AuditEvent;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
@@ -18,7 +19,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 class ProductCsvHttpTest extends PostgresSchemaTestCase
 {
-    private const HEADER = 'sku,barcode,name,description,category,brand,unit_of_measure,cost,selling_price,tax_class,track_inventory,reorder_level,active';
+    private const HEADER = 'sku,barcode,name,description,category,brand,unit_of_measure,cost,selling_price,tax_class,track_inventory,reorder_level,active,shelf_life_days';
 
     private function login(User $user): TestResponse
     {
@@ -87,7 +88,7 @@ class ProductCsvHttpTest extends PostgresSchemaTestCase
         $category = Category::factory()->create(['store_id' => $admin->store_id, 'name' => 'Grocery']);
         $brand = Brand::factory()->create(['store_id' => $admin->store_id, 'name' => 'Sunrise']);
         $this->product($admin, ['sku' => 'B-2', 'barcode' => null, 'name' => 'Inactive item', 'unit_of_measure' => 'pc', 'description' => null, 'cost' => null, 'selling_price' => '9.50', 'tax_class' => 'NON_VAT', 'track_inventory' => false, 'reorder_level' => 0, 'active' => false]);
-        $this->product($admin, ['sku' => 'A-1', 'barcode' => '4800016001234', 'name' => 'Rice, "premium"', 'description' => "Long\ngrain", 'category_id' => $category->id, 'brand_id' => $brand->id, 'unit_of_measure' => 'kg', 'cost' => '40.00', 'selling_price' => '55.00', 'tax_class' => 'VATABLE', 'reorder_level' => 12, 'active' => true]);
+        $this->product($admin, ['sku' => 'A-1', 'barcode' => '4800016001234', 'name' => 'Rice, "premium"', 'description' => "Long\ngrain", 'category_id' => $category->id, 'brand_id' => $brand->id, 'unit_of_measure' => 'kg', 'cost' => '40.00', 'selling_price' => '55.00', 'tax_class' => 'VATABLE', 'reorder_level' => 12, 'active' => true, 'shelf_life_days' => 3]);
         $this->product(User::factory()->admin()->create(), ['sku' => 'OTHER-STORE']);
 
         $csv = $this->exportCsv($admin);
@@ -97,8 +98,8 @@ class ProductCsvHttpTest extends PostgresSchemaTestCase
         $this->assertStringNotContainsString("\xEF\xBB\xBF", $csv);
         $this->assertSame(explode(',', self::HEADER), $rows[0]);
         $this->assertCount(3, $rows);
-        $this->assertSame(['A-1', '4800016001234', 'Rice, "premium"', "Long\ngrain", 'Grocery', 'Sunrise', 'kg', '40.00', '55.00', 'VATABLE', 'true', '12', 'true'], $rows[1]);
-        $this->assertSame(['B-2', '', 'Inactive item', '', '', '', $rows[2][6], '', '9.50', 'NON_VAT', 'false', '0', 'false'], $rows[2]);
+        $this->assertSame(['A-1', '4800016001234', 'Rice, "premium"', "Long\ngrain", 'Grocery', 'Sunrise', 'kg', '40.00', '55.00', 'VATABLE', 'true', '12', 'true', '3'], $rows[1]);
+        $this->assertSame(['B-2', '', 'Inactive item', '', '', '', $rows[2][6], '', '9.50', 'NON_VAT', 'false', '0', 'false', ''], $rows[2]);
     }
 
     public function test_any_signed_in_user_can_export(): void
@@ -166,8 +167,8 @@ class ProductCsvHttpTest extends PostgresSchemaTestCase
         $existing = $this->product($admin, ['sku' => 'OLD-1', 'name' => 'Old name', 'selling_price' => '10.00']);
 
         $csv = self::HEADER."\r\n".
-            "NEW-1,4800016001234,\"Rice, 1kg\",Long grain,grocery,SUNRISE,kg,40,55.5,vatable,true,5,true\r\n".
-            "OLD-1,{$existing->barcode},New name,,,,{$existing->unit_of_measure},,12.00,vat-exempt,,,\r\n";
+            "NEW-1,4800016001234,\"Rice, 1kg\",Long grain,grocery,SUNRISE,kg,40,55.5,vatable,true,5,true,2\r\n".
+            "OLD-1,{$existing->barcode},New name,,,,{$existing->unit_of_measure},,12.00,vat-exempt,,,,\r\n";
 
         $result = $this->resultOf($this->importCsv($admin, $csv));
 
@@ -183,6 +184,7 @@ class ProductCsvHttpTest extends PostgresSchemaTestCase
         $this->assertSame('VATABLE', $new->tax_class);
         $this->assertTrue($new->track_inventory);
         $this->assertSame(5, $new->reorder_level);
+        $this->assertSame(2, $new->shelf_life_days);
         $this->assertTrue($new->active);
 
         $existing->refresh();
@@ -191,6 +193,30 @@ class ProductCsvHttpTest extends PostgresSchemaTestCase
         $this->assertSame('VAT_EXEMPT', $existing->tax_class);
         $this->assertNull($existing->cost, 'a blank cost clears it');
         $this->assertTrue($existing->active, 'a blank active leaves it alone');
+    }
+
+    public function test_shelf_life_round_trips_a_blank_cell_leaves_it_alone_and_bad_values_fail_the_row(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $kept = $this->product($admin, ['sku' => 'BRW', 'shelf_life_days' => 3]);
+        $set = $this->product($admin, ['sku' => 'EMP', 'shelf_life_days' => null]);
+        $this->product($admin, ['sku' => 'BAD1']);
+        $this->product($admin, ['sku' => 'BAD2']);
+        $this->product($admin, ['sku' => 'BAD3']);
+        $this->product($admin, ['sku' => 'BAD4']);
+
+        $result = $this->resultOf($this->importCsv($admin, "sku,shelf_life_days\nBRW,\nEMP,1\nBAD1,0\nBAD2,-2\nBAD3,2.5\nBAD4,3651\n"));
+
+        $this->assertSame(1, $result['updated']);
+        $this->assertSame(1, $result['unchanged']);
+        $this->assertSame(4, $result['failed']);
+        $this->assertStringContainsString('shelf life', $result['errors'][0]['message']);
+        $this->assertSame(3, $kept->refresh()->shelf_life_days, 'a blank cell leaves an existing shelf life alone');
+        $this->assertSame(1, $set->refresh()->shelf_life_days);
+        $this->assertSame(0, Product::whereIn('sku', ['BAD1', 'BAD2', 'BAD3', 'BAD4'])->whereNotNull('shelf_life_days')->count());
+
+        $audit = AuditEvent::where('event_type', 'PRODUCT_UPDATED')->where('entity_id', $set->id)->firstOrFail();
+        $this->assertSame([null, 1], [$audit->before_metadata['shelf_life_days'], $audit->after_metadata['shelf_life_days']]);
     }
 
     public function test_a_file_with_only_some_columns_changes_only_those_fields(): void

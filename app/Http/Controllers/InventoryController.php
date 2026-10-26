@@ -12,6 +12,7 @@ use App\Http\Resources\StockMovementResource;
 use App\Models\StockBalance;
 use App\Models\StockMovement;
 use App\Services\Auth\PosRequestContext;
+use App\Services\Inventory\StockFreshness;
 use App\Services\Inventory\StockLedger;
 use App\Services\Inventory\StockRules;
 use App\Services\Inventory\StockService;
@@ -116,6 +117,14 @@ class InventoryController extends Controller
             // The effective low-stock threshold travels with the row, so the screen never has to know the store default.
             ->selectRaw('COALESCE(products.reorder_level, ?) AS low_stock_threshold', [StockRules::forStore($actor->store_id)->defaultThreshold])
             ->orderBy('products.name')->orderBy('stock_balances.product_id')->orderBy('stock_balances.location_id');
+
+        // ADR-017 slice C: the rough shelf life and the age of the latest receipt travel with the row (one correlated subquery, no N+1), so the
+        // resource can say "Check freshness" without another read. `?check_freshness=true` narrows to the flagged rows.
+        $query->addSelect('products.shelf_life_days');
+        StockFreshness::select($query);
+        if ($request->boolean('check_freshness')) {
+            StockFreshness::whereFlagged($query, 'stock_balances.quantity_on_hand');
+        }
 
         if ($request->filled('product_id')) {
             $this->whereUuid($query, 'stock_balances.product_id', (string) $request->query('product_id'));
