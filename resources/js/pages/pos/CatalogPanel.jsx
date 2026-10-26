@@ -3,6 +3,7 @@ import { apiFetch } from '../../api';
 import MealPicker from './MealPicker';
 import { fromPriceText, mealsForView, viewCount } from './mealMenu';
 import { buildMenuTabs, groupFilter } from './menuGroups';
+import { NO_STOCK_RULES, tileStock } from './stock';
 
 const PAGE_SIZE = 100;
 
@@ -11,8 +12,12 @@ const PAGE_SIZE = 100;
  * menu groups, the category tabs exactly as before), and a grid of tap-to-add product tiles.
  * The scan box keeps focus and behaves exactly as before (a scanned barcode adds the product; anything else is a name or
  * SKU search). A search replaces the grid with its results until it is cleared.
+ *
+ * `stock` (ADR-017 slice A) is the till's read of what is left of each tracked product. A tile shows "N in stock", an amber "Only N left"
+ * at or below the low-stock threshold, or "No stock"; when the store blocks sales without stock, a tile with none is greyed and not tappable.
+ * It is advisory (up to a minute old); checkout decides.
  */
-export default function CatalogPanel({ search, onSearchChange, onSearch, onClearSearch, searchRef, scanNotice, results, onAdd, onAddMeal }) {
+export default function CatalogPanel({ search, onSearchChange, onSearch, onClearSearch, searchRef, scanNotice, results, onAdd, onAddMeal, stock = NO_STOCK_RULES }) {
     const [categories, setCategories] = useState([]);
     const [categoryId, setCategoryId] = useState(''); // '' = all
     const [menuTabs, setMenuTabs] = useState(null); // null = loading; [] = this store has no active menu groups
@@ -228,16 +233,34 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                 )}
                 {shown !== null && shown.length > 0 && (
                     <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
-                        {shown.map((product) => (
+                        {shown.map((product) => {
+                            const onHand = tileStock(stock, product.id);
+                            return (
                             <li key={product.id}>
                                 <button
                                     type="button"
                                     onClick={() => onAdd(product)}
-                                    className="flex min-h-28 w-full flex-col rounded-lg border border-slate-800 border-b-2 border-b-slate-950 bg-slate-950/60 p-3 text-left hover:border-emerald-500/60 hover:bg-emerald-500/5 active:bg-emerald-500/10"
+                                    disabled={onHand?.blocked === true}
+                                    aria-label={onHand ? `${product.name}, ${onHand.text}` : undefined}
+                                    className={`flex min-h-28 w-full flex-col rounded-lg border border-slate-800 border-b-2 border-b-slate-950 p-3 text-left ${
+                                        onHand?.blocked
+                                            ? 'cursor-not-allowed bg-slate-900/60 opacity-60'
+                                            : 'bg-slate-950/60 hover:border-emerald-500/60 hover:bg-emerald-500/5 active:bg-emerald-500/10'
+                                    }`}
                                 >
                                     <span className="truncate font-mono text-[11px] uppercase tracking-wider text-slate-400">{product.sku}</span>
                                     <span className="mt-1 line-clamp-2 text-sm font-medium text-slate-100">{product.name}</span>
                                     <span className="mt-0.5 truncate text-xs text-slate-400">{categoryName(product.category_id)}</span>
+                                    {onHand && (
+                                        <span
+                                            data-stock={onHand.tone}
+                                            className={`mt-1 w-fit rounded px-1.5 py-0.5 font-mono text-[11px] font-bold ${
+                                                onHand.tone === 'out' ? 'bg-red-500/15 text-red-300' : onHand.tone === 'low' ? 'bg-amber-500/15 text-amber-300' : 'text-slate-500'
+                                            }`}
+                                        >
+                                            {onHand.text}
+                                        </span>
+                                    )}
                                     <span className="mt-auto flex items-end justify-between gap-2 pt-2">
                                         <span className="font-mono text-lg font-bold tabular-nums text-emerald-400">₱{product.selling_price}</span>
                                         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-6 w-6 shrink-0 text-slate-400">
@@ -247,7 +270,8 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                                     </span>
                                 </button>
                             </li>
-                        ))}
+                            );
+                        })}
                     </ul>
                 )}
                 {!searching && shown !== null && total > shown.length && (

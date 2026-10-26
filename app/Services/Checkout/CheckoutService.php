@@ -7,10 +7,12 @@ use App\Domain\Exceptions\CreditOverrideException;
 use App\Domain\Exceptions\CreditTenderException;
 use App\Domain\Exceptions\FiscalDayNotOpenException;
 use App\Domain\Exceptions\InsufficientPaymentException;
+use App\Domain\Exceptions\InsufficientStockException;
 use App\Domain\Exceptions\InvalidPaymentTotalException;
 use App\Domain\Exceptions\ProductInactiveException;
 use App\Domain\Exceptions\ProductNotFoundException;
 use App\Domain\Exceptions\ShiftRequiredException;
+use App\Domain\Exceptions\StockOverrideException;
 use App\Domain\Financial\FinancialCalculator;
 use App\Domain\Financial\SaleLineInput;
 use App\Domain\Financial\StatutoryDiscountCalculator;
@@ -39,12 +41,16 @@ use App\Services\Idempotency\CanonicalRequestHasher;
 use App\Services\Idempotency\IdempotencyOperationType;
 use App\Services\Idempotency\IdempotencyService;
 use App\Services\Idempotency\OperationOutcome;
+use App\Services\Inventory\StockAvailabilityService;
+use App\Services\Inventory\StockDemandResolver;
 use App\Services\Inventory\StockLedger;
+use App\Services\Inventory\StockRules;
 use App\Services\InvoiceNumbering\InvoiceSeriesAllocator;
 use App\Services\Menu\MenuGroupPath;
 use App\Services\Menu\MenuPriceResolver;
 use App\Services\Overrides\CreditOverrideService;
 use App\Services\Overrides\OverrideAuditor;
+use App\Services\Overrides\StockOverrideService;
 use App\Services\Slips\SlipNumberAllocator;
 use App\Services\Slips\SlipSnapshotBuilder;
 use App\Support\GlobalLockOrder;
@@ -89,12 +95,18 @@ final class CheckoutService
         private ?SlipSnapshotBuilder $slipSnapshotBuilder = null,
         private ?CreditLedger $creditLedger = null,
         private ?CreditOverrideService $creditOverrides = null,
+        private ?StockDemandResolver $stockDemands = null,
+        private ?StockAvailabilityService $stockAvailability = null,
+        private ?StockOverrideService $stockOverrides = null,
     ) {
         $this->mealLineResolver ??= new MealLineResolver(new MenuPriceResolver);
         $this->slipNumberAllocator ??= new SlipNumberAllocator;
         $this->slipSnapshotBuilder ??= new SlipSnapshotBuilder;
         $this->creditLedger ??= new CreditLedger(new CreditPolicyService(new EmployeeAuditor));
         $this->creditOverrides ??= new CreditOverrideService(new OverrideAuditor, $this->creditLedger);
+        $this->stockDemands ??= new StockDemandResolver;
+        $this->stockAvailability ??= new StockAvailabilityService($this->inventoryLocationResolver, $this->stockDemands);
+        $this->stockOverrides ??= new StockOverrideService(new OverrideAuditor, null, $this->stockDemands, $this->stockAvailability);
     }
 
     /**
@@ -120,6 +132,11 @@ final class CheckoutService
             // The sale's transaction has rolled back (so the grant is still unused and nothing was charged). The refusal is audited NOW,
             // outside it, because an event written inside would have rolled back with it (ADR-016 section 6, CREDIT_OVERRIDE_REFUSED).
             $this->creditOverrides->recordCheckoutRefusal($refusal, Terminal::findOrFail($terminalId)->store_id, $cashierId, $terminalId);
+
+            throw $refusal;
+        } catch (StockOverrideException $refusal) {
+            // Same for a refused stock override (ADR-017 section 9, STOCK_OVERRIDE_REFUSED): the sale rolled back, the grant is unused.
+            $this->stockOverrides->recordCheckoutRefusal($refusal, Terminal::findOrFail($terminalId)->store_id, $cashierId, $terminalId);
 
             throw $refusal;
         }
@@ -261,6 +278,29 @@ final class CheckoutService
                 'name' => $product->name,
                 'menu_group_path' => $groupPaths[$product->menu_group_id] ?? null,
             ];
+        }
+
+        // ADR-017 section 6 (slice A, a recorded exception to this frozen file). With the store's "block a sale without stock" setting OFF
+        // (the default) none of this runs and the sale is exactly what it always was. With it ON, the sale's demand on tracked stock is
+        // totalled per product across the cart (a missing stock record is zero) and checked here, cheaply and WITHOUT locks, before the
+        // credit check and before the invoice-series or slip-counter lock is taken, so a hopeless cart fails fast and holds nothing. This
+        // check is advisory: the decisive one runs at the stock step below, on locked rows. A cart that is short but carries a manager's
+        // `stock_override_token` goes on; its grant row is locked NOW, at the OverrideGrant position of the Global Lock Order, so the stock
+        // step needs no out-of-order lock.
+        $stockRules = StockRules::forStore($storeId);
+        $stockDemands = [];
+        $stockOverrideToken = $payload['stock_override_token'] ?? null;
+        $stockOverrideGrant = null;
+        if ($stockRules->blockSaleWithoutStock) {
+            $stockDemands = $this->stockDemands->fromLines($specs);
+            $advisory = $this->stockDemands->shortfalls($stockDemands, $this->stockAvailability->availableFor($locationId, array_keys($stockDemands)));
+            if ($advisory !== [] && $stockOverrideToken === null) {
+                throw InsufficientStockException::forShortfalls($advisory, $stockRules->overrideAvailable());
+            }
+            if ($stockOverrideToken !== null) {
+                $lockOrder->acquire(LockableResource::OverrideGrant);
+                $stockOverrideGrant = $this->stockOverrides->lockByToken($stockOverrideToken);
+            }
         }
 
         // ADR-003 step 4: FinancialCalculator is the sole authority
@@ -617,6 +657,25 @@ final class CheckoutService
         // two rows in opposite orders would deadlock; PostgreSQL's own advice is to acquire locks in a consistent
         // order. The movements themselves are unchanged: still one per sale line.
         // docs/06-backend/stage-28-stock-write-ordering.md.
+        //
+        // ADR-017 (slice A): with blocking ON the demanded rows are locked first, in that same canonical order, and the decision is taken on
+        // what they hold. Short and no approval: the sale is refused and the whole transaction rolls back (no sale, number, payment, credit
+        // entry or movement; the idempotency reservation goes with it, so the same key can be sent again once stock is entered). Short with
+        // a valid manager approval: the grant is consumed (only now that a shortfall really exists) and the sale goes through into negative
+        // stock, recorded as oversold. Not short: the grant, if one was presented, is left untouched.
+        $lockOrder->acquire(LockableResource::StockBalance);
+        if ($stockRules->blockSaleWithoutStock) {
+            $onHand = $this->stockLedger->lockRows($locationId, $saleItems->pluck('product_id')->all());
+            $shortfalls = $this->stockDemands->shortfalls($stockDemands, $onHand);
+            if ($shortfalls !== []) {
+                if ($stockOverrideToken === null) {
+                    throw InsufficientStockException::forShortfalls($shortfalls, $stockRules->overrideAvailable());
+                }
+                $stockGrant = $this->stockOverrides->consume($stockOverrideGrant, $terminal, $cashierId, $shortfalls, $sale->id, $soldAt);
+                $this->stockOverrides->recordUsed($storeId, $cashierId, $terminalId, $stockGrant, $sale->id, $shortfalls);
+            }
+        }
+
         $this->stockLedger->recordMany($saleItems->map(fn ($saleItem) => [
             'product_id' => $saleItem->product_id,
             'location_id' => $locationId,

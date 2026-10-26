@@ -96,7 +96,8 @@ REVOKE UPDATE ON
     billing_runs,   -- ADR-016 slice 4.1, BILL-004: a saved billing run (a frozen statement); never changed, a re-run is a new row
     billing_run_counters, -- ADR-016 slice 4.1: lifecycle -- the run number counter; UPDATE is revoked here and re-granted by column below
     billing_cheques,      -- ADR-016 slice 4.2, BILL-002: lifecycle -- UPDATE is revoked here and re-granted by column below (the return columns only)
-    billing_cheque_allocations -- ADR-016 slice 4.2, BILL-002: which cut-off periods a cheque pays; append-only
+    billing_cheque_allocations, -- ADR-016 slice 4.2, BILL-002: which cut-off periods a cheque pays; append-only
+    stock_override_grants -- ADR-017 slice A, STK-005: the approval of one blocked sale; append-only except consumed_at / sale_id (re-granted below)
 FROM tindaflow_app;
 
 -- billing_cheques (slice 4.2) is a lifecycle table whose ONLY change is RECEIVED -> RETURNED (a bounced cheque), never deleted (the
@@ -123,6 +124,14 @@ GRANT UPDATE (code_hash, failed_attempts, locked_until, set_at, set_by, updated_
 -- grant can never be changed, so a used or expired approval cannot be revived and an approval cannot be widened. This grant is also what
 -- lets checkout take its SELECT ... FOR UPDATE on the grant row (PostgreSQL needs UPDATE on at least one column for a row lock).
 GRANT UPDATE (consumed_at) ON credit_override_grants TO tindaflow_app;
+
+-- stock_override_grants (ADR-017 slice A, STK-005) is append-only except for TWO columns: checkout stamps `consumed_at` and `sale_id` together
+-- (under the grant's row lock, in the sale's transaction) when the approval is used for a sale that really was short of stock. The terminal,
+-- cashier, approver, demand hash, shortfall lines, token hash and expiry of a grant can never be changed, so a used or expired approval cannot
+-- be revived, re-pointed at another cart or widened. `sale_id` is UNIQUE and a CHECK ties it to `consumed_at`, so one grant covers one sale. This
+-- grant is also what lets checkout take its SELECT ... FOR UPDATE on the grant row (PostgreSQL needs UPDATE on at least one column for a row lock).
+-- It is never deleted (the store-wide REVOKE DELETE).
+GRANT UPDATE (consumed_at, sale_id) ON stock_override_grants TO tindaflow_app;
 
 -- slip_counters is the running slip number of each terminal. The checkout transaction increments `last_number` (and stamps
 -- `updated_at`) and inserts a terminal's first row; nothing else about a counter ever changes, so the UPDATE is narrowed to those two
@@ -184,6 +193,11 @@ GRANT UPDATE (status) ON sales TO tindaflow_app;
 -- slip_footer are ordinary columns of a lifecycle table (the store settings and the mode switch update them), and idempotency_records
 -- gained one allowed operation type, which is a CHECK change only.
 
+-- ADR-017 slice A adds no table beyond stock_override_grants (above): store_settings.block_sale_without_stock, stock_override_enabled and
+-- low_stock_default_threshold are ordinary columns of a lifecycle table (the ADMIN-only stock rules screen updates them), and
+-- products.reorder_level is an ordinary column of a lifecycle table that became nullable (NULL = the store default). stock_balances stays
+-- the derived cache described above: checkout's blocking check may also INSERT a zero row for a product that has never moved (ON CONFLICT
+-- DO NOTHING) so it can be locked, which the INSERT and UPDATE the role already holds on it cover.
 -- Slice 3.3: employee_credit_entries gained the nullable override_grant_id (written only by the CHARGE's INSERT, under the table-wide UPDATE
 -- revoke); user_override_codes and credit_override_grants are above.
 -- Slice 3.2: employee_credit_entries is append-only (in the list above); sales.employee_id sits under the table-wide UPDATE revoke of

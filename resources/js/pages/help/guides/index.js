@@ -27,6 +27,7 @@ import seniorPwd from './seniorPwd';
 import setupStore from './setupStore';
 import signIn from './signIn';
 import stockCount from './stockCount';
+import stockRules from './stockRules';
 import transferStock from './transferStock';
 import troubleshooting from './troubleshooting';
 
@@ -64,6 +65,7 @@ const ALL = [
     buildMeal,
     packsBarcodes,
     receiveStock,
+    stockRules,
     stockCount,
     transferStock,
     approveVoidRefund,

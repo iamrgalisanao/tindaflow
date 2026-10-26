@@ -16,10 +16,12 @@ import CatalogPanel from './pos/CatalogPanel';
 import PosHeader from './pos/PosHeader';
 import PosLookupPanel from './pos/PosLookupPanel';
 import ShiftPanel from './pos/ShiftPanel';
+import StockRefusalPanel from './pos/StockRefusalPanel';
 import TenderPanel from './pos/TenderPanel';
 import XReadingPanel from './pos/XReadingPanel';
 import { attemptKey, failureText, newIdempotencyKey, settleAttempt } from './pos/attempts';
 import { creditSaleParts, isOverrideRefusal, limitRefusal, lookupFailureText, payerFromLookup } from './pos/credit';
+import { NO_STOCK_RULES, checkAdd, isStockOverrideRefusal, stockFromResponse, stockRefusal as parseStockRefusal } from './pos/stock';
 import { mealPlates, requestItems } from './pos/mealMenu';
 import { apiMoney, clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 import MoneyInput from '../components/MoneyInput';
@@ -107,6 +109,13 @@ export default function Pos() {
     // never stored, survives nothing (a new sale, another payer, Start over, a refusal all drop it) and is sent with the sale as credit_override_token.
     const [overrideGrant, setOverrideGrant] = useState(null);
 
+    // ADR-017 slice A: what is left of each tracked product (advisory; checkout decides), refreshed at shift open, every 60 seconds, after every
+    // sale and after every refusal. A refusal the server sent ({shortfalls, overrideAvailable}) shows its panel until the cart changes. The
+    // manager's approval for THAT cart ({token, approverName}) is held in memory for one sale only, like the credit approval above.
+    const [stock, setStock] = useState(NO_STOCK_RULES);
+    const [stockRefusal, setStockRefusal] = useState(null);
+    const [stockGrant, setStockGrant] = useState(null);
+    const [stockNotice, setStockNotice] = useState(null); // { text, overrideAvailable, line } a local refusal of an add
     const [payments, setPayments] = useState([{ method: 'CASH', amount: '' }]); // [{method, amount}], split tender is 2+ rows
     const [checkoutBusy, setCheckoutBusy] = useState(false);
 
@@ -197,6 +206,35 @@ export default function Pos() {
     useEffect(() => {
         checkShiftState();
     }, [checkShiftState]);
+
+    // A failed read leaves the till exactly as it was before stock marks existed: nothing is marked and nothing is refused locally.
+    const refreshStock = useCallback(async () => {
+        try {
+            const { ok, body } = await apiFetch('/api/v1/stock/availability');
+            if (ok) {
+                setStock(stockFromResponse(body));
+            }
+        } catch {
+            // Offline or not JSON: keep what the till already knows.
+        }
+    }, []);
+
+    useEffect(() => {
+        if (step !== 'cart' && step !== 'checkout') {
+            return undefined;
+        }
+        refreshStock();
+        const timer = setInterval(refreshStock, 60000);
+
+        return () => clearInterval(timer);
+    }, [step, refreshStock]);
+
+    // The approval and the refusal belong to one exact basket: changing the cart ends both.
+    useEffect(() => {
+        setStockRefusal(null);
+        setStockGrant(null);
+        setStockNotice(null);
+    }, [cart]);
 
     /**
      * A receipt reached by its own URL -- a reload, a bookmark, a link -- rather than by finishing a
@@ -290,14 +328,14 @@ export default function Pos() {
                 const scan = await apiFetch(`/api/v1/products/by-barcode/${encodeURIComponent(query)}`);
                 if (scan.ok) {
                     // Inactive products are returned so the till can say why they cannot be sold.
+                    const added = scan.body.active ? addToCart(scan.body) : false;
                     setScanNotice(
-                        scan.body.active
-                            ? { kind: 'added', text: `Added ${scan.body.name}` }
-                            : { kind: 'error', text: `${scan.body.name} is inactive and cannot be sold.` },
+                        !scan.body.active
+                            ? { kind: 'error', text: `${scan.body.name} is inactive and cannot be sold.` }
+                            : added
+                              ? { kind: 'added', text: `Added ${scan.body.name}` }
+                              : { kind: 'error', text: `${scan.body.name} was not added: not enough stock.` },
                     );
-                    if (scan.body.active) {
-                        addToCart(scan.body);
-                    }
                     setSearch('');
                     setResults(null);
                     searchRef.current?.focus();
@@ -317,8 +355,30 @@ export default function Pos() {
     }
 
     // A line is one product, or one meal (built by the picker from GET /menu: ids and names, never a price the server would use).
-    function addToCart(product) {
+    function addToCart(product, { force = false } = {}) {
+        // ADR-017: a store that blocks sales without stock refuses an add the stock cannot cover, here at the counter, with the reason.
+        const refusal = force ? null : checkAdd(stock, cart, product);
+        if (refusal) {
+            setStockNotice({ text: refusal.text, overrideAvailable: refusal.overrideAvailable, product });
+
+            return false;
+        }
+        setStockNotice(null);
         addLine({ key: product.id, product, quantity: '1', discount: '' });
+
+        return true;
+    }
+
+    /** The "+" on a cart line: one more, unless the stock cannot cover it. */
+    function increaseLine(line) {
+        const refusal = line.meal ? null : checkAdd(stock, cart, line.product);
+        if (refusal) {
+            setStockNotice({ text: refusal.text, overrideAvailable: refusal.overrideAvailable, product: line.product });
+
+            return;
+        }
+        setStockNotice(null);
+        setQuantity(line.key, fromThousandths((toThousandths(line.quantity) ?? 0n) + 1000n));
     }
 
     function addMealToCart(mealLine) {
@@ -457,9 +517,10 @@ export default function Pos() {
         return () => document.removeEventListener('keydown', onKeyDown);
     }, [employeePicker]);
 
-    async function completeSale(event, approvalToken) {
+    async function completeSale(event, approvalToken, stockApprovalToken) {
         event?.preventDefault();
         const overrideToken = approvalToken ?? overrideGrant?.token ?? null;
+        const stockToken = stockApprovalToken ?? stockGrant?.token ?? null;
         setCheckoutBusy(true);
         setError(null);
 
@@ -476,6 +537,7 @@ export default function Pos() {
                           .filter((payment) => (toCents(payment.amount) ?? 0n) > 0n)
                           .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
                   }),
+            ...(stockToken ? { stock_override_token: stockToken } : {}),
             ...(orderDiscountCents > 0n ? { order_level_discount_amount: moneyText(orderDiscountCents) } : {}),
             ...(statutoryDiscount.enabled
                 ? {
@@ -502,10 +564,25 @@ export default function Pos() {
             setPayer(null);
             setCreditRefusal(null);
             setOverrideGrant(null);
+            setStockRefusal(null);
+            setStockGrant(null);
+            refreshStock();
             setStep('receipt');
             // `replace`, not push: Back from the receipt should return to the register the cashier
             // started from, never to a checkout step whose cart no longer exists.
             navigate(`/pos/receipt/${result.body.id}`, { replace: true });
+        } else if (parseStockRefusal(result) !== null || isStockOverrideRefusal(result)) {
+            // ADR-017: the server refused for stock, or refused the manager's stock approval. Nothing was sold and nothing was charged; this is not a
+            // transient error, so it is never retried by itself. Back to the cart, where the panel names every short line and the ways on.
+            const refusal = parseStockRefusal(result);
+            if (refusal) {
+                setStockRefusal(refusal);
+            } else {
+                setError(failureText(result, 'The manager approval could not be used.'));
+            }
+            setStockGrant(null);
+            setStep('cart');
+            refreshStock();
         } else {
             const refusal = creditPayer ? limitRefusal(result) : null;
             setCreditRefusal(refusal);
@@ -895,6 +972,41 @@ export default function Pos() {
                 />
             )}
 
+            {step === 'cart' && view === 'register' && payer !== null && stockRefusal && (
+                <StockRefusalPanel
+                    refusal={stockRefusal}
+                    cart={cart}
+                    busy={checkoutBusy}
+                    onApproved={(grant) => {
+                        // A good code: hold the approval for this sale only and send the sale again with it, at once.
+                        setStockGrant(grant);
+                        return completeSale(null, undefined, grant.token);
+                    }}
+                    onFix={() => setStockRefusal(null)}
+                    onRemoveItem={(productId) => setCart((prior) => prior.filter((line) => line.meal || line.product.id !== productId))}
+                />
+            )}
+
+            {step === 'cart' && view === 'register' && payer !== null && stockNotice && (
+                <div role="alert" className="mx-4 mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                    <span>{stockNotice.text}</span>
+                    <span className="flex gap-2">
+                        {stockNotice.overrideAvailable && (
+                            <button
+                                type="button"
+                                onClick={() => addToCart(stockNotice.product, { force: true })}
+                                className="min-h-11 rounded border border-amber-400 px-3 text-xs font-bold uppercase tracking-wide text-amber-100 hover:bg-amber-400/10"
+                            >
+                                Add anyway, then ask a manager
+                            </button>
+                        )}
+                        <button type="button" onClick={() => setStockNotice(null)} className="min-h-11 rounded border border-slate-600 px-3 text-xs font-bold uppercase tracking-wide text-slate-200 hover:bg-slate-800">
+                            OK
+                        </button>
+                    </span>
+                </div>
+            )}
+
             {step === 'cart' && view === 'register' && payer !== null && (
                 <div className="mx-auto grid w-full max-w-[1600px] grid-cols-1 gap-4 p-4 lg:h-[calc(100dvh-4.5rem)] lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:grid-rows-[minmax(0,1fr)]">
                     <div className="flex min-h-0 flex-col lg:order-1">
@@ -912,6 +1024,7 @@ export default function Pos() {
                             results={results}
                             onAdd={addToCart}
                             onAddMeal={addMealToCart}
+                            stock={stock}
                         />
                     </div>
                     <div className="flex min-h-0 flex-col lg:order-2">
@@ -931,6 +1044,8 @@ export default function Pos() {
                             onRemove={removeFromCart}
                             onCharge={goToCheckout}
                             credit={creditPayer ? { name: creditPayer.employee.name, status: creditPayer.employee.credit } : null}
+                            stock={stock}
+                            onIncrease={increaseLine}
                         />
                     </div>
                 </div>

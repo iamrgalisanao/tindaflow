@@ -674,4 +674,18 @@ class MealCheckoutHttpTest extends PostgresSchemaTestCase
         $this->assertSame('Half rice', $get['items'][1]['selections'][0]['option_label_snapshot']);
         $this->assertSame(1, $get['items'][1]['parent_line_number']);
     }
+
+    public function test_a_meal_and_its_rice_are_never_blocked_when_the_store_blocks_sales_without_stock(): void
+    {
+        // ADR-017 slice A: a meal is sold through a hidden, untracked backing product and rice is an untracked add-on, so neither demands stock.
+        // Slice B will give a daily dish its own count; until then a meal sells even with nothing entered anywhere.
+        $w = $this->world();
+        $m = $this->menu($w);
+        DB::table('store_settings')->updateOrInsert(['store_id' => $w['storeId']], [
+            'business_name' => 'Canteen One', 'registered_name' => '', 'tin' => '', 'block_sale_without_stock' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->sell($w, [$this->mealItem($m, $m['nilagaOption'], $m['wholeRice'])], '83.00')->assertStatus(201)->assertJson(['grand_total' => '83.00']);
+        $this->assertSame(0, DB::table('stock_override_grants')->count());
+    }
 }

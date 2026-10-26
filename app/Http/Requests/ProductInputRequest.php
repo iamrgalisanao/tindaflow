@@ -50,7 +50,8 @@ class ProductInputRequest extends FormRequest
             'selling_price' => ['required', $money],
             'tax_class' => ['required', Rule::in(self::TAX_CLASSES)],
             'track_inventory' => ['sometimes', 'boolean'],
-            'reorder_level' => ['sometimes', 'integer', 'min:0'],
+            // ADR-017 section 2: null (or left blank) means "use the store's low-stock default"; a number, even 0, is this product's own threshold.
+            'reorder_level' => ['sometimes', 'nullable', 'integer', 'min:0'],
         ];
     }
 

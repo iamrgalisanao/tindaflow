@@ -29,7 +29,10 @@ use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SaleDocumentSettingsController;
 use App\Http\Controllers\SaleSlipController;
 use App\Http\Controllers\ShiftController;
+use App\Http\Controllers\StockAvailabilityController;
 use App\Http\Controllers\StockCountController;
+use App\Http\Controllers\StockOverrideController;
+use App\Http\Controllers\StockRulesController;
 use App\Http\Controllers\StockTransferController;
 use App\Http\Controllers\StoreSettingsController;
 use App\Http\Controllers\StoreSetupController;
@@ -302,6 +305,21 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, 'can:USER_MANAGE']);
     Route::post('/users/{userId}/override-code/reset', [CreditOverrideController::class, 'codeReset'])->whereUuid('userId')
         ->middleware(['auth', EnsureUserIsActive::class, 'can:USER_MANAGE', 'throttle:override-code']);
+
+    // ADR-017 slice A: stock that blocks sales. stockAvailabilityGet is the till's read of what is left (any signed-in user, quantities only).
+    // stockRulesGet/Put are the store's switches and the pre-flight count (STORE_SETTINGS_MANAGE, ADMIN). The manager override of a blocked
+    // sale mirrors the credit override above: the approver list is names only; stockOverrideGrant is terminal-scoped, verifies a NAMED
+    // approver's code (the same code, the same lockout, the same 'credit-override' limiter budget) and issues a single-use grant.
+    Route::get('/stock/availability', [StockAvailabilityController::class, 'show'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/stock-rules', [StockRulesController::class, 'get'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
+    Route::put('/stock-rules', [StockRulesController::class, 'update'])
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
+    Route::get('/stock-override-approvers', [StockOverrideController::class, 'approvers'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/stock-overrides', [StockOverrideController::class, 'grant'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'throttle:credit-override']);
 
     // Employees and credit limits (ADR-016 section 5, slice 3.1). employeeLookup is the one till operation: any signed-in user, one
     // employee by exact code, no listing. Everything else, reads included, is EMPLOYEE_MANAGE (ADMIN and MANAGER; a cashier gets 403).

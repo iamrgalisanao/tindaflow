@@ -97,8 +97,8 @@ export default function OverrideCodePage() {
             {toast && <Toast message={toast} onDismiss={dismissToast} />}
             <div className="max-w-xl space-y-5">
                 <p className="text-sm text-slate-300">
-                    When a cashier&apos;s credit sale would go past an employee&apos;s limit, you can approve that one sale by choosing your name at the till and typing this
-                    code. It approves one sale only. Keep it to yourself: it is not your password, and nobody (not even an administrator) can read it back.
+                    When a cashier&apos;s credit sale would go past an employee&apos;s limit, or a sale is blocked because an item has no stock, you can approve that one sale by
+                    choosing your name at the till and typing this code. It approves one sale only. Keep it to yourself: it is not your password, and nobody (not even an administrator) can read it back.
                 </p>
 
                 {failure && <ErrorAlert message={failureMessage(failure, 'Your code status could not be loaded.')} onRetry={load} />}

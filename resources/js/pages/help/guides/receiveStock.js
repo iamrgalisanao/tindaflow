@@ -45,11 +45,11 @@ export default {
                     { type: 'click', target: 'record', label: 'Click Record receipt', detail: 'Click Record receipt.' },
                 ],
             },
-            note: 'Every receipt is a permanent record. You cannot edit one later; you correct a mistake with an adjustment.',
+            note: 'Every receipt is a permanent record. You cannot edit one later; you correct a mistake with an adjustment. If an administrator has turned on **Stock Rules**, the till will not sell a counted item until stock has been entered here, so receive opening stock for every item you count first.',
         },
         {
             title: 'Check what is on hand and what is running low',
-            body: 'The **Stock** list shows on-hand quantity for each product and location. A red **LOW** tag means it has reached its **reorder level**. Click **Low stock** above the list to see only those.',
+            body: 'The **Stock** list shows on-hand quantity for each product and location. A red **LOW** tag means it has reached its **reorder level** (the product’s own, or the store’s number, 3 unless an administrator changed it, when the product’s Reorder level is blank). Click **Low stock** above the list to see only those.',
             figure: {
                 shot: 'stock-list',
                 alt: 'The Stock list with on-hand quantities and low stock tags.',

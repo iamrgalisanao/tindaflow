@@ -12,7 +12,7 @@ class RoleCapabilityCatalogTest extends TestCase
     {
         $capabilities = RoleCapabilityCatalog::forRole('ADMIN');
 
-        $this->assertCount(20, $capabilities);
+        $this->assertCount(21, $capabilities);
         $this->assertContains('USER_MANAGE', $capabilities);
         $this->assertContains('TERMINAL_MANAGE', $capabilities);
         $this->assertContains('STORE_SETTINGS_MANAGE', $capabilities);
@@ -56,6 +56,13 @@ class RoleCapabilityCatalogTest extends TestCase
         $this->assertNotContains('BILLING_MANAGE', RoleCapabilityCatalog::forRole('CASHIER'));
     }
 
+    public function test_the_stock_sale_override_belongs_to_manager_and_admin_and_never_to_the_cashier(): void
+    {
+        $this->assertContains('STOCK_SALE_OVERRIDE', RoleCapabilityCatalog::forRole('ADMIN'));
+        $this->assertContains('STOCK_SALE_OVERRIDE', RoleCapabilityCatalog::forRole('MANAGER'));
+        $this->assertNotContains('STOCK_SALE_OVERRIDE', RoleCapabilityCatalog::forRole('CASHIER'));
+    }
+
     public function test_cashier_has_only_the_request_only_capabilities(): void
     {
         $this->assertSame(['SALE_VOID', 'SALE_REFUND'], RoleCapabilityCatalog::forRole('CASHIER'));
@@ -66,11 +73,11 @@ class RoleCapabilityCatalogTest extends TestCase
         $this->assertSame([], RoleCapabilityCatalog::forRole('NOT_A_ROLE'));
     }
 
-    // A2: the fixed vocabulary itself -- 21 entries (CREDIT_LIMIT_OVERRIDE added by ADR-016 slice 3.3, EMPLOYEE_POLICY_MANAGE by its 2026-10-26 amendment, BILLING_MANAGE by slice 4.1), no duplicates.
-    public function test_capabilities_constant_has_exactly_twenty_one_unique_entries(): void
+    // A2: the fixed vocabulary itself -- 22 entries (CREDIT_LIMIT_OVERRIDE added by ADR-016 slice 3.3, EMPLOYEE_POLICY_MANAGE by its 2026-10-26 amendment, BILLING_MANAGE by slice 4.1, STOCK_SALE_OVERRIDE by ADR-017 slice A), no duplicates.
+    public function test_capabilities_constant_has_exactly_twenty_two_unique_entries(): void
     {
-        $this->assertCount(21, RoleCapabilityCatalog::CAPABILITIES);
-        $this->assertCount(21, array_unique(RoleCapabilityCatalog::CAPABILITIES));
+        $this->assertCount(22, RoleCapabilityCatalog::CAPABILITIES);
+        $this->assertCount(22, array_unique(RoleCapabilityCatalog::CAPABILITIES));
     }
 
     public function test_admin_is_defined_as_every_capability_but_the_unlock_only_one(): void

@@ -15,6 +15,12 @@ const VIEWS = [
     { id: 'low', label: 'Low stock', path: '/api/v1/inventory/low-stock' },
 ];
 
+/** The low-stock threshold of a row: the server's effective one (the product's own level, else the store default; ADR-017), with the product's own level as a fallback. */
+const thresholdOf = (row, product) => row.low_stock_threshold ?? product?.reorder_level ?? 0;
+
+/** "3" for a level the product set, "3 (store default)" for one it inherits. */
+const levelText = (row, product) => `${quantityText(thresholdOf(row, product))}${product && product.reorder_level == null ? ' (store default)' : ''}`;
+
 function OnHand({ row, reorderLevel }) {
     const negative = toThousandths(row.quantity_on_hand) < 0;
     const low = !negative && toThousandths(row.quantity_on_hand) <= toThousandths(reorderLevel ?? '0');
@@ -290,10 +296,10 @@ export default function StockPage() {
                                             </td>
                                             <td className="px-3 py-2 text-slate-300">{locationOf(row.location_id)}</td>
                                             <td className="px-3 py-2">
-                                                <OnHand row={row} reorderLevel={product?.reorder_level} />
+                                                <OnHand row={row} reorderLevel={thresholdOf(row, product)} />
                                                 {product && <span className="ml-1 text-[11px] text-slate-500">{product.unit_of_measure}</span>}
                                             </td>
-                                            <td className="px-3 py-2 font-mono tabular-nums text-slate-400">{product ? quantityText(product.reorder_level) : '—'}</td>
+                                            <td className="px-3 py-2 font-mono tabular-nums text-slate-400">{product ? levelText(row, product) : '—'}</td>
                                             <td className="px-3 py-2 font-mono text-[12px] text-slate-500">{formatDateTime(row.updated_at)}</td>
                                             <td className="px-3 py-2">{rowActions(row)}</td>
                                         </tr>
@@ -313,8 +319,8 @@ export default function StockPage() {
                                         {product?.sku} &middot; {locationOf(row.location_id)}
                                     </p>
                                     <div className="mt-2 flex items-center justify-between text-sm">
-                                        <OnHand row={row} reorderLevel={product?.reorder_level} />
-                                        <span className="text-[11px] text-slate-500">Reorder at {product ? quantityText(product.reorder_level) : '—'}</span>
+                                        <OnHand row={row} reorderLevel={thresholdOf(row, product)} />
+                                        <span className="text-[11px] text-slate-500">Reorder at {product ? levelText(row, product) : '—'}</span>
                                     </div>
                                     <div className="mt-1 border-t border-slate-800 pt-1">{rowActions(row)}</div>
                                 </li>

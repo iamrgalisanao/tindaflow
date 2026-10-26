@@ -12,7 +12,22 @@ const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
  *
  * `amount` is the sale total the server refused (the figure the approver is shown and the approval's ceiling).
  */
-export default function OverrideApproval({ employee, amount, busy, onApproved, onCancel }) {
+export default function OverrideApproval({
+    employee,
+    amount,
+    busy,
+    onApproved,
+    onCancel,
+    // The same panel serves the stock override (ADR-017): that one names its own endpoints, body, words and answer parser. The defaults are the credit override.
+    approversUrl = '/api/v1/credit-override-approvers',
+    grantUrl = '/api/v1/credit-overrides',
+    grantBody = (approverId, typed) => ({ approver_id: approverId, code: typed, employee_id: employee.id, amount }),
+    intro = null,
+    confirmLabel = 'Approve this sale',
+    busyLabel = 'Charging…',
+    failureText = overrideFailureText,
+    toGrant = grantFromResponse,
+}) {
     const [approvers, setApprovers] = useState(null); // null = loading
     const [loadFailure, setLoadFailure] = useState(null);
     const [approverId, setApproverId] = useState(null);
@@ -23,7 +38,7 @@ export default function OverrideApproval({ employee, amount, busy, onApproved, o
 
     useEffect(() => {
         let live = true;
-        request('/api/v1/credit-override-approvers').then((result) => {
+        request(approversUrl).then((result) => {
             if (!live) {
                 return;
             }
@@ -64,17 +79,14 @@ export default function OverrideApproval({ employee, amount, busy, onApproved, o
         setCode(''); // gone from the screen and from state before the answer comes back
         setChecking(true);
         setMessage(null);
-        const result = await request('/api/v1/credit-overrides', {
-            method: 'POST',
-            body: { approver_id: approverId, code: typed, employee_id: employee.id, amount },
-        });
+        const result = await request(grantUrl, { method: 'POST', body: grantBody(approverId, typed) });
         setChecking(false);
 
         if (result.ok) {
-            onApproved(grantFromResponse(result.body));
+            onApproved(toGrant(result.body));
             return;
         }
-        setMessage(overrideFailureText(result));
+        setMessage(failureText(result));
         codeRef.current?.focus();
     }
 
@@ -83,7 +95,7 @@ export default function OverrideApproval({ employee, amount, busy, onApproved, o
         <div role="group" aria-label="Manager approval" className="mt-3 rounded-lg border border-amber-500/40 bg-slate-950 p-3 text-slate-100">
             <p className="text-sm font-semibold">Manager approval</p>
             <p className="text-xs text-slate-400">
-                One approval covers this sale only: {money(amount)} to {employee.name}. The manager types their own code; you do not see it.
+                {intro ?? `One approval covers this sale only: ${money(amount)} to ${employee.name}. The manager types their own code; you do not see it.`}
             </p>
 
             {approvers === null && <p className="mt-2 text-xs text-slate-400">Loading managers…</p>}
@@ -178,7 +190,7 @@ export default function OverrideApproval({ employee, amount, busy, onApproved, o
                     Cancel
                 </button>
                 <button type="button" onClick={submit} disabled={!ready} className="min-h-12 flex-1 rounded-lg bg-amber-400 px-4 text-base font-bold text-slate-950 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
-                    {checking ? 'Checking…' : busy ? 'Charging…' : 'Approve this sale'}
+                    {checking ? 'Checking…' : busy ? busyLabel : confirmLabel}
                 </button>
             </div>
         </div>

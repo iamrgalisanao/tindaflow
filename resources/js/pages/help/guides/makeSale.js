@@ -11,7 +11,7 @@ export default {
         {
             title: 'Tap a product to add it',
             body: 'Tap a product’s tile to put one in the cart. Tap it again for another. The category tabs above the tiles (**All**, **Beverages**, **Groceries**…) help you find things faster.',
-            note: 'If your store has set up **menu groups** (for example **Lunch** and **Beverages**), the tabs show those groups instead, with smaller tabs for any sub-groups, and meals appear as green **Meal** tiles. To sell a meal, see “Sell a Standard or Combo Meal”.',
+            note: 'If your store has set up **menu groups** (for example **Lunch** and **Beverages**), the tabs show those groups instead, with smaller tabs for any sub-groups, and meals appear as green **Meal** tiles. To sell a meal, see “Sell a Standard or Combo Meal”.\n\nIf your store counts stock, a tile also shows how many are in stock, an amber **Only 3 left** when the last few remain, or **No stock**. When the store has turned stock blocking on, a tile with **No stock** cannot be tapped, and adding more than is in stock is refused with a message saying how many are left. If the count is wrong, tell a manager; they can enter the stock or approve the sale with their code.',
             figure: {
                 shot: 'till-register-empty',
                 alt: 'The register with product tiles on the left.',

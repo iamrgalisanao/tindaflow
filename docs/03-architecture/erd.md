@@ -179,7 +179,7 @@ erDiagram
         decimal selling_price
         enum tax_class "VATABLE | VAT_EXEMPT | ZERO_RATED | NON_VAT"
         boolean track_inventory
-        int reorder_level
+        int reorder_level "nullable: NULL = the store's low_stock_default_threshold (ADR-017)"
         boolean active
     }
     PRODUCT_BARCODE {

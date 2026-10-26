@@ -12,6 +12,7 @@ import StoreSettingsPage from './pages/admin/StoreSettingsPage';
 import FiscalInstallations from './pages/admin/FiscalInstallations';
 import InvoiceSeriesPage from './pages/admin/InvoiceSeriesPage';
 import SaleDocumentsPage from './pages/admin/SaleDocumentsPage';
+import StockRulesPage from './pages/admin/StockRulesPage';
 import InventoryLocations from './pages/admin/InventoryLocations';
 import TaxRegistrations from './pages/admin/TaxRegistrations';
 import ProductsPage from './pages/admin/catalog/ProductsPage';
@@ -137,6 +138,14 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <SaleDocumentsPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/store-setup/stock-rules"
+                    element={
+                        <RequireAuth>
+                            <StockRulesPage />
                         </RequireAuth>
                     }
                 />

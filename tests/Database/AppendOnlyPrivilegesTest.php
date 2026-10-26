@@ -483,6 +483,36 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $this->assertTrue($this->refuses(fn () => DB::table('employee_credit_entries')->update(['override_grant_id' => null])), 'the override link of a charge must not be updatable');
     }
 
+    public function test_blocking_and_the_stock_override_work_as_the_restricted_role_and_a_grant_can_only_be_consumed(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+        $coke = Product::factory()->create(['store_id' => $w['storeId'], 'selling_price' => '20.00', 'cost' => '1.00', 'reorder_level' => null]);
+
+        // The ADMIN-only rules screen updates store_settings (creating the row on first use) as the restricted role.
+        $this->asUser($w['admin'])->putJson('/api/v1/stock-rules', ['block_sale_without_stock' => true, 'stock_override_enabled' => true, 'low_stock_default_threshold' => 3])->assertOk();
+
+        // The refused sale creates (and rolls back) a zero stock row to lock it: INSERT ... ON CONFLICT DO NOTHING on stock_balances must be allowed.
+        $sale = fn (array $extra = []) => $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
+            'items' => [['product_id' => $coke->id, 'quantity' => '2']], 'payments' => [['method' => 'CASH', 'amount' => '40.00']],
+        ] + $extra, $this->key());
+        $sale()->assertStatus(409)->assertJsonPath('error.code', 'INSUFFICIENT_STOCK');
+
+        // INSERT of a grant (and the approver's code), then the consumption: SELECT ... FOR UPDATE and the column-level UPDATE of consumed_at, sale_id.
+        $this->asUser($w['manager'])->putJson('/api/v1/credit-override-code', ['password' => 'password', 'code' => '482916'])->assertOk();
+        $token = $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/stock-overrides', [
+            'approver_id' => $w['manager']->id, 'code' => '482916', 'items' => [['product_id' => $coke->id, 'quantity' => '2']],
+        ])->assertStatus(201)->json('token');
+        $made = $sale(['stock_override_token' => $token])->assertStatus(201)->json();
+        $this->assertSame($made['id'], DB::table('stock_override_grants')->value('sale_id'));
+        $this->assertNotNull(DB::table('stock_override_grants')->value('consumed_at'));
+
+        // A grant can be consumed and nothing more: its binding, shortfall, token hash and expiry never change, and it is never deleted.
+        foreach ([['terminal_id', $w['t2']->id], ['cashier_id', $w['manager']->id], ['approver_id', $w['cashier']->id], ['demand_hash', str_repeat('b', 64)], ['shortfalls', '[]'], ['token_hash', str_repeat('a', 64)], ['expires_at', now()->addYear()], ['store_id', $w['storeId']]] as [$column, $value]) {
+            $this->assertTrue($this->refuses(fn () => DB::table('stock_override_grants')->update([$column => $value])), "{$column} of a stock grant must not be updatable");
+        }
+        $this->assertTrue($this->refuses(fn () => DB::table('stock_override_grants')->delete()), 'a stock grant must not be deletable');
+    }
+
     public function test_the_tables_the_app_is_allowed_to_delete_from_are_exactly_the_ones_that_hold_no_money_or_audit_data(): void
     {
         $this->worldUnderTheHardenedRole();
@@ -492,7 +522,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries', 'billing_runs', 'billing_run_counters', 'billing_cheques', 'billing_cheque_allocations'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries', 'billing_runs', 'billing_run_counters', 'billing_cheques', 'billing_cheque_allocations', 'stock_override_grants'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }

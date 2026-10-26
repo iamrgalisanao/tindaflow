@@ -20,7 +20,8 @@ use Throwable;
  * - Products are matched on SKU (unique per store). A new SKU creates a product; an existing one is updated.
  * - A column the file does not have leaves that field alone; a blank cell clears an optional field (barcode,
  *   description, category, brand, cost) and is an error for a required one. Blank track_inventory,
- *   reorder_level and active cells leave an existing product alone (a new one gets the defaults).
+ *   reorder_level and active cells leave an existing product alone (a new one gets the defaults; a new product's blank
+ *   reorder_level means "use the store's low-stock default", ADR-017 section 2).
  * - Rows succeed or fail independently, each in its own savepoint. A problem with the file as a whole (no
  *   `sku` column, an unrecognised heading, not UTF-8, too large) is a 422 and nothing is read further.
  * - Categories and brands are matched by name, case-insensitively; they are never created here.
@@ -365,7 +366,7 @@ final class ProductImportService
     private function create(User $actor, string $sku, array $attributes, string $reason): string
     {
         $product = Product::create(array_merge(
-            ['track_inventory' => true, 'reorder_level' => 0, 'active' => true],
+            ['track_inventory' => true, 'reorder_level' => null, 'active' => true],
             $attributes,
             ['store_id' => $actor->store_id, 'sku' => $sku],
         ));

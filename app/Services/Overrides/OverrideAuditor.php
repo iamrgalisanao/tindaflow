@@ -4,6 +4,7 @@ namespace App\Services\Overrides;
 
 use App\Models\AuditEvent;
 use App\Models\CreditOverrideGrant;
+use App\Models\StockOverrideGrant;
 use App\Models\User;
 
 /**
@@ -13,6 +14,7 @@ use App\Models\User;
  *   CREDIT_OVERRIDE_REFUSED   any refusal, with a `reason` (WRONG_CODE, APPROVER_LOCKED, SELF_APPROVAL, UNKNOWN_APPROVER, ...);
  *   CREDIT_OVERRIDE_LOCKED    the wrong code that locked the approver;
  *   CREDIT_OVERRIDE_USED      checkout consumed a grant to charge past the limit (written in the sale's own transaction);
+ *   STOCK_OVERRIDE_GRANTED / _REFUSED / _LOCKED / _USED   the same four for a blocked sale (ADR-017 section 9); _USED is the OVERSOLD record;
  *   OVERRIDE_CODE_SET         an approver set or changed their own code;
  *   OVERRIDE_CODE_RESET       an administrator cleared an approver's code.
  */
@@ -28,15 +30,15 @@ final class OverrideAuditor
     }
 
     /** @param  array<string, mixed>  $context */
-    public function refused(string $storeId, string $cashierId, string $terminalId, string $reason, array $context): void
+    public function refused(string $storeId, string $cashierId, string $terminalId, string $reason, array $context, string $family = 'CREDIT'): void
     {
-        $this->write($storeId, 'CREDIT_OVERRIDE_REFUSED', $cashierId, $terminalId, 'credit_override', $context['grant_id'] ?? null, null, ['reason' => $reason, 'cashier_id' => $cashierId, 'terminal_id' => $terminalId] + $context, $reason);
+        $this->write($storeId, $family.'_OVERRIDE_REFUSED', $cashierId, $terminalId, strtolower($family).'_override', $context['grant_id'] ?? null, null, ['reason' => $reason, 'cashier_id' => $cashierId, 'terminal_id' => $terminalId] + $context, $reason);
     }
 
     /** @param  array<string, mixed>  $context */
-    public function locked(string $storeId, string $cashierId, string $terminalId, string $approverId, int $minutes, array $context): void
+    public function locked(string $storeId, string $cashierId, string $terminalId, string $approverId, int $minutes, array $context, string $family = 'CREDIT'): void
     {
-        $this->write($storeId, 'CREDIT_OVERRIDE_LOCKED', $cashierId, $terminalId, 'user', $approverId, null, [
+        $this->write($storeId, $family.'_OVERRIDE_LOCKED', $cashierId, $terminalId, 'user', $approverId, null, [
             'approver_id' => $approverId, 'cashier_id' => $cashierId, 'terminal_id' => $terminalId, 'locked_minutes' => $minutes,
         ] + $context, 'LOCKED');
     }
@@ -46,6 +48,23 @@ final class OverrideAuditor
     {
         $this->write($storeId, 'CREDIT_OVERRIDE_USED', $cashierId, $terminalId, 'credit_override', $grant->id, null, $context + [
             'grant_id' => $grant->id, 'approver_id' => $grant->approver_id, 'cashier_id' => $cashierId, 'terminal_id' => $terminalId, 'employee_id' => $grant->employee_id,
+        ]);
+    }
+
+    /** @param  array<string, mixed>  $context */
+    public function stockGranted(User $cashier, string $terminalId, StockOverrideGrant $grant, array $context): void
+    {
+        $this->write($cashier->store_id, 'STOCK_OVERRIDE_GRANTED', $cashier->id, $terminalId, 'stock_override', $grant->id, null, $context + [
+            'grant_id' => $grant->id, 'approver_id' => $grant->approver_id, 'cashier_id' => $cashier->id, 'terminal_id' => $terminalId,
+            'shortfalls' => $grant->shortfalls, 'expires_at' => $grant->expires_at->toIso8601String(),
+        ]);
+    }
+
+    /** @param  array<string, mixed>  $context */
+    public function stockUsed(string $storeId, string $cashierId, string $terminalId, StockOverrideGrant $grant, array $context): void
+    {
+        $this->write($storeId, 'STOCK_OVERRIDE_USED', $cashierId, $terminalId, 'stock_override', $grant->id, null, $context + [
+            'grant_id' => $grant->id, 'approver_id' => $grant->approver_id, 'cashier_id' => $cashierId, 'terminal_id' => $terminalId,
         ]);
     }
 

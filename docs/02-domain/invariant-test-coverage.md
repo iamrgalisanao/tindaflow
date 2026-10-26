@@ -264,3 +264,11 @@ to #75 (NON_VAT through reports), #79/#80 (series installation checks), and the 
 - It did not audit the frontend. (It had no automated tests then; since 2026-09-27 it has 54 Vitest tests on the money arithmetic, retry keys, API wrapper and session dialog.)
 - Nothing here changes the frozen Stage 2 baseline. Suggested wording changes to `invariants.md` (findings 7 and 10)
   need the owner's approval before the corpus is edited.
+
+## Addendum 2026-10-26 — ADR-017 slice A (invariants 100 and 104)
+
+Written when the slice was built, not part of the 2026-09-27 audit above.
+
+- **#100 STK-001** (a sale never takes tracked stock below zero while blocking is on): COVERED. `StockBlockingHttpTest` (zero, no row, partial, exact, aggregated demand of one product on two lines, a mixed cart listing every short line, untracked product unaffected, slip mode, void and refund unblocked, setting OFF unchanged) and `StockBlockingConcurrencyTest` (two processes selling the last unit: exactly one succeeds; four for three; the test fails 2 of 2 runs with the row lock removed). The daily-pool part is slice B.
+- **#104 STK-005** (a stock override is one sale, one approver, audited): COVERED. `StockBlockingHttpTest` (bound to terminal, cashier and cart; expiry; single use; consumed only when a shortfall exists; approver differs from the cashier; a cashier cannot approve; lockout shared with the credit override codes; switched-off setting; no code or token in the audit log), `StockBlockingConcurrencyTest` (a grant raced by two sales is consumed once), `AppendOnlyPrivilegesTest` (only `consumed_at` and `sale_id` are updatable).
+- #101, #102, #103 and #105 are slices B and C: still planned.

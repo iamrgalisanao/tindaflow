@@ -16,7 +16,7 @@ use LogicException;
  * deadlock in production.
  *
  * Frozen order (most-coarse to most-specific): shift -> fiscal_day ->
- * employee -> override_grant -> sale -> sale_item (ascending line_number) -> invoice_series -> slip_counter -> billing_party -> billing_cheque. An
+ * employee -> override_grant -> sale -> sale_item (ascending line_number) -> invoice_series -> slip_counter -> stock_balance -> billing_party -> billing_cheque. An
  * operation may skip a level it doesn't need, but may never acquire a
  * later-listed resource before an earlier-listed one it also needs.
  */

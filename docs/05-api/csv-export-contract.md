@@ -54,6 +54,8 @@ or removing an existing column is breaking.
 | Gross Profit by Category (stage 35, forward-committed) | `reportGrossProfitByCategory` | `category_id, category_name, quantity_sold, net_sales, cost_of_goods_sold, gross_profit, gross_margin_percent, lines_with_unknown_cost` |
 | Inventory On Hand | `reportInventoryOnHand` | `product_id, sku, product_name, location_id, quantity_on_hand, reorder_level` |
 | Low Stock | `reportLowStock` | `product_id, sku, product_name, quantity_on_hand, reorder_level, shortfall` |
+
+*ADR-017 slice A (2026-10-26): in the two inventory reports `reorder_level` is the EFFECTIVE low-stock threshold (the product's own, else the store default), and Low Stock lists products whose on-hand is at or below it (`shortfall` may be 0). The product catalog CSV is unchanged in shape; a blank `reorder_level` there means the store default.*
 | Inventory Movement | `reportInventoryMovement` | `occurred_at, product_id, sku, movement_type, quantity, reference_type, reference_id, reason, created_by` |
 | Shift Report | `reportShifts` | `shift_id, terminal_id, cashier_id, opened_at, closed_at, opening_cash, declared_cash, expected_cash, variance` |
 | Cash Variance Report | `reportCashVariance` | `shift_id, terminal_id, cashier_id, closed_at, expected_cash, declared_cash, variance` |

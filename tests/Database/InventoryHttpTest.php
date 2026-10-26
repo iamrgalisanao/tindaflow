@@ -308,8 +308,9 @@ class InventoryHttpTest extends PostgresSchemaTestCase
         $all = $this->asUser($s['cashier'])->getJson('/api/v1/inventory/stock');
         $all->assertOk();
         $this->assertSame([$one->id, $two->id], collect($all->json('data'))->pluck('product_id')->all());
-        $this->assertSame(['product_id', 'location_id', 'quantity_on_hand', 'updated_at'], array_keys($all->json('data.0')));
+        $this->assertSame(['product_id', 'location_id', 'quantity_on_hand', 'low_stock_threshold', 'updated_at'], array_keys($all->json('data.0')));
         $this->assertSame('5.000', $all->json('data.0.quantity_on_hand'));
+        $this->assertIsInt($all->json('data.0.low_stock_threshold'), 'the effective low-stock threshold: the product\'s own level, else the store default (ADR-017)');
 
         $one_only = $this->asUser($s['cashier'])->getJson("/api/v1/inventory/stock?product_id={$two->id}");
         $this->assertSame([$two->id], collect($one_only->json('data'))->pluck('product_id')->all());

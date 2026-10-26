@@ -674,7 +674,7 @@ applying to the business day in slip mode.
     available quantity (a missing balance row is zero), checked inside the checkout transaction with the balance rows locked `FOR UPDATE` in the
     canonical stock order; otherwise the sale is refused (`INSUFFICIENT_STOCK`, 409, listing every short line) and nothing is written. Two tills
     selling the last portion: exactly one succeeds. With the setting false the ledger behaves as before and balances may go negative. Void and
-    refund are never blocked. *Planned, ADR-017 slice A.*
+    refund are never blocked. *Built, ADR-017 slice A (RUNNING stock; the daily-pool part of the demand is slice B).* Tests: `StockBlockingHttpTest`, `StockBlockingConcurrencyTest` (two processes), `StockDemandResolverTest`.
 101. **STK-002 — daily stock belongs to its stock date and nothing resets it.** A movement of a DAILY item carries `stock_date`; a sale consumes only
     the balance of its own `stock_date` (the store-local date of `sold_at` less `stock_day_cutover_hour`, never a terminal's fiscal day); yesterday's
     remaining quantity is never available today; a day's leftover is its remaining balance, derived, with no closing movement and no scheduled
@@ -691,6 +691,6 @@ applying to the business day in slip mode.
 104. **STK-005 — a stock override is one sale, one approver, audited.** A `stock_override_grant` is bound to terminal, cashier and the exact shortfall
     demand (hash), expires in minutes, is single use (consumed atomically, only when a shortfall actually exists, with `sale_id` recorded), the
     approver holds `STOCK_SALE_OVERRIDE` and differs from the cashier, approver codes are the OVR-002 codes (same lockout), and `STOCK_OVERRIDE_*`
-    audit events are written for every attempt. With `stock_override_enabled` false no grant is issued or accepted. *Planned, ADR-017 slice A.*
+    audit events are written for every attempt. With `stock_override_enabled` false no grant is issued or accepted. *Built, ADR-017 slice A.* `sale_id` set on the grant is the "oversold" flag. Tests: `StockBlockingHttpTest`, `StockBlockingConcurrencyTest` (a grant raced by two sales is consumed once), `AppendOnlyPrivilegesTest`.
 105. **STK-006 — shelf life is advisory.** `product.shelf_life_days` only drives a derived "check freshness" flag (stock on hand and the latest
     receipt older than the shelf life); it never blocks a sale, never changes a balance and stores no expiry date or batch. *Planned, ADR-017 slice C.*

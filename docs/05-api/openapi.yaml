@@ -15,6 +15,8 @@ tags:
 - {name: CreditOverride}
 - {name: Billing}
 - {name: Inventory}
+- {name: StockRules}
+- {name: StockOverride}
 - {name: Sales}
 - {name: Invoices}
 - {name: SaleSlips}
@@ -2577,7 +2579,7 @@ paths:
     get:
       operationId: inventoryLowStockList
       tags: [Inventory]
-      summary: Products at or below their reorder level
+      summary: 'Products at or below their low-stock threshold: the product''s own reorder_level when it has one (even 0), otherwise the store''s low_stock_default_threshold (3 out of the box). Each row carries that effective threshold as low_stock_threshold. ADR-017 section 2.'
       parameters:
       - {$ref: '#/components/parameters/PageParam'}
       - {$ref: '#/components/parameters/PerPageParam'}
@@ -2595,6 +2597,98 @@ paths:
                       type: array
                       items: {$ref: '#/components/schemas/StockBalance'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+  /stock/availability:
+    get:
+      operationId: stockAvailabilityGet
+      tags: [Inventory]
+      summary: 'ADR-017 slice A. What is left of every ACTIVE TRACKED product at the store''s default location, plus the store''s stock rules, for the till''s tiles and cart. Any signed-in user of the store (a session, no capability): quantities and flags only, never a cost. A tracked product with no stock record is listed with remaining 0.000 (sold out). `low` = 0 < remaining <= threshold; `sold_out` = remaining <= 0; `threshold` is the product''s reorder_level or the store default. Advisory: a stale figure can show a tile as available that checkout then refuses (INSUFFICIENT_STOCK).'
+      responses:
+        '200':
+          description: The rules and the remaining quantities
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockAvailability'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /stock-rules:
+    get:
+      operationId: stockRulesGet
+      tags: [StockRules]
+      x-capability: STORE_SETTINGS_MANAGE
+      summary: 'ADR-017 section 1. The store''s stock rules (block a sale without stock, allow the manager override, the low-stock default) and the PRE-FLIGHT count: how many tracked, active products currently have zero or no stock (these would be unsellable if blocking were on).'
+      responses:
+        '200':
+          description: The rules and the pre-flight
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockRules'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      operationId: stockRulesSet
+      tags: [StockRules]
+      x-capability: STORE_SETTINGS_MANAGE
+      summary: 'Replaces the three values. ADMIN only. Writes one STOCK_RULES_CHANGED audit event with the old and new values (and, when blocking is turned on, the unsellable count shown); saving what is already stored writes nothing. Turning blocking on never touches a balance.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StockRulesInput'}
+      responses:
+        '200':
+          description: The rules as saved, with the pre-flight
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockRules'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /stock-override-approvers:
+    get:
+      operationId: stockOverrideApproverList
+      tags: [StockOverride]
+      summary: 'The managers a cashier can ask to approve a sale that is short of stock (any signed-in user): active users of the caller''s store who hold STOCK_SALE_OVERRIDE and have set an override code, by name, the caller left out. No code, status or role is returned.'
+      responses:
+        '200':
+          description: Approvers by name
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string, format: uuid}
+                        name: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /stock-overrides:
+    post:
+      operationId: stockOverrideGrant
+      tags: [StockOverride]
+      summary: 'ADR-017 section 9. A NAMED approver''s code + the cart -> a single-use approval for ONE sale that is short of stock (terminal-scoped: session and enrolled terminal; the cashier and terminal come from the authoritative context). The server works out the cart''s shortfall itself and refuses (STOCK_OVERRIDE_NOT_ALLOWED, 403) when there is none, when the store switched overrides off, or when the approver is the cashier. The code is the approver''s ONE override code, shared with the credit-limit override: one generic STOCK_OVERRIDE_INVALID (422) for a wrong code, an unknown, inactive or other-store approver, one without a code and one without STOCK_SALE_OVERRIDE; five wrong codes lock that approver 15 minutes whichever override they were for (STOCK_OVERRIDE_LOCKED, 423). Shares the 10-per-15-minutes limit per terminal and user with creditOverrideGrant (RATE_LIMITED 429). The token is returned once and only its SHA-256 is stored; it is bound to this terminal, this cashier and the exact shortfall, valid 5 minutes, and consumed by the first saleFinalize that really is short. Neither the code nor the token is ever logged or audited.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StockOverrideGrantRequest'}
+      responses:
+        '201':
+          description: The approval
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StockOverrideGrantResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '423':
+          description: STOCK_OVERRIDE_LOCKED. details.retry_after_minutes
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
   /inventory/movements:
     get:
       operationId: inventoryMovementList
@@ -3038,6 +3132,7 @@ paths:
       operationId: saleFinalize
       tags: [Sales]
       summary: Finalize a Sale (checkout) — the single most important operation
+      x-stock-note: 'ADR-017 slice A: when the store blocks sales without stock the 409 may be INSUFFICIENT_STOCK (details.shortfalls[] of every short line and details.override_available; not transient, the till does not retry it; a refused checkout stores no idempotency result, so the same key may be sent again once stock is entered or a stock_override_token is added).'
       description: 'A Sale does not exist before this call succeeds (Stage 2 §2.7: no persisted DRAFT). Terminal, cashier, shift, fiscal_day are resolved server-side and can never be overridden by the request body (architecture.md §5/§11, Stage 2 invariant #3/#4). Server recomputes every monetary/tax/discount figure via the FinancialCalculator (ADR-012) regardless of any client-submitted preview values. Credit (ADR-016 slice 3.2): `payments` may be ONE `{method: CREDIT, amount}` plus `employee_id`. CREDIT mixed with any other payment: CREDIT_MIXED_TENDER (422); CREDIT without employee_id, or employee_id without CREDIT: CREDIT_EMPLOYEE_REQUIRED (422); unknown or other-store employee: EMPLOYEE_NOT_FOUND (404); deactivated: EMPLOYEE_INACTIVE (409); over the limit for the sale''s cut-off period: CREDIT_LIMIT_EXCEEDED (409, details carry limit, used, remaining and requested). The recorded CREDIT amount is always the server''s grand total (an amount below it is INSUFFICIENT_PAYMENT).'
       security:
       - cookieAuth: []
@@ -4921,7 +5016,7 @@ components:
       description: 'The full Stage 2 capability catalog (domain-model.md §2.2), including the six additions synced back into Stage 2 during Stage 4 remediation pass 2 (2026-09-16) — CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE — so this enum and Stage 2''s canonical list never drift again. This is a fixed enum of string constants, not a dynamic/configurable permission system — see api-design.md §4 for the role→capability mapping and rationale.
 
         '
-      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE, EMPLOYEE_MANAGE, EMPLOYEE_POLICY_MANAGE, CREDIT_LIMIT_OVERRIDE, BILLING_MANAGE]
+      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE, EMPLOYEE_MANAGE, EMPLOYEE_POLICY_MANAGE, CREDIT_LIMIT_OVERRIDE, BILLING_MANAGE, STOCK_SALE_OVERRIDE]
     UserSummary:
       type: object
       properties:
@@ -5540,7 +5635,10 @@ components:
         selling_price: {$ref: '#/components/schemas/Money'}
         tax_class: {$ref: '#/components/schemas/TaxClassification'}
         track_inventory: {type: boolean}
-        reorder_level: {type: integer}
+        reorder_level:
+          anyOf:
+          - {type: integer, minimum: 0, description: 'This product''s own low-stock threshold (0 = warn only when sold out).'}
+          - {type: 'null', description: 'Use the store''s low_stock_default_threshold (ADR-017 section 2).'}
         active: {type: boolean}
         note: {type: string, readOnly: true, description: 'selling_price/tax_class here are current catalog values for cashier preview only — never authoritative for a historical sale_item, which carries its own immutable snapshot.'}
     ProductInput:
@@ -5574,7 +5672,11 @@ components:
         selling_price: {$ref: '#/components/schemas/Money'}
         tax_class: {$ref: '#/components/schemas/TaxClassification'}
         track_inventory: {type: boolean, default: true}
-        reorder_level: {type: integer, default: 0}
+        reorder_level:
+          anyOf:
+          - {type: integer, minimum: 0}
+          - {type: 'null'}
+          description: 'null or absent on create = use the store''s low-stock default; a number, even 0, is this product''s own threshold. On update, absent leaves it alone and null clears it back to the default. ADR-017 section 2.'
     ImportResult:
       type: object
       properties:
@@ -5594,7 +5696,92 @@ components:
         product_id: {type: string, format: uuid}
         location_id: {type: string, format: uuid}
         quantity_on_hand: {$ref: '#/components/schemas/Quantity'}
+        low_stock_threshold: {type: [integer, 'null'], description: 'The effective low-stock threshold: the product''s reorder_level, else the store default (ADR-017 section 2). Present on the stock and low-stock lists.'}
         updated_at: {type: string, format: date-time}
+    StockRulesInput:
+      type: object
+      required: [block_sale_without_stock, stock_override_enabled, low_stock_default_threshold]
+      properties:
+        block_sale_without_stock: {type: boolean, description: 'The master switch. false (the default): a sale never refuses and stock may go below zero. true: a sale that demands more of a tracked product than is on hand is refused (INSUFFICIENT_STOCK).'}
+        stock_override_enabled: {type: boolean, description: 'Only matters while blocking is on: whether a manager may approve one blocked sale. Default true.'}
+        low_stock_default_threshold: {type: integer, minimum: 0, maximum: 1000, description: 'The "N left" warning for every product whose reorder_level is null. Default 3.'}
+    StockRules:
+      allOf:
+      - {$ref: '#/components/schemas/StockRulesInput'}
+      - type: object
+        properties:
+          preflight:
+            type: object
+            properties:
+              unsellable_count: {type: integer, description: 'Tracked, active products with zero, negative or no stock at the default location.'}
+              tracked_count: {type: integer}
+              sample:
+                type: array
+                description: 'The first 25 by name.'
+                items:
+                  type: object
+                  properties:
+                    product_id: {type: string, format: uuid}
+                    name: {type: string}
+                    sku: {type: string}
+    StockAvailability:
+      type: object
+      properties:
+        blocking: {type: boolean}
+        override_available: {type: boolean, description: 'blocking AND stock_override_enabled.'}
+        low_stock_default_threshold: {type: integer}
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id: {type: string, format: uuid}
+              remaining: {$ref: '#/components/schemas/Quantity'}
+              threshold: {type: integer}
+              low: {type: boolean}
+              sold_out: {type: boolean}
+    StockShortfall:
+      type: object
+      description: 'One short line of an INSUFFICIENT_STOCK refusal. kind PRODUCT and mode RUNNING in slice A; stock_date is reserved for daily stock (slice B) and is null.'
+      properties:
+        kind: {type: string, enum: [PRODUCT]}
+        product_id: {type: string, format: uuid}
+        name: {type: string}
+        mode: {type: string, enum: [RUNNING]}
+        stock_date: {type: [string, 'null'], format: date}
+        required: {$ref: '#/components/schemas/Quantity'}
+        available: {$ref: '#/components/schemas/Quantity'}
+    StockOverrideGrantRequest:
+      type: object
+      required: [approver_id, code, items]
+      properties:
+        approver_id: {type: string, format: uuid, description: 'The approver the cashier picked by name (from stockOverrideApproverList).'}
+        code: {type: string, pattern: '^\d{6,8}$', writeOnly: true, description: 'The approver''s own code, typed by them. Never stored, logged or audited.'}
+        items:
+          type: array
+          minItems: 1
+          description: 'The cart as saleFinalize would carry it. Only product_id and quantity are read; a meal item demands nothing in slice A.'
+          items:
+            type: object
+            required: [quantity]
+            properties:
+              product_id: {type: [string, 'null'], format: uuid}
+              meal: {type: [object, 'null']}
+              quantity: {$ref: '#/components/schemas/Quantity'}
+    StockOverrideGrantResult:
+      type: object
+      properties:
+        grant_id: {type: string, format: uuid}
+        token: {type: string, pattern: '^[0-9a-f]{64}$', description: 'Shown once. Send as saleFinalize.stock_override_token. Only its SHA-256 is stored.'}
+        expires_at: {type: string, format: date-time}
+        approver:
+          type: object
+          properties:
+            id: {type: string, format: uuid}
+            name: {type: string}
+        shortfalls:
+          type: array
+          items: {$ref: '#/components/schemas/StockShortfall'}
     StockCountStatus:
       type: string
       enum: [OPEN, POSTED, CANCELLED]
@@ -5855,6 +6042,10 @@ components:
         credit_override_token:
           anyOf:
           - {type: string, pattern: '^[0-9a-f]{64}$', description: 'ADR-016 section 6, slice 3.3. The single-use manager approval from creditOverrideGrant. Used (consumed, under the employee lock, in the sale''s transaction) ONLY if this credit sale would exceed the limit; a sale within the limit leaves it unused. Refused on a sale that is not paid with credit (CREDIT_EMPLOYEE_REQUIRED). Part of the idempotency hash. Refusals: CREDIT_OVERRIDE_INVALID (422), CREDIT_OVERRIDE_EXPIRED (409), CREDIT_OVERRIDE_NOT_ALLOWED (403).'}
+          - {type: 'null'}
+        stock_override_token:
+          anyOf:
+          - {type: string, pattern: '^[0-9a-f]{64}$', description: 'ADR-017 section 9. The single-use manager approval from stockOverrideGrant. Used (consumed, under the stock row locks, in the sale''s transaction) ONLY if the store blocks sales without stock AND this sale really is short; a sale that is not short leaves it unused, and with blocking off it is ignored. Part of the idempotency hash. Refusals: STOCK_OVERRIDE_INVALID (422), STOCK_OVERRIDE_EXPIRED (409), STOCK_OVERRIDE_NOT_ALLOWED (403). Without a token a short sale is INSUFFICIENT_STOCK (409).'}
           - {type: 'null'}
         buyer_name:
           anyOf:

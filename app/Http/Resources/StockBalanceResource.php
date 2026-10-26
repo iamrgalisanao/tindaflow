@@ -22,6 +22,8 @@ class StockBalanceResource extends JsonResource
             'product_id' => $this->resource->product_id,
             'location_id' => $this->resource->location_id,
             'quantity_on_hand' => $this->resource->quantity_on_hand,
+            // The product's own reorder level, or the store's low-stock default when it has none (ADR-017 section 2); null where the row was not read through the product join.
+            'low_stock_threshold' => $this->resource->getAttribute('low_stock_threshold') === null ? null : (int) $this->resource->getAttribute('low_stock_threshold'),
             'updated_at' => $this->resource->updated_at?->toIso8601String(),
         ];
     }

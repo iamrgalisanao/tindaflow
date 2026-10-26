@@ -21,7 +21,7 @@ function initialValues(product) {
         selling_price: product?.selling_price ?? '',
         tax_class: product?.tax_class ?? 'VATABLE',
         track_inventory: product?.track_inventory ?? true,
-        reorder_level: String(product?.reorder_level ?? 0),
+        reorder_level: product?.reorder_level == null ? '' : String(product.reorder_level), // blank = the store's low-stock default (ADR-017)
     };
 }
 
@@ -42,8 +42,8 @@ function validate(values) {
     if (values.cost.trim() !== '' && normalizeMoney(values.cost) === null) {
         errors.cost = 'Enter a cost with two decimals, e.g. 40.00.';
     }
-    if (!/^\d+$/.test(values.reorder_level.trim())) {
-        errors.reorder_level = 'Enter a whole number, 0 or more.';
+    if (values.reorder_level.trim() !== '' && !/^\d+$/.test(values.reorder_level.trim())) {
+        errors.reorder_level = 'Enter a whole number, 0 or more, or leave it blank.';
     }
     return errors;
 }
@@ -200,7 +200,7 @@ export default function ProductFormPanel({
             selling_price: normalizeMoney(values.selling_price),
             tax_class: values.tax_class,
             track_inventory: values.track_inventory,
-            reorder_level: Number(values.reorder_level),
+            reorder_level: values.reorder_level.trim() === '' ? null : Number(values.reorder_level),
         };
         const result = await request(editing ? `/api/v1/products/${product.id}` : '/api/v1/products', {
             method: editing ? 'PATCH' : 'POST',
@@ -482,12 +482,13 @@ export default function ProductFormPanel({
                             />
                             Track inventory
                         </label>
-                        <Field id="product_reorder" label="Reorder level" error={errors.reorder_level}>
+                        <Field id="product_reorder" label="Reorder level" error={errors.reorder_level} hint="Blank uses the store's number (3 unless changed). The till warns at this many left.">
                             <input
                                 id="product_reorder"
                                 type="text"
                                 inputMode="numeric"
                                 value={values.reorder_level}
+                                placeholder="Store default"
                                 aria-invalid={Boolean(errors.reorder_level)}
                                 onChange={(event) => set('reorder_level', event.target.value)}
                                 className={`${inputClass(errors.reorder_level, true)} text-right`}

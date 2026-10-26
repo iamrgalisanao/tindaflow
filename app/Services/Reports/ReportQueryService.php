@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Domain\Money;
+use App\Services\Inventory\StockRules;
 use App\Services\Payments\NetCollectionService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
@@ -557,8 +558,10 @@ final class ReportQueryService
             ->where('products.track_inventory', true) // same rule as lowStock: an untracked product's ledger is not stock
             ->select([
                 'stock_balances.product_id', 'products.sku', 'products.name as product_name',
-                'stock_balances.location_id', 'stock_balances.quantity_on_hand', 'products.reorder_level',
+                'stock_balances.location_id', 'stock_balances.quantity_on_hand',
             ])
+            // The effective threshold (ADR-017 section 2): the product's own reorder level, else the store's low-stock default.
+            ->selectRaw('COALESCE(products.reorder_level, ?) as reorder_level', [StockRules::forStore($storeId)->defaultThreshold])
             ->orderBy('products.name')
             ->get();
 
@@ -577,15 +580,17 @@ final class ReportQueryService
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
     public function lowStock(string $storeId): array
     {
+        // ADR-017 section 2: the threshold is the product's own reorder level, else the store's low-stock default, and "low" is AT or below it --
+        // the same rule as the low-stock list and the till's "N left" warning, so the three always agree.
+        $default = StockRules::forStore($storeId)->defaultThreshold;
         $rows = DB::table('stock_balances')
             ->join('products', 'products.id', '=', 'stock_balances.product_id')
             ->where('products.store_id', $storeId)
             ->where('products.track_inventory', true)
-            ->whereNotNull('products.reorder_level')
-            ->selectRaw('stock_balances.product_id as product_id, products.sku as sku, products.name as product_name, products.reorder_level as reorder_level')
+            ->selectRaw('stock_balances.product_id as product_id, products.sku as sku, products.name as product_name, COALESCE(products.reorder_level, ?) as reorder_level', [$default])
             ->selectRaw('SUM(stock_balances.quantity_on_hand) as quantity_on_hand')
             ->groupBy('stock_balances.product_id', 'products.sku', 'products.name', 'products.reorder_level')
-            ->havingRaw('SUM(stock_balances.quantity_on_hand) < products.reorder_level')
+            ->havingRaw('SUM(stock_balances.quantity_on_hand) <= COALESCE(products.reorder_level, ?)', [$default])
             ->orderBy('products.name')
             ->get();
 

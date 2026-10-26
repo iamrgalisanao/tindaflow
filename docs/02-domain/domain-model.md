@@ -761,7 +761,7 @@ SUBCONTRACTOR 1,000.00 (client, 2026-10-25), created by the migration for existi
 
 **Built in slice 3.3 (2026-10-26).** `user_override_code`: `user_id` (key), `store_id`, `code_hash` (slow hash, NULL after a clear), `failed_attempts`, `locked_until`, `set_at`, `set_by`; lifecycle, one row per approver, application UPDATE limited to those columns. `credit_override_grant`: `store_id`, `terminal_id`, `employee_id`, `cashier_id`, `approver_id` (CHECK differs from the cashier), `max_amount`, `token_hash` (unique SHA-256), `expires_at`, `consumed_at`, `created_at`; append-only except `consumed_at`. `employee_credit_entry.override_grant_id` (nullable, UNIQUE) names the grant that let a CHARGE past the limit. Lock order: shift, fiscal day, employee, **override grant**, sale. The override approves one over-limit credit sale and nothing else: discounts and every other action stay capability-gated.
 
-**Capabilities added** (catalog grows from 17 to 21; `EMPLOYEE_MANAGE` is built, slice 3.1, 2026-10-25, `CREDIT_LIMIT_OVERRIDE`, slice 3.3, 2026-10-26, and `BILLING_MANAGE`, slice 4.1, 2026-10-26): `EMPLOYEE_MANAGE` (ADMIN, and MANAGER from 2026-10-26), `EMPLOYEE_POLICY_MANAGE` (ADMIN, 2026-10-26), `CREDIT_LIMIT_OVERRIDE` (MANAGER, ADMIN),
+**Capabilities added** (catalog grows from 17 to 21, then to 22 by `STOCK_SALE_OVERRIDE` of ADR-017 slice A, 2026-10-26 (MANAGER and ADMIN, never CASHIER: a named approver may approve one sale that is short of stock); `EMPLOYEE_MANAGE` is built, slice 3.1, 2026-10-25, `CREDIT_LIMIT_OVERRIDE`, slice 3.3, 2026-10-26, and `BILLING_MANAGE`, slice 4.1, 2026-10-26): `EMPLOYEE_MANAGE` (ADMIN, and MANAGER from 2026-10-26), `EMPLOYEE_POLICY_MANAGE` (ADMIN, 2026-10-26), `CREDIT_LIMIT_OVERRIDE` (MANAGER, ADMIN),
 `BILLING_MANAGE` (MANAGER, ADMIN; built in slice 4.1, it covers viewing the statement as well as saving runs and, in slice 4.2, cheques). Menu editing reuses `CATALOG_MANAGE`; changing the sale document
 mode reuses `FISCAL_CONFIGURATION_MANAGE` (vendor unlock, ADR-014). The V1 roles stay ADMIN/MANAGER/CASHIER: the client's "supervisor" is a MANAGER.
 
@@ -776,7 +776,7 @@ end-of-day report. Shift open/close, cash count and X-reading are unchanged.
 
 ### 2.14 Stock rules: blocking, daily dish stock, shelf life (ADR-017, proposed 2026-10-26)
 
-Additive; full rationale in [ADR-017](../03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md). Not yet built.
+Additive; full rationale in [ADR-017](../03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md). **Slice A is built (2026-10-26):** the three `store_settings` columns `block_sale_without_stock`, `stock_override_enabled`, `low_stock_default_threshold`; `product.reorder_level` nullable; the `STOCK_SALE_OVERRIDE` capability; `stock_override_grant` (`terminal_id`, `cashier_id`, `approver_id`, `demand_hash`, `shortfalls`, `token_hash`, `expires_at`, `consumed_at`, `sale_id`; lifecycle: only `consumed_at` and `sale_id` are updated). `stock_mode`, the daily balance, snapshots, dishes' pools and shelf life (the rest of this section) are slices B and C and are NOT built; slice A did not add `product.stock_mode` or `stock_day_cutover_hour`.
 
 - **Stock modes.** `product.stock_mode` `NONE|RUNNING|DAILY` (RUNNING = today's behaviour, balances carry over; DAILY = stock exists for one stock date).
   `dish.stock_mode` `NONE|DAILY`; a DAILY dish owns a hidden **pool product** (`dish.stock_product_id`) so every stock row stays keyed by product.

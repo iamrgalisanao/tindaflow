@@ -23,10 +23,10 @@ final class OverrideCodeService
 
     public function __construct(private readonly OverrideAuditor $auditor) {}
 
-    /** Roles whose fixed capability set includes the override. */
-    public static function approverRoles(): array
+    /** Roles whose fixed capability set includes the override ($capability defaults to the credit-limit override; a stock override passes its own). */
+    public static function approverRoles(string $capability = self::CAPABILITY): array
     {
-        return array_values(array_filter(['ADMIN', 'MANAGER', 'CASHIER'], fn (string $role): bool => RoleCapabilityCatalog::has($role, self::CAPABILITY)));
+        return array_values(array_filter(['ADMIN', 'MANAGER', 'CASHIER'], fn (string $role): bool => RoleCapabilityCatalog::has($role, $capability)));
     }
 
     /**
@@ -35,13 +35,13 @@ final class OverrideCodeService
      *
      * @return Collection<int, array{id: string, name: string}>
      */
-    public function approversFor(User $viewer): Collection
+    public function approversFor(User $viewer, string $capability = self::CAPABILITY): Collection
     {
         return User::query()
             ->join('user_override_codes', 'user_override_codes.user_id', '=', 'users.id')
             ->where('users.store_id', $viewer->store_id)
             ->where('users.active', true)
-            ->whereIn('users.role', self::approverRoles())
+            ->whereIn('users.role', self::approverRoles($capability))
             ->whereNotNull('user_override_codes.code_hash')
             ->where('users.id', '!=', $viewer->id)
             ->orderBy('users.name')->orderBy('users.id')

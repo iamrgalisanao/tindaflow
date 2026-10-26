@@ -46,7 +46,7 @@ note that `cost` is therefore visible to every signed-in role, exactly as it alr
 - **Columns:** only `sku` is always required. A column the file omits is left alone (so `sku,selling_price` is a
   bulk price update). A blank cell clears an optional field (`barcode`, `description`, `category`, `brand`,
   `cost`) and is an error for a required one. Blank `track_inventory`, `reorder_level` and `active` leave an
-  existing product alone and default a new one (`true`, `0`, `true`). Creating a product needs
+  existing product alone and default a new one (`true`, blank, `true`; *amended by ADR-017 slice A, 2026-10-26: a blank `reorder_level` is NULL, "use the store's low-stock default", and the export writes NULL as a blank, so an exported file imports back unchanged; an explicit `0` is a real value*). Creating a product needs
   `name, unit_of_measure, selling_price, tax_class` in the file.
 - **Lenient where a spreadsheet is lossy:** money may be `55` or `55.5` (Excel drops trailing zeros) and is
   completed to two places; more than two decimals is an error, never rounded. Tax class accepts `non-vat` and

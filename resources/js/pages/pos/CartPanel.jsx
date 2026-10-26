@@ -2,6 +2,7 @@ import { clampedDiscountCents, fromThousandths, lineCents, pesos, toThousandths 
 import MoneyInput from '../../components/MoneyInput';
 import { mealDetailLines, mealPlates } from './mealMenu';
 import { isOverLimit, money, remainingAfter } from './credit';
+import { NO_STOCK_RULES, lineStock } from './stock';
 
 const STEP = 1000n; // one whole unit
 
@@ -16,6 +17,10 @@ const STEP = 1000n; // one whole unit
  * entitlement, not a discretionary override) and captures only who the discount is for -- the 20%-off-VAT-exclusive
  * amount is computed exclusively by the server, never previewed here, so "Total amount due" stays the safe,
  * pre-discount figure to collect until the receipt shows the real one.
+ *
+ * `stock` (ADR-017 slice A) is the till's read of what is left of each tracked product: a line shows how many are in stock, turns amber when
+ * the cart leaves the low-stock threshold or less, and red when the cart asks for more than is there. It is advisory; checkout decides.
+ * `onIncrease(line)`, when given, takes over the "+" button so the register can refuse an add that stock cannot cover.
  *
  * `credit` is null for a cash sale. For a sale charged to an employee it is `{ name, status }` (status: limit/used/remaining for the
  * current cut-off, from the lookup): the panel then shows what is left now and after this cart, warns in red when the cart is over
@@ -37,8 +42,15 @@ export default function CartPanel({
     onRemove,
     onCharge,
     credit = null,
+    stock = NO_STOCK_RULES,
+    onIncrease = undefined,
 }) {
     function step(line, direction) {
+        if (direction > 0n && onIncrease) {
+            onIncrease(line);
+
+            return;
+        }
         const current = toThousandths(line.quantity) ?? STEP;
         const next = current + direction * STEP;
         if (next > 0n) {
@@ -75,6 +87,7 @@ export default function CartPanel({
                     const lineDiscountCents = invalid || !canDiscount ? 0n : clampedDiscountCents(line.discount, grossCents);
                     const cents = invalid ? null : grossCents - lineDiscountCents;
                     const unit = line.product.unit_of_measure ?? 'unit';
+                    const onHand = lineStock(stock, cart, line);
                     return (
                         <li key={line.key} className="flex items-center gap-3 px-4 py-3">
                             <div className="min-w-0 flex-1">
@@ -91,6 +104,16 @@ export default function CartPanel({
                                 <p className="font-mono text-xs text-slate-400">
                                     @ ₱{line.product.selling_price} / {unit}
                                 </p>
+                                {onHand && (
+                                    <p
+                                        data-stock={onHand.tone}
+                                        role={onHand.tone === 'over' ? 'alert' : undefined}
+                                        className={`text-xs ${onHand.tone === 'over' ? 'font-semibold text-red-300' : onHand.tone === 'low' ? 'font-medium text-amber-300' : 'text-slate-500'}`}
+                                    >
+                                        {onHand.text}
+                                        {onHand.hint ? ` ${onHand.hint}` : ''}
+                                    </p>
+                                )}
                                 {canDiscount && !line.meal && (
                                     <div className="mt-1 flex items-center gap-1">
                                         <label htmlFor={`line_discount_${line.key}`} className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-400">

@@ -13,6 +13,7 @@ use App\Models\StockBalance;
 use App\Models\StockMovement;
 use App\Services\Auth\PosRequestContext;
 use App\Services\Inventory\StockLedger;
+use App\Services\Inventory\StockRules;
 use App\Services\Inventory\StockService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -38,11 +39,14 @@ class InventoryController extends Controller
         );
     }
 
-    /** Per-location balances at or below the product's reorder level. */
+    /**
+     * Per-location balances at or below the product's low-stock threshold: its own reorder level when one was set, else the store's default
+     * (ADR-017 section 2; the same number the till's "N left" warning uses).
+     */
     public function lowStock(Request $request): JsonResponse
     {
         $query = $this->balancesQuery($request)
-            ->whereColumn('stock_balances.quantity_on_hand', '<=', 'products.reorder_level');
+            ->whereRaw('stock_balances.quantity_on_hand <= COALESCE(products.reorder_level, ?)', [StockRules::forStore(Auth::guard('web')->user()->store_id)->defaultThreshold]);
 
         return $this->paginatedResponse(
             $query->paginate(perPage: $this->perPage($request), page: (int) $request->query('page', 1)),
@@ -109,6 +113,8 @@ class InventoryController extends Controller
             ->where('products.store_id', $actor->store_id)
             ->where('products.track_inventory', true)
             ->select('stock_balances.*')
+            // The effective low-stock threshold travels with the row, so the screen never has to know the store default.
+            ->selectRaw('COALESCE(products.reorder_level, ?) AS low_stock_threshold', [StockRules::forStore($actor->store_id)->defaultThreshold])
             ->orderBy('products.name')->orderBy('stock_balances.product_id')->orderBy('stock_balances.location_id');
 
         if ($request->filled('product_id')) {

@@ -148,10 +148,41 @@ class GlobalLockOrderTest extends TestCase
         $order->acquire(LockableResource::OverrideGrant);
     }
 
+    public function test_a_sale_takes_the_stock_rows_last_and_a_blocked_sale_with_both_approvals_is_in_order(): void
+    {
+        // ADR-017: shift, fiscal day, employee, the stock override grant and then the credit override grant (both at OverrideGrant), sale, sale item,
+        // invoice series, and only then the stock balance rows.
+        $order = new GlobalLockOrder;
+        $order->acquire(LockableResource::Shift);
+        $order->acquire(LockableResource::FiscalDay);
+        $order->acquire(LockableResource::Employee);
+        $order->acquire(LockableResource::OverrideGrant); // the stock grant, early
+        $order->acquire(LockableResource::OverrideGrant); // the credit grant, if the limit is exceeded
+        $order->acquire(LockableResource::Sale);
+        $order->acquire(LockableResource::SaleItem, tieBreaker: 1);
+        $order->acquire(LockableResource::InvoiceSeries);
+        $order->acquire(LockableResource::StockBalance);
+
+        $slip = new GlobalLockOrder;
+        $slip->acquire(LockableResource::SlipCounter);
+        $slip->acquire(LockableResource::StockBalance);
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_the_stock_rows_cannot_be_locked_before_anything_of_the_sale(): void
+    {
+        $order = new GlobalLockOrder;
+        $order->acquire(LockableResource::StockBalance);
+
+        $this->expectException(LogicException::class);
+        $order->acquire(LockableResource::SlipCounter);
+    }
+
     public function test_the_order_values_are_the_documented_ones(): void
     {
         $this->assertSame(
-            ['shift' => 0, 'fiscal_day' => 1, 'employee' => 2, 'override_grant' => 3, 'sale' => 4, 'sale_item' => 5, 'invoice_series' => 6, 'slip_counter' => 7, 'billing_party' => 8, 'billing_cheque' => 9],
+            ['shift' => 0, 'fiscal_day' => 1, 'employee' => 2, 'override_grant' => 3, 'sale' => 4, 'sale_item' => 5, 'invoice_series' => 6, 'slip_counter' => 7, 'stock_balance' => 8, 'billing_party' => 9, 'billing_cheque' => 10],
             collect(LockableResource::cases())->mapWithKeys(fn (LockableResource $resource) => [$resource->value => $resource->order()])->all(),
         );
     }

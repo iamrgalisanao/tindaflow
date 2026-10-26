@@ -34,7 +34,7 @@ final class ProductService
                 // The barcode lock makes "is this code free?" and the write one step (see ProductBarcodeService).
                 $this->barcodes->claim($actor->store_id, $data['barcode'] ?? null, null);
                 $product = Product::create(array_merge(
-                    ['track_inventory' => true, 'reorder_level' => 0],
+                    ['track_inventory' => true, 'reorder_level' => null],
                     Arr::only($data, self::FIELDS),
                     ['store_id' => $actor->store_id, 'active' => true],
                 ));

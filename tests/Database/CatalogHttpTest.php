@@ -81,9 +81,10 @@ class CatalogHttpTest extends PostgresSchemaTestCase
             'selling_price' => '55.00',
             'tax_class' => 'VATABLE',
             'track_inventory' => true,
-            'reorder_level' => 0,
+            'reorder_level' => null, // ADR-017: not given means "use the store's low-stock default"
             'active' => true,
         ]);
+        $this->assertNull($response->json('reorder_level'));
         $this->assertSame($admin->store_id, Product::findOrFail($response->json('id'))->store_id);
     }
 

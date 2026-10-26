@@ -33,7 +33,7 @@ final class MenuBackingProducts
             'selling_price' => '0.00',
             'tax_class' => $this->taxClassFor($storeId),
             'track_inventory' => false,
-            'reorder_level' => 0,
+            'reorder_level' => null,
             'active' => false,
             'menu_hidden' => true,
         ]);

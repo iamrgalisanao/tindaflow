@@ -34,6 +34,11 @@ export const AUDIT_TYPES = [
     { id: 'CREDIT_OVERRIDE_USED', label: 'Manager approval used' },
     { id: 'CREDIT_OVERRIDE_REFUSED', label: 'Manager approval refused' },
     { id: 'CREDIT_OVERRIDE_LOCKED', label: 'Manager locked out' },
+    { id: 'STOCK_RULES_CHANGED', label: 'Stock rules changed' },
+    { id: 'STOCK_OVERRIDE_GRANTED', label: 'Stock approval given' },
+    { id: 'STOCK_OVERRIDE_USED', label: 'Sale without stock approved' },
+    { id: 'STOCK_OVERRIDE_REFUSED', label: 'Stock approval refused' },
+    { id: 'STOCK_OVERRIDE_LOCKED', label: 'Manager locked out (stock)' },
     { id: 'OVERRIDE_CODE_SET', label: 'Override code set' },
     { id: 'OVERRIDE_CODE_RESET', label: 'Override code cleared' },
     { id: 'BILLING_RUN_CREATED', label: 'Billing run saved' },
@@ -133,6 +138,9 @@ const PRODUCT_FIELDS = {
 };
 
 function productValue(field, value) {
+    if (field === 'reorder_level' && (value === null || value === undefined)) {
+        return 'store default';
+    }
     if (value === null || value === undefined || value === '') {
         return 'none';
     }
@@ -205,7 +213,21 @@ const OVERRIDE_REASONS = {
     EXPIRED: 'approval expired',
     AMOUNT_ABOVE_CEILING: 'sale is more than was approved',
     APPROVER_NO_LONGER_ELIGIBLE: 'the manager can no longer approve',
+    DEMAND_CHANGED: 'the cart changed after it was approved',
+    NO_SHORTFALL: 'nothing in the cart was short of stock',
+    OVERRIDE_DISABLED: 'approving a sale without stock is switched off',
 };
+
+/** "Coke (needed 3, had 1)" for each short line of a stock approval. */
+function describeShortfalls(shortfalls = []) {
+    return shortfalls.map((line) => `${line.name ?? 'an item'} (needed ${formatQuantity(line.required)}, had ${formatQuantity(line.available)})`).join(', ') || 'no items recorded';
+}
+
+const STOCK_RULE_NAMES = { block_sale_without_stock: 'block a sale without stock', stock_override_enabled: 'manager approval of a blocked sale', low_stock_default_threshold: 'low-stock warning' };
+
+function stockRuleValue(field, value) {
+    return field === 'low_stock_default_threshold' ? `${value} left` : value ? 'on' : 'off';
+}
 
 const MENU_GROUP_FIELDS = { name: 'name', sort_order: 'position', active: 'status' };
 
@@ -265,6 +287,21 @@ export function describeAudit(event) {
         case 'CREDIT_OVERRIDE_REFUSED':
             return `A manager approval was refused (${OVERRIDE_REASONS[event.reason ?? after.reason] ?? event.reason ?? after.reason ?? 'no reason recorded'})${after.employee_code ? ` for ${after.employee_code}` : ''}`;
         case 'CREDIT_OVERRIDE_LOCKED':
+            return `A manager was locked out of approving for ${after.locked_minutes ?? 15} minutes after too many wrong codes`;
+        case 'STOCK_RULES_CHANGED':
+            return `Stock rules changed: ${
+                Object.keys(STOCK_RULE_NAMES)
+                    .filter((field) => field in after && after[field] !== (event.before_metadata ?? {})[field])
+                    .map((field) => `${STOCK_RULE_NAMES[field]} ${stockRuleValue(field, (event.before_metadata ?? {})[field])} → ${stockRuleValue(field, after[field])}`)
+                    .join(', ') || 'nothing recorded'
+            }`;
+        case 'STOCK_OVERRIDE_GRANTED':
+            return `A manager approved one sale that is short of stock: ${describeShortfalls(after.shortfalls)}`;
+        case 'STOCK_OVERRIDE_USED':
+            return `A sale went through without enough stock on a manager's approval: ${describeShortfalls(after.shortfalls)}. Stock is now below zero for these.`;
+        case 'STOCK_OVERRIDE_REFUSED':
+            return `A stock approval was refused (${OVERRIDE_REASONS[event.reason ?? after.reason] ?? event.reason ?? after.reason ?? 'no reason recorded'})`;
+        case 'STOCK_OVERRIDE_LOCKED':
             return `A manager was locked out of approving for ${after.locked_minutes ?? 15} minutes after too many wrong codes`;
         case 'OVERRIDE_CODE_SET':
             return (event.before_metadata ?? {}).has_code ? 'Override code changed by its owner' : 'Override code set by its owner';

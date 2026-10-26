@@ -16,8 +16,12 @@ use LogicException;
  * `INSERT ... ON CONFLICT DO UPDATE SET qty = qty + delta` -- an atomic increment, never a
  * read-then-write, so concurrent movements on the same (product, location) commute (architecture.md).
  *
- * Stock may go below zero: nothing in the contract refuses a sale or an outflow that exceeds the
- * recorded on-hand (no such error code exists), so the ledger records what happened.
+ * Stock may go below zero by default: while the store setting `block_sale_without_stock` is OFF (the default, and stage 14's
+ * rule) nothing refuses a sale or an outflow that exceeds the recorded on-hand, so the ledger records what happened. This class
+ * itself never refuses anything. When the store has switched blocking ON (ADR-017), CheckoutService decides BEFORE it writes, using
+ * {@see lockRows()} to read the balances under their row locks; it then either throws (nothing is written) or writes through
+ * {@see recordMany()} exactly as before. Stock-adjusting writes (counts, transfers, adjustments) and voids/refunds are never
+ * blocked: they are how an inaccurate count gets corrected.
  */
 final class StockLedger
 {
@@ -46,6 +50,53 @@ final class StockLedger
             ->value('quantity_on_hand');
 
         return bcadd((string) ($quantity ?? '0'), '0', 3);
+    }
+
+    /**
+     * Locks the balance rows a transaction is about to write, in the CANONICAL STOCK ORDER (location, then product id: the same order
+     * {@see recordMany()} writes in), and returns what is on hand in each. Used by checkout while blocking is ON, so the decision "is there
+     * enough?" is taken on rows nobody else can change until commit (ADR-017 section 6): two tills selling the last unit queue here, and the
+     * second sees the first's deduction.
+     *
+     * A row that does not exist yet cannot be locked, so it is created with a zero balance (`ON CONFLICT DO NOTHING`, which is
+     * consistent with the ledger: no movements, nothing on hand) and then locked. That keeps the rows locked in canonical order even
+     * for a product that has never moved, so the first sale of a product cannot form a cycle with a stock count or transfer. A refused
+     * sale rolls the zero row back with everything else. Must run inside the transaction that will write the movements.
+     *
+     * @param  list<string>  $productIds  every product the transaction will write a movement for, in any order, duplicates allowed
+     * @return array<string, string> on-hand quantity (3 decimals) per product id
+     */
+    public function lockRows(string $locationId, array $productIds): array
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new LogicException('Stock rows must be locked inside the transaction that writes the movements.');
+        }
+
+        $productIds = array_values(array_unique($productIds));
+        usort($productIds, strcmp(...));
+
+        $onHand = [];
+        foreach ($productIds as $productId) {
+            $quantity = $this->lockedQuantity($productId, $locationId);
+            if ($quantity === null) {
+                DB::statement(
+                    'INSERT INTO stock_balances (product_id, location_id, quantity_on_hand, updated_at) VALUES (?, ?, 0, now())
+                     ON CONFLICT (product_id, location_id) DO NOTHING',
+                    [$productId, $locationId],
+                );
+                $quantity = $this->lockedQuantity($productId, $locationId) ?? '0';
+            }
+            $onHand[$productId] = bcadd((string) $quantity, '0', 3);
+        }
+
+        return $onHand;
+    }
+
+    private function lockedQuantity(string $productId, string $locationId): ?string
+    {
+        $quantity = DB::table('stock_balances')->where('product_id', $productId)->where('location_id', $locationId)->lockForUpdate()->value('quantity_on_hand');
+
+        return $quantity === null ? null : (string) $quantity;
     }
 
     /**

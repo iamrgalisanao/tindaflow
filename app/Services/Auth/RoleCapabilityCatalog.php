@@ -29,7 +29,7 @@ final class RoleCapabilityCatalog
         'PRICE_OVERRIDE', 'DISCOUNT_OVERRIDE', 'STOCK_ADJUST', 'CASH_OUT',
         'REPORT_VIEW', 'STORE_SETTINGS_MANAGE', 'FISCAL_DAY_CLOSE', 'CATALOG_MANAGE',
         'AUDIT_VIEW', 'JOURNAL_VIEW', 'USER_MANAGE', 'TERMINAL_MANAGE',
-        'FISCAL_CONFIGURATION_MANAGE', 'EMPLOYEE_MANAGE', 'EMPLOYEE_POLICY_MANAGE', 'CREDIT_LIMIT_OVERRIDE', 'BILLING_MANAGE',
+        'FISCAL_CONFIGURATION_MANAGE', 'EMPLOYEE_MANAGE', 'EMPLOYEE_POLICY_MANAGE', 'CREDIT_LIMIT_OVERRIDE', 'BILLING_MANAGE', 'STOCK_SALE_OVERRIDE',
     ];
 
     /**
@@ -51,12 +51,13 @@ final class RoleCapabilityCatalog
             'EMPLOYEE_POLICY_MANAGE', // ADR-016 amendment 2026-10-26: ADMIN only. Change the credit limit per type and run the CSV bulk import.
             'CREDIT_LIMIT_OVERRIDE', // ADR-016 section 6: may approve one over-limit credit sale with a personal code. MANAGER and ADMIN, never CASHIER.
             'BILLING_MANAGE', // ADR-016 section 8 (slice 4.1): generate, view, save, print and export the billing statement. MANAGER and ADMIN, never CASHIER.
+            'STOCK_SALE_OVERRIDE', // ADR-017 section 9 (slice A): may approve ONE blocked sale (not enough stock) with a personal code. MANAGER and ADMIN, never CASHIER.
         ],
         'MANAGER' => [
             'SALE_VOID', 'SALE_VOID_APPROVE', 'SALE_REFUND', 'SALE_REFUND_APPROVE',
             'PRICE_OVERRIDE', 'DISCOUNT_OVERRIDE', 'STOCK_ADJUST', 'CASH_OUT',
             'REPORT_VIEW', 'CATALOG_MANAGE', 'AUDIT_VIEW', 'JOURNAL_VIEW',
-            'FISCAL_DAY_CLOSE', 'EMPLOYEE_MANAGE', 'CREDIT_LIMIT_OVERRIDE', 'BILLING_MANAGE',
+            'FISCAL_DAY_CLOSE', 'EMPLOYEE_MANAGE', 'CREDIT_LIMIT_OVERRIDE', 'BILLING_MANAGE', 'STOCK_SALE_OVERRIDE',
         ],
         'CASHIER' => [
             'SALE_VOID', 'SALE_REFUND',
