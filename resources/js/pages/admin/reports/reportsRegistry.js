@@ -28,7 +28,7 @@
  *                 how the table reflows to key-value cards below 768px
  */
 
-import { stockTier } from './formatters';
+import { formatMoney, stockTier } from './formatters';
 
 export const REPORT_CATEGORIES = [
     { id: 'sales', label: 'Sales Reports' },
@@ -37,6 +37,17 @@ export const REPORT_CATEGORIES = [
     { id: 'inventory', label: 'Inventory & Stock' },
     { id: 'cash', label: 'Cash & Shifts' },
 ];
+
+/** One summary card per meal type: its net amount (sold less refunded), summed from the item rows. */
+export function mealTypeSubtotals(rows) {
+    const totals = new Map();
+    for (const row of rows) {
+        const cents = Math.round(Number(row.net_amount) * 100);
+        totals.set(row.meal_type, (totals.get(row.meal_type) ?? 0) + cents);
+    }
+
+    return [...totals].map(([mealType, cents]) => ({ label: mealType, value: formatMoney((cents / 100).toFixed(2)), sub: 'net of refunds' }));
+}
 
 const dateRange = (defaultPreset) => ({ type: 'date_range', defaultPreset });
 
@@ -200,6 +211,40 @@ export const REPORTS = [
             col('net_sales', 'Net sales', 'currency', { ...right, total: 'money' }),
         ],
         exportPrefix: 'sales_by_category',
+    },
+    {
+        // ADR-016 amendment 2026-10-26 (EOD-001): the same figures the end-of-day report prints for a slip-mode day, for any business date.
+        slug: 'sales-by-meal-type',
+        title: 'Sales by Meal Type and Dish',
+        description: 'Per business day or range: quantity and amount per meal type, then per dish or item, net of refunds. The totals equal the end-of-day net sales.',
+        category: 'sales',
+        filters: [dateRange('today')],
+        summary: [
+            { key: 'sales', label: 'Sales', format: 'currency' },
+            { key: 'refunds', label: 'Refunds', format: 'currency' },
+            { key: 'net_sales', label: 'Net sales', format: 'currency' },
+            { key: 'voids', label: 'Voids (not counted)', format: 'currency' },
+        ],
+        derivedSummary: (rows) => mealTypeSubtotals(rows),
+        note: 'Quantities and amounts are net of the refunds made in the period. Voided sales are not counted. Add-ons are counted under the meal they were bought with; products without a menu group are under Other items.',
+        defaultSort: { key: 'meal_type', dir: 'asc' },
+        emptyState: {
+            tone: 'ok',
+            title: 'Nothing was sold in this period.',
+            body: 'Sales appear here by meal type and dish once the till rings them up.',
+        },
+        columns: [
+            col('meal_type', 'Meal type', 'text', { sortable: true }),
+            col('item', 'Dish / item', 'text'),
+            col('item_type', 'Kind', 'text'),
+            col('quantity_sold', 'Sold', 'quantity', right),
+            col('quantity_returned', 'Returned', 'quantity', right),
+            col('quantity_net', 'Qty', 'quantity', right),
+            col('sold_amount', 'Sold amount', 'currency', { ...right, total: 'money' }),
+            col('returned_amount', 'Refunded', 'currency', { ...right, total: 'money' }),
+            col('net_amount', 'Net amount', 'currency', { ...right, total: 'money' }),
+        ],
+        exportPrefix: 'sales_by_meal_type',
     },
     {
         slug: 'sales-by-cashier',

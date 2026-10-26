@@ -5,9 +5,10 @@ import { useState } from 'react';
 import { usePrintFrame } from '../../../lib/usePrintFrame';
 import { failureMessage, request } from '../catalog/catalogApi';
 import { formatDateTime, formatMoney, shortId } from '../reports/formatters';
+import SalesByMealTypeSection from './SalesByMealTypeSection';
 import { DayStatusBadge, Facts, Money, PaymentBreakdown, Panel, Variance, useLoad, useSignIn } from './historyParts';
 
-function ZReadingPanel({ reading, onPrinted }) {
+export function ZReadingPanel({ reading, onPrinted }) {
     const totals = reading.totals_snapshot;
     const { print, frame } = usePrintFrame();
     const [busy, setBusy] = useState(false);
@@ -16,6 +17,7 @@ function ZReadingPanel({ reading, onPrinted }) {
     // The server decides which printout is the original: the first print of a reading (normally at the till as the day closes) is the
     // plain original; every later one is marked REPRINT -- COPY and recorded, so no unmarked duplicate can come from here.
     const originalPrinted = Boolean(reading.original_printed_at);
+    const isEndOfDay = reading.document_mode === 'SLIP';
 
     async function printNow() {
         setBusy(true);
@@ -31,7 +33,7 @@ function ZReadingPanel({ reading, onPrinted }) {
     }
 
     return (
-        <Panel title={`Z-reading #${totals.z_counter}`} note="The end-of-day figures, fixed when the day was closed. They are never recalculated.">
+        <Panel title={isEndOfDay ? `End of day report #${totals.z_counter}` : `Z-reading #${totals.z_counter}`} note="The end-of-day figures, fixed when the day was closed. They are never recalculated.">
             <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-3">
                     <button
@@ -40,7 +42,7 @@ function ZReadingPanel({ reading, onPrinted }) {
                         onClick={printNow}
                         className="min-h-11 rounded-md border border-slate-700 px-4 text-sm text-slate-100 hover:bg-slate-800 disabled:opacity-50 lg:min-h-0 lg:py-2"
                     >
-                        {busy ? 'Preparing…' : originalPrinted ? 'Print a copy' : 'Print Z-reading'}
+                        {busy ? 'Preparing…' : originalPrinted ? 'Print a copy' : isEndOfDay ? 'Print end of day report' : 'Print Z-reading'}
                     </button>
                     <p className="text-xs text-slate-500">
                         {originalPrinted
@@ -86,6 +88,8 @@ function ZReadingPanel({ reading, onPrinted }) {
                     <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">Payments by method</p>
                     <PaymentBreakdown breakdown={totals.payment_breakdown} />
                 </div>
+                {/* A slip-mode day only (the key is absent for an invoice-mode day and for a day closed before the section existed). */}
+                <SalesByMealTypeSection section={totals.sales_by_meal_type} />
             </div>
         </Panel>
     );

@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Reports;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Reports\Concerns\RendersReportResponse;
 use App\Services\Reports\ReportQueryService;
+use App\Services\Reports\SalesByMealTypeQuery;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -153,5 +155,54 @@ class SalesReportController extends Controller
             'category_id', 'category_name', 'quantity_sold', 'net_sales', 'cost_of_goods_sold',
             'gross_profit', 'gross_margin_percent', 'lines_with_unknown_cost',
         ]);
+    }
+
+    public const MEAL_TYPE_COLUMNS = ['meal_type', 'item', 'item_type', 'quantity_sold', 'sold_amount', 'quantity_returned', 'returned_amount', 'quantity_net', 'net_amount'];
+
+    /**
+     * openapi.yaml reportSalesByMealType (ADR-016 amendment 2026-10-26, EOD-001): the end-of-day "by meal type, then by dish" figures for any business
+     * date or range, all tills of the store, computed on read from the sale snapshots by the same query the end-of-day report is frozen from. One
+     * row per item (meal type, item, kind); money and quantities are net of the refunds executed in the range, so the rows add up to
+     * `summary.net_sales`. `from` and `to` are business dates and default to today; a range is capped at 366 days.
+     */
+    public function salesByMealType(Request $request, SalesByMealTypeQuery $query): Response
+    {
+        $actor = Auth::guard('web')->user();
+        $from = $this->fromDate($request)?->toDateString() ?? Carbon::now()->toDateString();
+        $to = $this->toDate($request)?->toDateString() ?? $from;
+        if ($to < $from) {
+            [$from, $to] = [$to, $from];
+        }
+        if (Carbon::parse($from)->diffInDays(Carbon::parse($to)) > 366) {
+            $from = Carbon::parse($to)->subDays(366)->toDateString();
+        }
+
+        $result = $query->forBusinessDates($actor->store_id, Carbon::parse($from), Carbon::parse($to));
+        $rows = [];
+        foreach ($result['meal_types'] as $type) {
+            foreach ($type['items'] as $item) {
+                $rows[] = [
+                    'meal_type' => $type['meal_type'],
+                    'item' => $item['item'],
+                    'item_type' => $item['kind'],
+                    'quantity_sold' => $item['quantity_sold'],
+                    'sold_amount' => $item['sold_amount'],
+                    'quantity_returned' => $item['quantity_returned'],
+                    'returned_amount' => $item['returned_amount'],
+                    'quantity_net' => $item['quantity_net'],
+                    'net_amount' => $item['net_amount'],
+                ];
+            }
+        }
+        $summary = [
+            'row_count' => count($rows),
+            'sales' => $result['sold_amount'],
+            'refunds' => $result['returned_amount'],
+            'net_sales' => $result['net_amount'],
+            'voids' => $result['voided_amount'],
+            'meal_types' => array_map(fn (array $type): array => ['meal_type' => $type['meal_type'], 'net_amount' => $type['net_amount']], $result['meal_types']),
+        ];
+
+        return $this->reportResponse($request, ['from' => $from, 'to' => $to], $rows, $summary, self::MEAL_TYPE_COLUMNS);
     }
 }

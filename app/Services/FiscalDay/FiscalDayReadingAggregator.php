@@ -9,6 +9,7 @@ use App\Models\Sale;
 use App\Models\SaleVoid;
 use App\Models\ZReading;
 use App\Services\Payments\NetCollectionService;
+use App\Services\Reports\SalesByMealTypeQuery;
 
 /**
  * Produces a ZReadingTotalsSnapshot (openapi.yaml, RMO 24-2023) for a
@@ -16,10 +17,15 @@ use App\Services\Payments\NetCollectionService;
  * invariant #40. A VOIDED sale is excluded from every "sales" total
  * (`gross_sales` and its breakdown) and counted separately in
  * `void_total` instead.
+ *
+ * A slip-mode day (ADR-016 section 7) additionally carries `sales_by_meal_type`, frozen here with the rest: see SalesByMealTypeQuery.
  */
 final class FiscalDayReadingAggregator
 {
-    public function __construct(private readonly NetCollectionService $netCollection) {}
+    public function __construct(
+        private readonly NetCollectionService $netCollection,
+        private readonly SalesByMealTypeQuery $salesByMealType,
+    ) {}
 
     /** @return array<string, mixed> */
     public function aggregate(FiscalDay $fiscalDay): array
@@ -62,7 +68,7 @@ final class FiscalDayReadingAggregator
         );
         $accumulatedAfter = $accumulatedBefore->add($grossSales);
 
-        return [
+        $snapshot = [
             'accumulated_grand_total_sales_before' => $accumulatedBefore->toApiString(),
             'accumulated_grand_total_sales_after' => $accumulatedAfter->toApiString(),
             'gross_sales' => $grossSales->toApiString(),
@@ -77,6 +83,18 @@ final class FiscalDayReadingAggregator
             'z_counter' => $zCounter,
             'reset_counter' => 0,
         ];
+
+        // ADR-016 amendment 2026-10-26 (EOD-001): only a day of slips (the store's business day) carries the sales-by-meal-type section, and
+        // only when the day has something to list. An invoice-mode day's snapshot has exactly the keys above, byte for byte, and a day closed
+        // before this existed simply lacks the key.
+        if (DayDocumentMode::of($fiscalDay->id, $fiscalDay->store_id)->isSlip()) {
+            $section = $this->salesByMealType->forFiscalDay($fiscalDay->store_id, $fiscalDay->id);
+            if ($section['meal_types'] !== []) {
+                $snapshot['sales_by_meal_type'] = $section;
+            }
+        }
+
+        return $snapshot;
     }
 
     private function sumMoney(mixed $rawSum): Money

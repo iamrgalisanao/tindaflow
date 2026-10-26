@@ -19,7 +19,8 @@ use Carbon\CarbonInterface;
  *
  * A day whose sales were slips (ADR-016 section 7) is the store's business day and this is its internal END OF DAY REPORT: the same
  * stored totals, but no Z-reading title or number, no tax lines (a slip sale carries no tax breakdown) and no accumulated-sales
- * counters. The reading itself is not touched; only what is printed from it changes.
+ * counters. The reading itself is not touched; only what is printed from it changes. It prints on the 58mm roll of a slip-mode store and,
+ * when the reading holds a `sales_by_meal_type` section (frozen at close, ADR-016 amendment 2026-10-26), adds SALES BY MEAL TYPE to it.
  */
 final class ZReadingPrinter
 {
@@ -33,6 +34,9 @@ final class ZReadingPrinter
         'void_total' => 'Voids',
         'refund_total' => 'Refunds',
     ];
+
+    /** The longest left-hand label (quantity and name) of a sales-by-meal-type line: with a nine-character amount it fills 28 characters, a 58mm roll. */
+    private const NAME_WIDTH = 18;
 
     /** The lines that are tax figures; an end-of-day report (slip mode) leaves them out. */
     private const TAX_LINES = ['taxable_sales', 'vat_exempt_sales', 'zero_rated_sales', 'non_vat_sales', 'vat_amount'];
@@ -51,7 +55,7 @@ final class ZReadingPrinter
         $html[] = '<!doctype html><html lang="en"><head><meta charset="utf-8">';
         $html[] = '<meta name="viewport" content="width=device-width, initial-scale=1">';
         $html[] = $endOfDay ? "<title>End of day report {$number}</title>" : "<title>Z-Reading {$number}</title>";
-        $html[] = '<style>'.$this->stylesheet().'</style></head><body><div class="doc">';
+        $html[] = '<style>'.($endOfDay ? $this->endOfDayStylesheet() : $this->stylesheet()).'</style></head><body><div class="doc">';
 
         if ($reprintedAt !== null) {
             $html[] = '<div class="mark">REPRINT &mdash; COPY</div>';
@@ -96,6 +100,10 @@ final class ZReadingPrinter
             $html[] = $this->row((string) $method, $this->money((string) $amount));
         }
 
+        if ($endOfDay && is_array($totals['sales_by_meal_type'] ?? null)) {
+            array_push($html, ...$this->salesByMealType($totals['sales_by_meal_type']));
+        }
+
         if (! $endOfDay) {
             $html[] = '<div class="sep"></div>';
             $html[] = $this->row('Accumulated sales before', $this->money((string) ($totals['accumulated_grand_total_sales_before'] ?? '0.00')));
@@ -112,6 +120,90 @@ final class ZReadingPrinter
         $html[] = '</div></body></html>';
 
         return implode('', $html);
+    }
+
+    /**
+     * SALES BY MEAL TYPE (slip-mode days only), from the section frozen in the reading: a heading per meal type with its net amount, then one
+     * compact line per item (quantity and name left, net amount right). Names are cut to NAME_WIDTH characters so a line never wraps on a
+     * 58mm roll (about 28 characters), and no blank lines are added: paper is paid for. Items and types that netted to nothing (sold and
+     * fully returned) are left off the paper but remain in the stored section. Ends with the bridge to the net sales total.
+     *
+     * @param  array<string, mixed>  $section
+     * @return list<string>
+     */
+    private function salesByMealType(array $section): array
+    {
+        $out = ['<div class="sep"></div>', '<div class="b">SALES BY MEAL TYPE</div>'];
+
+        foreach ((array) ($section['meal_types'] ?? []) as $type) {
+            $items = array_values(array_filter((array) ($type['items'] ?? []), fn (array $item): bool => ! $this->isZero((string) ($item['quantity_net'] ?? '0')) || ! $this->isZero((string) ($item['net_amount'] ?? '0'))));
+            if ($items === [] && $this->isZero((string) ($type['net_amount'] ?? '0'))) {
+                continue;
+            }
+            $out[] = '<div class="row b"><span>'.$this->text($this->cut((string) ($type['meal_type'] ?? ''))).'</span><span>'.$this->amount((string) ($type['net_amount'] ?? '0.00')).'</span></div>';
+            foreach ($items as $item) {
+                $left = $this->quantity((string) ($item['quantity_net'] ?? '0')).' '.(($item['kind'] ?? '') === 'ADDON' ? '+' : '').($item['item'] ?? '');
+                $out[] = '<div class="row in"><span>'.$this->text($this->cut($left)).'</span><span>'.$this->amount((string) ($item['net_amount'] ?? '0.00')).'</span></div>';
+            }
+        }
+
+        $out[] = '<div class="sep"></div>';
+        if (! $this->isZero((string) ($section['returned_amount'] ?? '0'))) {
+            $out[] = $this->row('Sales', $this->amount((string) ($section['sold_amount'] ?? '0.00')));
+            $out[] = $this->row('Refunds', $this->amount('-'.ltrim((string) $section['returned_amount'], '-')));
+        }
+        $out[] = '<div class="row b"><span>NET SALES</span><span>'.$this->amount((string) ($section['net_amount'] ?? '0.00')).'</span></div>';
+        if (! $this->isZero((string) ($section['voided_amount'] ?? '0'))) {
+            $out[] = $this->row('Voids (excl.)', $this->amount((string) $section['voided_amount']));
+        }
+
+        return $out;
+    }
+
+    /** Cuts a left-hand label to NAME_WIDTH characters, ending in "..." when it was longer. */
+    private function cut(string $label): string
+    {
+        return mb_strimwidth($label, 0, self::NAME_WIDTH, '...');
+    }
+
+    private function isZero(string $value): bool
+    {
+        return bccomp($value, '0', 3) === 0;
+    }
+
+    /** "12.000" -> "12", "1.500" -> "1.5". */
+    private function quantity(string $value): string
+    {
+        $trimmed = rtrim(rtrim(bcadd($value, '0', 3), '0'), '.');
+
+        return $trimmed === '' || $trimmed === '-0' ? '0' : $trimmed;
+    }
+
+    /** "1234.5" -> "1,234.50" (the section's lines carry no currency prefix, to keep the line short). */
+    private function amount(string $amount): string
+    {
+        $negative = str_starts_with($amount, '-');
+        [$whole, $fraction] = array_pad(explode('.', ltrim($amount, '-'), 2), 2, '00');
+
+        return $this->text(($negative ? '-' : '').preg_replace('/\B(?=(\d{3})+(?!\d))/', ',', $whole).'.'.substr($fraction.'00', 0, 2));
+    }
+
+    /** The 58mm sheet an end-of-day report (slip mode) prints on, like the slip itself. The Z-reading of an invoice-mode day keeps the 80mm sheet. */
+    private function endOfDayStylesheet(): string
+    {
+        return '@page{size:58mm auto;margin:2mm}'
+            .'*{box-sizing:border-box}'
+            .'body{margin:0;background:#fff;color:#000;font:11px/1.3 "Courier New",Courier,monospace}'
+            .'.doc{width:50mm;max-width:100%;margin:0 auto;padding:1mm 0}'
+            .'.c{text-align:center}.b{font-weight:bold}.title{letter-spacing:.1em;margin:2px 0}'
+            .'.row{display:flex;justify-content:space-between;gap:6px}'
+            .'.row span:last-child{text-align:right;white-space:nowrap}'
+            .'.in{padding-left:1ch}'
+            .'.wrap{overflow-wrap:anywhere}'
+            .'.sep{border-top:1px dashed #000;margin:4px 0}'
+            .'.legend{font-size:9px}'
+            .'.mark{border:2px solid #000;text-align:center;font-weight:bold;letter-spacing:.1em;padding:2px 0;margin:4px 0}'
+            .'@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}';
     }
 
     private function stylesheet(): string

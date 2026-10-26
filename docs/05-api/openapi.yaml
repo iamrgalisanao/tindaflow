@@ -4108,6 +4108,20 @@ paths:
         '200': {$ref: '#/components/responses/ReportOk'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/sales-by-meal-type:
+    get:
+      operationId: reportSalesByMealType
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: 'ADR-016 slice 4.4 (EOD-001). Sales by meal type, then by dish or item, for a business date or range (all tills of the store), computed on read by the same query the slip-mode end-of-day report is frozen from. One row per item: `meal_type, item, item_type` (DISH, PRODUCT, ADDON), quantity and amount sold, returned (refunds executed in the period) and net. Voided sales are not counted. `summary`: `row_count, sales, refunds, net_sales, voids, meal_types[]`; the rows add up to `net_sales` (= gross sales - refunds). `from` and `to` are business dates (default today, at most 366 days). CSV columns are pinned in csv-export-contract.md.'
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /reports/sales-by-cashier:
     get:
       operationId: reportSalesByCashier
@@ -7037,9 +7051,47 @@ components:
           description: Sum of grand_total for sales voided on this fiscal day, reported for audit transparency — excluded from gross_sales.
         refund_total: {$ref: '#/components/schemas/Money'}
         z_counter: {type: integer, description: 'This terminal''s running Z-Reading sequence number (RMO 24-2023 Z Counter requirement) — increments by exactly one per closure, never reused.'}
+        sales_by_meal_type:
+          allOf:
+          - {$ref: '#/components/schemas/SalesByMealType'}
+          description: 'ADR-016 slice 4.4 (EOD-001). Present ONLY for a slip-mode day (the store''s internal end-of-day report) that has sales or refunds to list; absent for an invoice-mode day and for a day closed before it existed. Frozen at close with the rest of the snapshot; the printout is read from it. net_amount = gross_sales - refund_total.'
         reset_counter: {type: integer, default: 0, description: 'Number of times the accumulated grand total has been reset. TindaFlow''s architecture provides no user-facing reset function (architecture.md §4/Stage 2 invariant #4 on fiscal_day/z_reading design) — this field is expected to remain 0 for the life of a terminal and exists to satisfy RMO 24-2023''s accreditation-demonstration checklist item, not because a reset path exists in the product.
 
             '}
+    SalesByMealType:
+      type: object
+      description: 'Sales by meal type then by dish or item for one fiscal day (ZReadingTotalsSnapshot.sales_by_meal_type). Amounts and quantities per item are shown sold, returned (refunds executed that day) and net. Voided sales are in no line.'
+      required: [version, sold_amount, returned_amount, net_amount, voided_amount, meal_types]
+      properties:
+        version: {type: integer, example: 1}
+        sold_amount: {allOf: [{$ref: '#/components/schemas/Money'}], description: 'Equals gross_sales of the same snapshot.'}
+        returned_amount: {allOf: [{$ref: '#/components/schemas/Money'}], description: 'Equals refund_total of the same snapshot.'}
+        net_amount: {allOf: [{$ref: '#/components/schemas/Money'}], description: 'sold_amount - returned_amount: the day''s net sales.'}
+        voided_amount: {allOf: [{$ref: '#/components/schemas/Money'}], description: 'Memo: the sales voided that day (equals void_total); not part of any line.'}
+        meal_types:
+          type: array
+          items:
+            type: object
+            required: [meal_type, sold_amount, returned_amount, net_amount, items]
+            properties:
+              meal_type: {type: string, description: 'The meal name snapshot, the menu-group path of a plain product, or "Other items".'}
+              sold_amount: {$ref: '#/components/schemas/Money'}
+              returned_amount: {$ref: '#/components/schemas/Money'}
+              net_amount: {$ref: '#/components/schemas/Money'}
+              items:
+                type: array
+                items:
+                  type: object
+                  required: [item, kind, quantity_sold, sold_amount, quantity_returned, returned_amount, quantity_net, net_amount]
+                  properties:
+                    item: {type: string, description: 'The chosen dishes joined with " + ", an add-on''s option label, or the product name (all snapshots).'}
+                    kind: {type: string, enum: [DISH, PRODUCT, ADDON]}
+                    quantity_sold: {type: string, example: '2.000'}
+                    sold_amount: {$ref: '#/components/schemas/Money'}
+                    quantity_returned: {type: string, example: '0.000'}
+                    returned_amount: {$ref: '#/components/schemas/Money'}
+                    quantity_net: {type: string, example: '2.000'}
+                    net_amount: {$ref: '#/components/schemas/Money'}
     ZReading:
       type: object
       description: 'Immutable, append-only, generated fiscal-closure snapshot. Exactly one ZReading exists per FiscalDay, created atomically with its OPEN→CLOSED transition (Stage 2 invariant #42) — there is no "regenerate Z-Reading" operation. Historical retrieval (fiscalDayZReadingGet) always returns the stored totals_snapshot exactly as generated, never recomputed under today''s configuration.

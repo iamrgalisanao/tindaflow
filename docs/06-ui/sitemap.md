@@ -78,6 +78,7 @@ manager/admin can switch to Back-office mode.
   /back-office/reports/sales-by-date-range
   /back-office/reports/sales-by-product
   /back-office/reports/sales-by-category
+  /back-office/reports/sales-by-meal-type
   /back-office/reports/sales-by-cashier
   /back-office/reports/sales-by-payment-method
   /back-office/reports/vat-breakdown

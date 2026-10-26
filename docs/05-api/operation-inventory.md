@@ -482,6 +482,7 @@ closes the same family in **stage 35 (2026-09-26)** — see
 | GET | /reports/sales-by-date-range | reportSalesByDateRange |
 | GET | /reports/sales-by-product | reportSalesByProduct |
 | GET | /reports/sales-by-category | reportSalesByCategory |
+| GET | /reports/sales-by-meal-type | reportSalesByMealType |
 | GET | /reports/sales-by-cashier | reportSalesByCashier |
 | GET | /reports/sales-by-payment-method | reportSalesByPaymentMethod |
 | GET | /reports/tax-breakdown | reportTaxBreakdown |
@@ -721,3 +722,11 @@ were the only capabilities that had **no** operation and **no** documented
 reason — that was the real gap this pass closes.
 
 **Changed existing operations (additive, ADR-017 slice C):** `Product` and `ProductInput` gain `shelf_life_days` (integer 1 to 3650, nullable; `productCreate`/`productUpdate` keep their `CATALOG_MANAGE` gate, so ADMIN and MANAGER may set it and a cashier gets 403; a bad value is 422 `VALIDATION_FAILED` on `shelf_life_days`). `inventoryStockList` and `inventoryLowStockList` rows gain `shelf_life_days`, `last_received_on`, `check_freshness` and `days_old`, and both accept `?check_freshness=true`. `stockAvailabilityGet` RUNNING items gain `check_freshness` (a flag only; the shelf life itself is not sent to the till). The product CSV gains a trailing `shelf_life_days` column. No new operation, capability or error code.
+
+## End-of-day sales by meal type (1 operation) — ADR-016 slice 4.4 (2026-10-26)
+
+| Method | Path | operationId | Auth | Term. enrolled? | Capability | Idemp.? | Request | Success | Key errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /reports/sales-by-meal-type | reportSalesByMealType | session | false | `REPORT_VIEW` | no | `from`, `to` (business dates, default today; at most 366 days) | 200 ReportResult / CSV (`meal_type, item, item_type, quantity_sold, sold_amount, quantity_returned, returned_amount, quantity_net, net_amount`); `summary` = `row_count, sales, refunds, net_sales, voids, meal_types[]` | 401, 403 |
+
+Computed on read from the sale snapshots by `SalesByMealTypeQuery`, all tills of the store, net of the refunds executed in the period, voided sales not counted; the rows add up to `summary.net_sales`. **Changed existing operations (additive):** `fiscalDayClose` and `fiscalDayZReadingGet` return, for a slip-mode day with something to list, the extra key `totals_snapshot.sales_by_meal_type` (the same query, frozen at close); an invoice-mode day's snapshot and an older day's are unchanged. `fiscalDayZReadingPrint` renders the section on the end-of-day report of a slip-mode day (58mm sheet) from the stored copy, so an original and every copy are identical. No new capability, error code or audit event.

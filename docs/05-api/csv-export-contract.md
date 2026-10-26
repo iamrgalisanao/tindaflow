@@ -58,6 +58,7 @@ or removing an existing column is breaking.
 *ADR-017 slice A (2026-10-26): in the two inventory reports `reorder_level` is the EFFECTIVE low-stock threshold (the product's own, else the store default), and Low Stock lists products whose on-hand is at or below it (`shortfall` may be 0). The product catalog CSV is unchanged in shape; a blank `reorder_level` there means the store default.*
 
 *ADR-017 slice C (2026-10-28): the product catalog CSV (`productExport`, `productImport`) gains one column APPENDED at the end, `shelf_life_days` (whole days 1 to 3650, blank = none), so an older file without it still imports. Nothing else in any export changed.*
+| Sales by Meal Type and Dish | `reportSalesByMealType` | `meal_type, item, item_type, quantity_sold, sold_amount, quantity_returned, returned_amount, quantity_net, net_amount` |
 | Daily Stock (leftover) | `reportDailyStock` | `stock_date, item_type, item_name, category, cooked, removed, sold, returned, leftover, oversold` |
 | Inventory Movement | `reportInventoryMovement` | `occurred_at, product_id, sku, movement_type, quantity, reference_type, reference_id, reason, created_by` |
 | Shift Report | `reportShifts` | `shift_id, terminal_id, cashier_id, opened_at, closed_at, opening_cash, declared_cash, expected_cash, variance` |
@@ -91,3 +92,5 @@ the plain-date rule.
   requirements).
 - Add a column in the *middle* of an existing row (breaking); a genuinely
   new data point is appended at the end.
+
+*ADR-016 slice 4.4 (2026-10-26): `reportSalesByMealType` is new. One row per item (meal type, item, kind DISH / PRODUCT / ADDON), no subtotal rows, so every money and quantity column can be summed; amounts and quantities are NET of the refunds executed in the period (`sold_amount - returned_amount = net_amount`), voided sales are not counted, and the column totals equal the day's `gross_sales - refund_total`. Quantities carry three decimals, money two.*

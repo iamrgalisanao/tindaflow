@@ -776,6 +776,8 @@ mode reuses `FISCAL_CONFIGURATION_MANAGE` (vendor unlock, ADR-014). The V1 roles
 **Slip mode and the fiscal day.** Entity names `fiscal_day` and `z_reading` stay; in slip mode they mean business day and internal
 end-of-day report. Shift open/close, cash count and X-reading are unchanged.
 
+**End-of-day sales by meal type (slice 4.4, built 2026-10-26).** In slip mode `z_reading.totals_snapshot` gains the additive key `sales_by_meal_type` (version, sold/returned/net/voided amounts, meal types with their items: quantity and amount sold, returned and net), frozen at close from the sale snapshots and the day's refunds by `SalesByMealTypeQuery`; absent for an invoice-mode day, for an older day and for a day with nothing to list. No new table or column. Net = `gross_sales` - `refund_total` (EOD-001); meal type and item come from `SaleLineClassifier`, the rule billing uses.
+
 ### 2.14 Stock rules: blocking, daily dish stock, shelf life (ADR-017, slices A and B built; C proposed)
 
 Additive; full rationale in [ADR-017](../03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md). **Slice A (2026-10-26):** the `store_settings` columns `block_sale_without_stock`, `stock_override_enabled`, `low_stock_default_threshold`; `product.reorder_level` nullable; the `STOCK_SALE_OVERRIDE` capability; `stock_override_grant` (lifecycle: only `consumed_at` and `sale_id` are updated). **Slice B (2026-10-27):** daily stock for cooked items, as follows. **Slice C (2026-10-28):** `products.shelf_life_days`, no new table; the "check freshness" flag is derived on read from the stock ledger (see invariant STK-006).

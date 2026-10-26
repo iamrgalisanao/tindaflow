@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { formatDateTime, formatMoney, formatQuantity } from '../reports/formatters';
 import { accountIds, formatWhen, kindLabel, negativeMoney, toggleAllIds, toggleId } from './billingConfig';
 
@@ -11,10 +11,14 @@ const TYPE_SHORT = { DIRECT: 'TSC', SUBCONTRACTOR: 'SUB' };
  */
 export default function StatementView({ statement }) {
     const [expanded, setExpanded] = useState(() => new Set());
+    const [shown, setShown] = useState(statement);
 
-    useEffect(() => {
+    // A new statement closes every account. Reset while rendering, not in an effect: an effect could run after the first click on a fast
+    // machine and silently undo it (a flaky test showed it).
+    if (shown !== statement) {
+        setShown(statement);
         setExpanded(new Set());
-    }, [statement]);
+    }
 
     const { totals, accounts, adjustments, comparison, criteria } = statement;
     const allOpen = accounts.length > 0 && accountIds(statement).every((id) => expanded.has(id));

@@ -532,6 +532,7 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         Route::get('/reports/sales-by-date-range', [SalesReportController::class, 'salesByDateRange']);
         Route::get('/reports/sales-by-product', [SalesReportController::class, 'salesByProduct']);
         Route::get('/reports/sales-by-category', [SalesReportController::class, 'salesByCategory']);
+        Route::get('/reports/sales-by-meal-type', [SalesReportController::class, 'salesByMealType']);
         Route::get('/reports/sales-by-cashier', [SalesReportController::class, 'salesByCashier']);
         Route::get('/reports/sales-by-payment-method', [SalesReportController::class, 'salesByPaymentMethod']);
         Route::get('/reports/tax-breakdown', [SalesReportController::class, 'taxBreakdown']);

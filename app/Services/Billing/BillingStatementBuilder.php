@@ -3,6 +3,7 @@
 namespace App\Services\Billing;
 
 use App\Domain\Exceptions\BillingReconciliationException;
+use App\Services\Sales\SaleLineClassifier;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\DB;
  * Layout: Account (the employee: code, name, type, from the ledger's snapshots) -> Meal type -> Item/dish, with sold, returned and net
  * quantity and amount, subtotals per meal type and per account, and a grand total. The rules (BILL-001..BILL-003):
  *
+ *   (The classification below lives in SaleLineClassifier, shared with the end-of-day section.)
  *   Meal type of a line  = the meal's name snapshot ("Standard Meal") for a meal line AND for its add-on lines (rice sits under the meal it
  *                          was bought with); for a plain product the menu-group path snapshot ("Lunch > Drinks") when it sat in a
  *                          menu group; otherwise "Other items".
@@ -36,9 +38,11 @@ use Illuminate\Support\Facades\DB;
  */
 final class BillingStatementBuilder
 {
-    public const OTHER_ITEMS = 'Other items';
+    public const OTHER_ITEMS = SaleLineClassifier::OTHER_ITEMS;
 
     private const CHUNK = 1000;
+
+    public function __construct(private readonly SaleLineClassifier $classifier = new SaleLineClassifier) {}
 
     /** @return array<string, mixed> */
     public function build(string $storeId, string $partyName, BillingCriteria $criteria, ?CarbonImmutable $generatedAt = null): array
@@ -46,7 +50,7 @@ final class BillingStatementBuilder
         $charges = $this->charges($storeId, $criteria);
         $saleIds = $charges->pluck('sale_id')->all();
 
-        $lines = $this->saleLines($saleIds);
+        $lines = $this->classifier->forSales($saleIds);
         $reversals = $this->reversals($saleIds, $criteria);
 
         $accounts = [];
@@ -104,65 +108,6 @@ final class BillingStatementBuilder
             ->whereRaw('(s.sold_at AT TIME ZONE ?)::date BETWEEN ? AND ?', [(string) config('app.timezone'), $criteria->from, $criteria->to])
             ->when($criteria->employeeType, fn ($query, $type) => $query->where('e.employee_type', $type))
             ->when($criteria->employeeId, fn ($query, $id) => $query->where('e.employee_id', $id));
-    }
-
-    /**
-     * Every sale line of the charged sales, classified into (meal type, kind, item).
-     *
-     * @param  list<string>  $saleIds
-     * @return array{bySale: array<string, list<array<string, mixed>>>, byId: array<string, array<string, mixed>>}
-     */
-    private function saleLines(array $saleIds): array
-    {
-        $bySale = [];
-        $byId = [];
-
-        foreach (array_chunk($saleIds, self::CHUNK) as $chunk) {
-            $items = DB::table('sale_items')->whereIn('sale_id', $chunk)->orderBy('sale_id')->orderBy('line_number')
-                ->get(['id', 'sale_id', 'line_number', 'product_name_snapshot', 'quantity', 'net_line_amount', 'menu_group_path_snapshot', 'meal_name_snapshot', 'parent_line_number']);
-            $selections = DB::table('sale_item_selections')->whereIn('sale_item_id', $items->pluck('id')->all())
-                ->orderBy('sale_item_id')->orderBy('sort_order')->orderBy('created_at')->orderBy('id')
-                ->get(['sale_item_id', 'option_label_snapshot', 'dish_name_snapshot'])->groupBy('sale_item_id');
-
-            foreach ($items as $item) {
-                $line = $this->classify($item, $selections[$item->id] ?? collect());
-                $bySale[$item->sale_id][] = $line;
-                $byId[$item->id] = $line;
-            }
-        }
-
-        return ['bySale' => $bySale, 'byId' => $byId];
-    }
-
-    /**
-     * @param  Collection<int, object>  $selections
-     * @return array<string, mixed>
-     */
-    private function classify(object $item, Collection $selections): array
-    {
-        $mealName = $item->meal_name_snapshot;
-        $mealType = $mealName !== null && $mealName !== '' ? $mealName : (($item->menu_group_path_snapshot ?? '') !== '' ? $item->menu_group_path_snapshot : self::OTHER_ITEMS);
-
-        if ($item->parent_line_number !== null) {
-            $kind = 'ADDON';
-            $label = $selections->pluck('option_label_snapshot')->filter()->first() ?? $item->product_name_snapshot;
-        } elseif ($mealName !== null && $mealName !== '') {
-            $kind = 'DISH';
-            $dishes = $selections->pluck('dish_name_snapshot')->filter()->all();
-            $label = $dishes === [] ? $item->product_name_snapshot : implode(' + ', $dishes);
-        } else {
-            $kind = 'PRODUCT';
-            $label = $item->product_name_snapshot;
-        }
-
-        return [
-            'sale_item_id' => $item->id,
-            'meal_type' => $mealType,
-            'kind' => $kind,
-            'item' => $label,
-            'quantity' => $this->quantity((string) $item->quantity),
-            'amount' => bcadd((string) $item->net_line_amount, '0', 2),
-        ];
     }
 
     /**
@@ -308,7 +253,7 @@ final class BillingStatementBuilder
             foreach ($names as $name) {
                 $type = $account['types'][$name];
                 $items = array_values($type['items']);
-                usort($items, fn ($a, $b) => [['DISH' => 0, 'ADDON' => 2, 'PRODUCT' => 1][$a['kind']], mb_strtolower($a['item'])] <=> [['DISH' => 0, 'ADDON' => 2, 'PRODUCT' => 1][$b['kind']], mb_strtolower($b['item'])]);
+                usort($items, fn ($a, $b) => [SaleLineClassifier::KIND_ORDER[$a['kind']], mb_strtolower($a['item'])] <=> [SaleLineClassifier::KIND_ORDER[$b['kind']], mb_strtolower($b['item'])]);
                 $types[] = [
                     'meal_type' => $name,
                     'sold_amount' => $type['sold'],

@@ -737,3 +737,11 @@ applying to the business day in slip mode.
     store-local calendar days old (`TRANSFER_IN`, returns and adjustments do not count; a product never received is not flagged). It is computed on read
     from the ledger, never stored, never blocks a sale, never changes a balance, and stores no expiry date or batch. A fresh receipt on top of old units
     clears it (accepted weakness). *Built, ADR-017 slice C.* Tests: `StockFreshnessHttpTest`, `ProductCsvHttpTest`.
+108. **EOD-001 — the end-of-day sales by meal type reconciles with the day's net sales, and a reprint equals the original.** For a slip-mode day the
+    reading's `sales_by_meal_type` section satisfies: `sold_amount` = `gross_sales`; `returned_amount` = `refund_total`; `net_amount` = `gross_sales` -
+    `refund_total`; the meal types' net amounts add up to `net_amount` and each type's items add up to the type. A voided sale is in no line (its grand
+    total is `voided_amount` = `void_total`, memo only). Credit sales count as sales. The section is written once, with the reading, and printed
+    only from the stored copy, so an original and every copy show identical figures whatever happens to the menu or the sales afterwards; it exists
+    only for a slip-mode day with something to list, and an invoice-mode day's snapshot is unchanged. The standalone report `reportSalesByMealType`
+    runs the same query and gives the same figures for the same day. Meal type / item classification is shared with the billing statement
+    (`SaleLineClassifier`). *Built, ADR-016 slice 4.4.* Tests: `EndOfDayMealTypeTest`, `BillingStatementHttpTest`.
