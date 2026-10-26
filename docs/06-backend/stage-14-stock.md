@@ -45,7 +45,7 @@ drifts. It was run on the local development database (2 balances corrected).
 
 ## 3. Decisions
 
-- **Negative stock is allowed.** Removing or selling more than the recorded quantity is
+- **Negative stock is allowed.** *(Amended by ADR-017, proposed 2026-10-26: this holds while the store setting `block_sale_without_stock` is OFF, which is the default; a store that turns it ON has sales refused when tracked stock is not enough.)* Removing or selling more than the recorded quantity is
   recorded and the balance goes below zero. No frozen code exists for "insufficient stock",
   sales must never be blocked by an inaccurate count (the same rule checkout already
   follows), and a shop often sells before it has entered a delivery. The screen warns

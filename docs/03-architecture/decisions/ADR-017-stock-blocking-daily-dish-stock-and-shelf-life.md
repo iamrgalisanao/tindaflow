@@ -1,0 +1,161 @@
+# ADR-017: Stock that blocks sales, daily stock for cooked dishes, and a rough shelf-life flag
+
+## Status
+Proposed — 2026-10-26 (design only; no code, migration or database change accompanies this ADR). Requested for the canteen client (TSC). Extends ADR-003 (checkout transaction), ADR-016 (dishes, meal selections, the supervisor override) and the stock ledger of stages 14, 25 and 28. **Reverses one recorded decision on purpose:** stage 14's "negative stock is allowed, sales must never be blocked by an inaccurate count" now holds only while the new store setting is OFF (it is OFF by default). Build order and estimates: [inventory-build-plan.md](../../06-backend/inventory-build-plan.md).
+
+## Context
+The client's final requirements, quoted:
+
+1. "No stock input, no sales transaction; the till warns that there is no stock."
+2. Only a manager or supervisor may input stock.
+3. A low-stock warning when 3 or fewer are left ("atleast last 3 stocks").
+4. Cooked items (breakfast, lunch dishes, snacks) have daily stock that exists for that business day only and goes back to zero after closing; the manager enters it each morning. Groceries, beverages and baked products have running stock that carries over.
+5. Daily entry is per dish (for example Beef nilaga: 20 portions), not per meat category. Lunch meals deduct from the dish's stock. Rice is not counted.
+6. A Combo Meal's vegetable side deducts half a serving of the vegetable dish, because an ala carte vegetable sale deducts a whole one.
+7. For groceries and baked goods: "kahit rough shelf life na lang po, no need for expiry".
+8. (Not yet asked) What happens when the count is wrong and a sale is blocked.
+
+What the system does today: stock is a ledger (`stock_movements`, append-only) with a derived cache (`stock_balances`, keyed `(product, location)`), written only by `StockLedger` (invariants 44, 45, 47). Checkout writes one `SALE` movement per sale line in the canonical stock order (stage 28) and never refuses: stock may go below zero by design (stage 14). `products.track_inventory` and `reorder_level` (integer, default 0) exist; the low-stock view compares on hand with `reorder_level`. `STOCK_ADJUST` (ADMIN, MANAGER; never CASHIER) already gates receipts and adjustments, so requirement 2 is already true. ADR-016 gave every dish its own id and wrote `sale_item_selections.dish_id` with name snapshots, and states that the future inventory phase attaches there; meal lines are sold through hidden backing products with `track_inventory = false`. A supervisor override exists for the credit limit (`user_override_codes`, `credit_override_grants`, `CreditOverrideService`, capability `CREDIT_LIMIT_OVERRIDE`). A sale's fiscal day is per terminal and carries a `business_date` label.
+
+Gaps this ADR closes: nothing blocks a sale; a stock row has no date, so cooked food cannot expire at close; a dish has no stock; an ala carte vegetable and a meal's vegetable are different products with no shared count; a meal can only deduct whole units; there is no store setting for any of it.
+
+## Decision
+
+### 1. Three stock modes, one setting
+`products.stock_mode` is `NONE | RUNNING | DAILY`, with `CHECK (track_inventory = (stock_mode <> 'NONE'))` so every existing reader of `track_inventory` stays valid. The migration sets RUNNING for tracked products and NONE for the rest. ADR-016's hidden meal and add-on backing products stay `track_inventory = false`, mode NONE. Rice (an add-on backing product) is therefore not counted; if the client ever wants it counted it is an ordinary RUNNING or DAILY product, with no redesign.
+
+`dishes.stock_mode` is `NONE | DAILY` (default NONE). A dish is never RUNNING.
+
+The behaviour is a per-store setting stored as **typed columns on `store_settings`** (the same shape as `sale_document_mode`: checkable, auditable, one migration per setting; a JSON blob or key-value table was rejected because the values are few and each needs a constraint):
+
+| Column | Default | Meaning |
+|---|---|---|
+| `block_sale_without_stock` | `false` | Master switch. OFF: the ledger behaves exactly as today (negative allowed, no refusal). ON: requirement 1. |
+| `stock_override_enabled` | `true` | Only matters when blocking is ON. OFF: a blocked sale cannot be pushed through by anyone (section 9). |
+| `low_stock_default_threshold` | `3` | The "last 3" warning, in the item's own unit. |
+| `stock_day_cutover_hour` | `0` | Hour (0 to 6) at which the stock day starts, for stores that trade past midnight (section 4). |
+
+Changing them needs `STORE_SETTINGS_MANAGE` (ADMIN) and writes `STOCK_RULES_CHANGED` (old and new values). Turning blocking ON shows a pre-flight count of tracked items that currently have zero or no stock ("these N items will be unsellable until stock is entered"); the system does not touch them. Tracking and blocking never change for a store that does not flip the switch.
+
+### 2. The low-stock threshold
+One concept, not two. `products.reorder_level` becomes nullable: **NULL means "use the store default" (3)**, a number overrides it for that product. The migration converts existing `0` to NULL (0 was the column default, i.e. "never set"); non-zero values are kept as deliberate overrides. The warning fires when `0 < remaining <= threshold`; `remaining <= 0` is "sold out". The same number drives the low-stock report (`on hand <= threshold`) and the till badge. Daily items use the same threshold on remaining portions (the dish has no threshold of its own; the store default applies, a dish-linked product's override applies to its own tile).
+
+Trade-off accepted: a product whose purchasing reorder level is high (12 cans) also warns at the till at 12. If that proves noisy, a separate `till_warning_threshold` column is an additive change.
+
+### 3. Data model for daily stock: date-keyed balances, no midnight job
+Daily stock is keyed by the business date it belongs to, so yesterday's portions simply do not count today and **nothing has to run at midnight or at day close**.
+
+- `stock_movements` gains nullable `stock_date DATE`. NULL for RUNNING items (unchanged). Set for every movement of a DAILY item.
+- New derived cache `daily_stock_balances(product_id, location_id, stock_date, quantity_on_hand NUMERIC(10,3), updated_at)`, primary key `(product_id, location_id, stock_date)`. Same status as `stock_balances`: a projection of the ledger, changed only by `StockLedger` as the atomic side effect of inserting a movement, in the same transaction (`INSERT ... ON CONFLICT DO UPDATE SET qty = qty + delta`). Lifecycle table (INSERT and UPDATE for the application role, no DELETE), like `stock_balances`. `inventory:rebuild-balances` is extended to rebuild it.
+- Two new movement types: `DAILY_PORTIONS_ADDED` (inflow) and `DAILY_PORTIONS_REMOVED` (outflow, reason required). Sales keep `SALE` and `SALE_RETURN`, now carrying `stock_date`. The type CHECK is widened; a further CHECK requires `stock_date` for the two new types.
+- **Leftover is derived, not written.** The leftover of a past date is that date's remaining balance. A `DAY_LEFTOVER` movement was rejected because it would need a job to write it, which is the thing this design avoids.
+- **The pool is the dish.** A DAILY dish owns one hidden pool product (`dishes.stock_product_id`; `menu_hidden`, inactive so it cannot be sold directly, `track_inventory = true`, `stock_mode = DAILY`), created when the dish is switched to DAILY and renamed with the dish. All stock rows then stay keyed by `(product, location[, date])`: no nullable product FK, no change to the `stock_balances` key, no polymorphism (the same reasoning that made ADR-016 reject a nullable `sale_items.product_id`). Stock and low-stock views filter on `stock_mode = 'RUNNING'`, and the daily screens on `DAILY`, so a pool product never leaks into the running views.
+- **Ala carte link.** `products.dish_id` (nullable, restrict FK) and `products.stock_portion NUMERIC(10,3) NOT NULL DEFAULT 1` say "selling one of this product consumes `stock_portion` of that dish's pool". `CHECK (dish_id IS NULL OR stock_mode = 'DAILY')`. The product's own balances are never written; the `SALE` movement is written against the pool product with `quantity = line quantity x stock_portion`, and the sale line's `stock_portion_snapshot` is stored so a refund returns exactly that. An ala carte vegetable is therefore the same dish with portion 1.0, drawing from the same count as a Combo side.
+- **A plain DAILY product** (a snack with no dish) is its own pool: its movements and `daily_stock_balances` rows use its own `product_id`.
+- **Per-meal-option portion.** `meal_options.stock_portion NUMERIC(10,3) NOT NULL DEFAULT 1` (CHECK > 0), editable in the menu builder: Standard viand 1.0, Combo main 1.0, Combo side 0.5. It applies only when the option's dish is DAILY. Menu edits affect the next sale only (as ADR-016 already says), because the sale snapshots the figure:
+- `sale_item_selections` gains `stock_portion_snapshot` (the portion actually deducted for that selection; append-only like the rest of the row).
+- **Changing a product's mode** (RUNNING to DAILY and back, or a dish to or from DAILY) is refused with `STOCK_MODE_CHANGE_BLOCKED` unless the current position is zero (running balance, or today's remaining), so no stock is silently orphaned. The manager adjusts it out first.
+- Locations: V1 has one default location per store (database constraint). Every key carries `location_id` anyway so nothing changes the day a second location is used; the till always uses the default location.
+
+### 4. Which business date: the store's stock day, not the terminal's fiscal day
+`stock_date` = the store-local (Asia/Manila) calendar date of `sold_at`, minus `stock_day_cutover_hour`. It is computed by one small class used by checkout, the entry screen and the reports.
+
+The suggested alternative, the sale's fiscal day `business_date`, was evaluated and rejected: a fiscal day is **per terminal** and keeps the date it opened with until someone closes it. A till whose day was not closed would sell against yesterday's stock (zero or leftover) while the manager has just entered today's, and two tills in one store could disagree on the date. A forgotten close would stop sales in the morning rush. The stock day is a store-wide function of the clock, so two tills always agree, nothing depends on anyone closing anything, and "the day was not closed and a new calendar day started" has no effect on stock. Trading past midnight: with the default cutover 0 a sale after midnight uses the new day's stock (probably none, so blocked); a store that trades after midnight sets the cutover to, say, 3 and its stock day runs to 03:00. The existing "trading past midnight" banner concerns the Z-reading and is unchanged. The Daily stock report is by stock date; the sales report remains by fiscal-day business date, and the two can differ only in the forgotten-close case.
+
+### 5. Which sales consume what (the demand)
+At checkout the server derives, per sale, a list of **stock demands** `(pool product, stock_date or NULL, quantity)`:
+
+| Sale line | Demand |
+|---|---|
+| Product, mode NONE | none |
+| Product, RUNNING | `(product, NULL, qty)` |
+| Product, DAILY, no dish | `(product, D, qty)` |
+| Product linked to a DAILY dish | `(dish pool, D, qty x stock_portion)` |
+| Meal line | one demand per CHOICE selection whose dish is DAILY: `(dish pool, D, meal qty x option.stock_portion)` |
+| Add-on line (rice) | none (backing product is NONE) |
+
+A Combo with a beef main and a vegetable side therefore deducts 1.0 of the beef dish and 0.5 of the vegetable dish. If the same dish appears twice in one cart (a Standard vegetable meal and a Combo side, or an ala carte portion plus a meal), the demands are **aggregated per `(pool, date)` before the check**; the movements themselves are still one per sale line or selection, as stage 28 decided (no merging, so a void or refund restores exactly what each line took). Movement references: `sale_item` for a product line, `sale_item_selection` for a meal selection.
+
+### 6. The block rule
+Applies only when `block_sale_without_stock` is ON and the sale has a demand on a tracked item.
+
+- **Rule:** for every aggregated demand, `available >= required`, where `available` is the `stock_balances` quantity (RUNNING) or the `daily_stock_balances` quantity for `stock_date` (DAILY). **No row counts as zero.** All-or-nothing: one short line blocks the whole sale, and the refusal lists every short line. A mixed cart (blocked item plus others) is blocked as a whole; the cashier removes or reduces the short line.
+- **Authoritative check, inside the checkout transaction, at the existing stock step.** It locks the demanded balance rows `FOR UPDATE` in the canonical stock order (location, product, date, then given order; stage 28), reads them, and either throws or lets `StockLedger::recordMany()` write the movements under the locks already held. Because the sale and its movements commit or roll back together, a refusal leaves nothing behind (no sale, invoice number, slip number, payment, credit entry or movement; the invoice or slip number rolls back with the transaction as today). Exactly-one-wins for the last portion: the second till waits on the row lock, then sees the first till's deduction and is refused. A row that does not exist yet cannot be locked, but then `available` is zero and both tills are refused, which is the correct answer.
+- **Early check.** A cheap unlocked check runs after the cart is resolved and before the credit-limit check and before the invoice series or slip counter lock is taken, so a hopeless cart fails fast and does not hold the series lock. It runs before the credit check so the cashier fixes the cart first (changing the cart changes the charge). It is advisory; the locked check decides.
+- **Refusal:** `409 INSUFFICIENT_STOCK` with `details.shortfalls[] = {kind: PRODUCT|DISH, product_id|dish_id, name, mode, stock_date, required, available}` and `details.override_available` (setting ON and the store allows override). It is not a transient error: the till does **not** auto-retry it (unlike `CONCURRENCY_CONFLICT`). It shows the panel of section 8. A replay with the same idempotency key after the cart changes is a new request body, as for `CREDIT_LIMIT_EXCEEDED`; the build must confirm that a refused request stores no idempotency result (slice A test).
+- **Blocking OFF:** no check, no refusal; the sale writes its movements, balances may go negative (running and daily alike), exactly as stage 14. Daily dishes still deduct if configured.
+- **Void and refund are never blocked.** They only add stock back.
+
+### 7. Void and refund return exactly what was taken, to the right day
+A void and a `RETURN_TO_STOCK` refund line find the original `SALE` movement(s) of the line by reference and write `SALE_RETURN` with the **same product (pool), location and `stock_date`**, quantity = refunded quantity x the stored portion snapshot. The date is the original sale's, not today's. If that day has passed, the return lands on the past date: the ledger stays complete, that day's sold figure is correct, and today's stock is unaffected (food does not return to sellable stock the next day). For a DAILY line the refund screen defaults the disposition to DISPOSED and says "cooked food from a past day is not put back"; invariant 30 (explicit disposition) is unchanged. For a meal line a void or refund walks the `sale_item_selections` movements.
+
+### 8. Till and admin behaviour
+Till (stock figures are advisory; the server is authoritative):
+- `GET /stock/availability` (session-level, read-only, store-scoped) returns the remaining quantity for the current stock date for every tracked product and every DAILY dish, with `low` and `sold_out` flags. Cached on the till; refreshed at shift open, every 60 seconds while idle, after every sale and on every `INSUFFICIENT_STOCK`. Cashiers see quantities only, no costs.
+- **Tiles** show the remaining count and a state: normal; "3 left" style amber badge when `0 < remaining <= threshold`; greyed "No stock" when `remaining <= 0` (blocking ON: not tappable; OFF: tappable, still labelled). In the meal picker a dish with no remaining portion (or less than the option's portion) is greyed. A dish-linked ala carte tile shows `floor(remaining / stock_portion)`.
+- **At add or quantity increase**, not only at Charge: the till sums the cart's demand with the cached availability; if it would exceed, the add is refused locally with "Only 2 left. Remove one or ask the manager." (no stock at all: "No stock for Beef nilaga today. A manager must enter today's stock."). The cart shows an amber line when the cart leaves 3 or fewer. A banner "No stock entered for today yet" shows when blocking is ON and no daily row exists for the date.
+- On a server `INSUFFICIENT_STOCK` the till shows every short line with the available amount and three buttons: Fix the cart, Remove the item, and (when `override_available`) Manager override (section 9).
+
+Admin (all under the existing Inventory section, gated by `STOCK_ADJUST` unless stated):
+- **Today's stock** (`/admin/inventory/today`): one bulk grid with one row per DAILY dish and DAILY product: Cooked today (editable), Sold, Remaining. Saving sends one idempotent request that the server turns into `DAILY_PORTIONS_ADDED` / `_REMOVED` deltas against the current total; lowering below what is already sold is refused (`DAILY_STOCK_BELOW_SOLD`); lowering needs a reason. "Add portions" is the mid-day second batch (a positive delta). "Copy yesterday's quantities" only **pre-fills** the editable inputs; nothing is saved until the manager saves, so there is no silent carry-over. Entry is for the current stock date only; past dates are read-only.
+- **Daily stock report** (`REPORT_VIEW`): per date and item, Cooked, Sold, Returned, Removed, **Leftover** (the date's remaining balance; negative means oversold under an override), and sold-versus-cooked. Date range, CSV through the existing export contract.
+- **Stock view / Low stock** (running): the existing tabs, with the freshness flag (section 10) and the effective threshold.
+- **Product and menu screens:** stock mode and shelf life on the product form; "Draws from dish" and portion on the product form; "Counts daily stock" on the dish; "Portion used" on a meal option.
+- **Stock rules** setting screen (`STORE_SETTINGS_MANAGE`): the four settings of section 1 with the pre-flight count.
+
+### 9. Blocked-sale override (recommended default, off switch; OPEN QUESTION for the client)
+The client has not said whether they want it. It is proposed ON when blocking is ON (`stock_override_enabled = true`) because the realistic failure is a miscount with a queue of customers; the cashier cannot enter stock (requirement 2) and a manager may be at the other end of the canteen. OFF removes the ability entirely and a blocked sale can only be fixed by entering stock.
+
+It mirrors the credit-limit override and **reuses its approver machinery**: `user_override_codes` (the approver's own 6 to 8 digit code, five wrong codes lock 15 minutes, per-terminal throttle), `OverrideCodeService` verification in its own committed transaction, the named-approver flow, `OverrideAuditor`. What is new:
+- Capability **`STOCK_SALE_OVERRIDE`** (MANAGER, ADMIN; never CASHIER), so granting the right to override stock is separate from the credit limit (the capability catalog grows from 21 to 22). The approver must differ from the cashier.
+- Table **`stock_override_grants`** (lifecycle; application UPDATE only on `consumed_at` and `sale_id`): `store_id`, `terminal_id`, `cashier_id`, `approver_id` (CHECK differs), `demand_hash` (SHA-256 of the canonical sorted shortfall demands), `token_hash` (SHA-256, unique), `expires_at` (5 minutes), `consumed_at`, `sale_id` (UNIQUE once set), `created_at`. A new table is needed because `credit_override_grants` is shaped around an employee and a peso ceiling; widening it into a generic grants table would rewrite built, tested code for no gain.
+- Flow: after `INSUFFICIENT_STOCK`, the approver is named and types their code; the server recomputes the cart's shortfall, refuses if there is none, and issues a single-use token bound to terminal, cashier and **the exact demand** (changing the cart invalidates it). Checkout presents `stock_override_token`. The grant row is locked `FOR UPDATE` early, at the existing `OverrideGrant` position in the global lock order, so the later stock step takes no out-of-order lock; the grant is stamped consumed (and `sale_id` set) at the stock step **only if a shortfall actually exists** under the locks, mirroring "a within-limit sale never consumes the credit grant". The sale then proceeds and the balance goes negative; the daily report shows it as oversold.
+- Audit: `STOCK_OVERRIDE_GRANTED`, `STOCK_OVERRIDE_USED` (written in the sale's transaction, with approver, cashier, terminal, shortfalls), `STOCK_OVERRIDE_REFUSED`. Errors mirror the credit ones: `STOCK_OVERRIDE_INVALID` (422, one generic answer), `_LOCKED` (423), `_EXPIRED` (409), `_NOT_ALLOWED` (403).
+- Credit and stock overrides are independent and may both be needed in one sale (two tokens).
+
+### 10. Rough shelf life (groceries and baked goods)
+`products.shelf_life_days SMALLINT NULL` (CHECK > 0). The stock view and the low-stock view show a **"Check freshness"** flag when `on_hand > 0` and the product's most recent receipt (`PURCHASE_RECEIPT`, `OPENING_STOCK` or `TRANSFER_IN` movement) is more than `shelf_life_days` Manila calendar days old. It is derived at query time from the ledger (index on `product_id, created_at`), stores nothing, never blocks a sale and never changes a balance. Clearing it is existing behaviour: the manager removes spoiled units with the existing `EXPIRED` or `DAMAGE` adjustment (reason required), or receives fresh stock. Not applied to DAILY items (they end at close) or to NONE items.
+
+**Batch and expiry-date tracking is out of scope.** The client asked for rough shelf life only. Batches would add a lot-aware ledger, FIFO or FEFO consumption at every sale, an expiry date on every receipt, lot selection in counts and transfers, and a lot-level refund rule, which is a rewrite of invariants 44 to 47 for something the client said they do not need. The known weakness of the light version is accepted and stated: a fresh receipt on top of old units clears the flag, because the system does not know which units are old. The flag is a prompt to look, not a record.
+
+### 11. Concurrency, lock order and the hardening plan
+- `StockLedger::recordMany()` sorts by `location_id`, `product_id`, `stock_date` (NULL first), then given order; the pre-write availability lock uses the same order, in the same method, so one place owns it (stage 28's rule stands: every transaction that writes more than one stock row writes them in this order). The daily entry screen writes through `recordMany()` too.
+- `LockableResource` gains `StockBalance`, ordered after `SlipCounter` (billing cases move down by one; they never run in a sale). Checkout's order is unchanged in shape: Shift, FiscalDay, Employee, OverrideGrant (credit, then stock), Sale, SaleItem, InvoiceSeries or SlipCounter, then stock rows. Void and refund lock employee, sale, then stock rows (unchanged). Counts, transfers and stock entry take only stock rows. A new checkout's sale row cannot be reached by a void until it commits, so no cycle exists. A multi-process test (as in stage 28) is mandatory for two tills selling the last portion, for a checkout against a daily entry, and for an override race.
+- Hardening: `daily_stock_balances` is a derived lifecycle cache (like `stock_balances`: INSERT and UPDATE, no DELETE; not in the append-only revoke list, with the same comment); `stock_override_grants` is lifecycle with column-level `UPDATE (consumed_at, sale_id)`; `stock_movements` stays append-only (a new column on an append-only table); `sale_item_selections` stays append-only; the new columns on `products`, `dishes`, `meal_options` and `store_settings` are ordinary columns of lifecycle tables. Each migration comment states the table kind. `harden_append_only_privileges.sql`, the read-back in `HardenDatabase` and `AppendOnlyPrivilegesTest` are updated in the slice that creates each table. The DELETE allow-list does not change.
+
+### 12. Slip mode, invoice mode, existing data
+- **No effect on slip or invoice mode.** The stock step is shared by both branches of `CheckoutService`; the document, the numbering and the fiscal journal are untouched. Tests run the block in both modes, and `InvoiceModeUnchangedTest` (the byte-for-byte fixture) must stay green with the setting OFF.
+- **Existing data:** tracked products become RUNNING; hidden backing products stay NONE; `reorder_level` 0 becomes NULL; old movements keep `stock_date` NULL; blocking is OFF; no dish is DAILY. The canteen's go-live loader (`tindaflow:load-canteen-menu`) is extended to mark the lunch and breakfast dishes DAILY, set the Combo side option to 0.5, and mark snack products DAILY; its opening running stock comes from the existing stock count or receipt screens.
+- **The ADR-016 hidden backing products** are unaffected. The new dish pool products are a second kind of hidden product with `track_inventory = true`; `MenuBackingProducts`' documented assumption "hidden products are untracked" is updated, and every inventory query that excludes `menu_hidden` is reviewed (slice B).
+
+## Alternatives considered
+- **A nightly reset job that zeroes cooked-item balances.** Rejected: it needs something to run reliably at close or midnight on a LAN-first, single-server deployment that may be off or asleep; a missed run leaves yesterday's food sellable (the opposite of the requirement); the reset must itself be a ledger movement to keep invariant 44, per item per day; and a late refund has no day to return to. Date-keyed balances need no job, make "yesterday does not count" structural, and give the leftover report for free.
+- **Use the fiscal day's business date.** Rejected, section 4.
+- **Per-category daily counts (Beef, Chicken ...).** Rejected: the client counts portions per dish (Beef nilaga 20), and a category count cannot tell sinigang from adobo. Category stays a price attribute only.
+- **Batches with expiry dates.** Rejected, section 10.
+- **Key stock rows by `dish_id` (nullable `product_id`).** Rejected: weakens an FK the ledger, reports and the rebuild command rely on, and changes the `stock_balances` key. A hidden pool product per dish costs one row per dish.
+- **Make the ala carte vegetable a meal.** Rejected: it is a plain product on the grid; `products.dish_id` + `stock_portion` is the smallest link.
+- **A separate `till_warning_threshold` column now.** Deferred: one concept is simpler; additive if needed.
+- **Generalise `credit_override_grants` into `override_grants(kind)`.** Rejected for now, section 9.
+- **A hard block with no override.** Kept as the off switch, not the default: a miscount would then stop a queue until a manager enters stock.
+- **Auto carry-over of yesterday's quantities.** Rejected: silent over-stock of food; the client wants the manager to enter it each morning. Copy-yesterday only pre-fills the form.
+- **Store `leftover` rows or a closing movement.** Rejected, derived is enough.
+
+## Consequences
+Easier: a miscounted or unstocked item can no longer be sold at the till (when the store turns it on); cooked stock is per dish and per day with no job; an ala carte dish and a meal share one count; refunds restore the exact portion to the right day; a leftover/waste report and sold-versus-cooked exist from the same ledger; stores that do nothing see no change.
+
+Harder: `CheckoutService` (already amended by slices 2.2a, 3.2, 3.3 and stage 28) gets another recorded edit: demand resolution, the early and locked checks, the grant. Invariants 44 and 47 are restated (section "Consequences for invariants" below). A stale cached count at the till can show a tile as available that the server then refuses; the server message and the 60 second refresh bound the annoyance. Turning blocking ON in a store with sloppy opening counts will stop sales for items that were "fine" before; the pre-flight warns and the override is the safety valve. A forgotten morning entry stops cooked-food sales by design (the client's own rule); the till banner names the cause. Dish-linked products and hidden pool products add configuration a manager must understand; the help guide and the menu builder labels carry that.
+
+Consequences for invariants (see invariants.md): 44 gains the daily balance; 47 is restated (one SALE per sale line for a tracked product, one per CHOICE selection of a DAILY dish for a meal line, dish-linked products write against the pool); 46's reason list gains `DAILY_PORTIONS_REMOVED`; new STK-001 to STK-006 are numbers 100 to 105. Stage 14's "negative stock is allowed" and `StockLedger`'s class comment are annotated as holding while blocking is OFF.
+
+Out of scope: batches, lot or expiry dates, recipes and ingredient-level deduction, purchase orders, a separate threshold for the till, counting rice, stock for a second location at the till, automatic carry-over, scheduled waste write-offs.
+
+## Open questions for the client
+1. **Override on a blocked sale (not yet asked).** Recommended ON: a manager enters a personal code to allow ONE sale when the count is wrong. Or OFF: a blocked sale can only be fixed by entering stock.
+2. Does the stock day end at midnight, or does the canteen ever sell past midnight (cutover hour)?
+3. Is Beef nilaga's daily number also used for breakfast or snack items (are any dishes sold at both breakfast and lunch from one pot, or are they separate counts)?
+4. Which snacks and breakfast items are "cooked daily" (DAILY) and which are packed (RUNNING)? We assume packed snacks and all beverages and baked goods are RUNNING.
+5. Baked products: is a rough shelf life of 1 to 2 days and "check freshness" enough, or do they also want baked stock entered each morning (DAILY)? We assume RUNNING, as the client stated.
+6. Cooked food returned by a customer: assume it is never put back into stock (default DISPOSED). Confirm.
+7. Should the manager be able to switch blocking on and off (today only the administrator can)?
+8. Should the Combo vegetable side be exactly 0.5, and are there other portion sizes (a half order of a dish sold ala carte, 0.5)?

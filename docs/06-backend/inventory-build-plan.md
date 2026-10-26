@@ -1,0 +1,78 @@
+# Inventory build plan (ADR-017)
+
+Status: proposed 2026-10-26. Design only. Linked from [canteen-build-plan.md](canteen-build-plan.md). Design and rationale: [ADR-017](../03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md). Estimates are working days for one developer including tests, audit events, hardening updates and the help-page update for that slice; the range is best case to realistic.
+
+**Total: 15 to 20 days (midpoint about 17.5).** The 12 to 15 day target holds only if the stock override (A2, 2 to 3 days) is dropped and freshness (C) is deferred: 13 to 17 without them. Why it is above the target: the daily-stock slice touches the ledger, checkout, void, refund, the menu builder and three screens (7 to 8 days on its own), and every new stock path needs a multi-process concurrency test like stage 28's.
+
+Every migration is run by the owner role, and its comment states whether each new table is append-only or lifecycle. For each new table update `database/scripts/harden_append_only_privileges.sql`, the read-back in `app/Console/Commands/HardenDatabase.php` and `tests/Database/AppendOnlyPrivilegesTest.php` in the same slice. No new table needs DELETE.
+
+Cross-cutting rules for all slices:
+- `CheckoutService` is a frozen file with recorded exceptions (stage 28, ADR-016 slices 2.2a, 3.2, 3.3). Each slice below that edits it records the exception in its own amendment to ADR-017, and `InvoiceModeUnchangedTest` plus the slip-mode tests must stay green with the setting OFF.
+- New error codes go in `docs/05-api/error-catalog.md` and new operations in `docs/05-api/operation-inventory.md`, as ADR-016's slices did.
+- A feature test class per slice, plus a `tests/Database` multi-process test where noted. Update `docs/02-domain/invariant-test-coverage.md` for invariants 100 to 105.
+
+## Slice A — Block sales at zero for running stock, "last 3" warning, optional override: 6 to 8 days
+
+Depends on nothing unanswered except the override question (A2).
+
+**A1. Setting, threshold, block rule, till warnings: 4 to 5 days.**
+- Scope: the four `store_settings` columns and a Stock rules admin screen (`STORE_SETTINGS_MANAGE`, pre-flight count, `STOCK_RULES_CHANGED` audit); `products.stock_mode` (backfilled from `track_inventory`) and the product form/CSV column; `reorder_level` nullable with NULL = store default and the low-stock view using the effective threshold; the demand resolver for RUNNING products (aggregation per cart); `StockLedger::lockAndCheck()` (locks the demanded rows in canonical order, returns shortfalls) used by checkout's stock step; early unlocked check before the credit check and before the series/slip lock; `409 INSUFFICIENT_STOCK` with `details.shortfalls`; `GET /stock/availability`; till: tile remaining count, amber "N left", greyed "No stock", refusal at add and at quantity increase, cart warning line, `INSUFFICIENT_STOCK` panel (no auto-retry); `LockableResource::StockBalance`.
+- Migrations: `add_stock_rules_to_store_settings`; `add_stock_mode_and_nullable_reorder_level_to_products` (CHECK `track_inventory = (stock_mode <> 'NONE')`; `reorder_level` 0 to NULL).
+- Files/areas: `app/Services/Inventory/StockLedger.php`, new `StockDemandResolver`, `StockRulesService`; `app/Services/Checkout/CheckoutService.php` (recorded exception); `InventoryController` (low-stock), `ProductResource/Request/ProductCsv/ProductAuditor`; `app/Support/LockableResource.php`, `GlobalLockOrder.php`; `resources/js` Pos tiles, cart, refusal panel, an `useStockAvailability` hook; Stock rules page under Store setup; `StockLedger` class comment and stage 14 note.
+- Tests: STK-001 (blocked at zero; no row = zero; exact quantity allowed; one short line blocks a mixed cart and lists all lines; same product twice aggregated); setting OFF changes nothing (negative allowed, existing checkout and stock tests unchanged); refusal leaves no sale, invoice/slip number, payment, movement or credit entry, in both INVOICE and SLIP modes; void and refund not blocked; two-process test: two tills sell the last unit, exactly one succeeds, balance 0 (modelled on `StockWriteOrderConcurrencyTest`); idempotency: a refused request stores no result and the same key succeeds after stock is entered; availability endpoint scoping and cashier access; threshold interaction (NULL uses default, override wins, boundary at exactly the threshold and at 0); migration test (tracked becomes RUNNING, hidden backing stays NONE, `reorder_level` conversion); `AppendOnlyPrivilegesTest` unchanged for A1 (no new table).
+- Help: update `receiveStock.js` (blocking, entering stock first), `makeSale.js` (the warnings and what to do), `glossary.js`; new `stockRules.js`; retake tile and refusal screenshots with `scripts/help-shots`.
+
+**A2. Manager override of a blocked sale (OPEN QUESTION for the client; build only on a yes): 2 to 3 days.**
+- Scope: capability `STOCK_SALE_OVERRIDE` (MANAGER, ADMIN; catalog 21 to 22); `stock_override_grants`; `StockOverrideService` reusing `OverrideCodeService` verification and `OverrideAuditor`; endpoints to list approvers (by capability) and grant a token for the current cart's shortfall; checkout accepts `stock_override_token`, locks the grant early at the `OverrideGrant` position, consumes it at the stock step only if a shortfall exists, sets `sale_id`; `stock_override_enabled` setting honoured; till modal reusing the named-approver code modal; errors `STOCK_OVERRIDE_INVALID/_LOCKED/_EXPIRED/_NOT_ALLOWED`; audit `STOCK_OVERRIDE_GRANTED/_USED/_REFUSED`.
+- Migrations: `create_stock_override_grants_table` (lifecycle: UPDATE `consumed_at`, `sale_id`).
+- Tests: STK-005 (bound to terminal, cashier and demand; changed cart refused; expiry; single use; consumed only when a shortfall exists; approver differs from cashier; cashier role cannot approve; lockout shared with credit codes; setting OFF issues nothing); refusal audited after rollback; credit and stock tokens together in one sale; two-process replay does not consume twice (as `CreditConcurrencyTest`); the sale goes negative and the day report shows it; `AppendOnlyPrivilegesTest` (column-level UPDATE).
+- Help: add a section to `stockRules.js` and `makeSale.js`.
+
+## Slice B — Daily stock for cooked items, per dish, with portions: 7 to 8 days
+
+Depends on slice A (the demand resolver, the check and the setting) and on ADR-016 slice 1.3 (built). Can be built before A2.
+
+**B1. Daily ledger, dish pools, entry screen: 3 to 3.5 days.**
+- Scope: `stock_movements.stock_date` and the two movement types; `daily_stock_balances`; `StockLedger` routes dated movements to the daily cache and sorts by location, product, date; `inventory:rebuild-balances` rebuilds both caches; `dishes.stock_mode` and `stock_product_id` (pool product created, renamed with the dish, mode change refused unless position is zero); the `StockDay` class (stock date with cutover); `DailyStockService` and endpoints (list for today, save entry as deltas, add portions, copy-yesterday read) with `STOCK_ADJUST` + enrolled terminal + Idempotency-Key; admin **Today's stock** grid; "Counts daily stock" toggle on the dish form; DAILY mode on plain products; stock and low-stock views filtered to RUNNING.
+- Migrations: `add_stock_date_to_stock_movements_and_widen_type_check`; `create_daily_stock_balances_table` (derived lifecycle cache, comment says so); `add_stock_mode_to_dishes`.
+- Tests: STK-002, STK-004 (entry creates attributed movements; lowering below sold refused; lowering needs a reason; yesterday's balance does not count today; entry for a past date refused; cashier forbidden; idempotent replay; mode change refused with stock); balance equals ledger per `(product, location, date)` incl. rebuild; stock day at cutover boundaries and Manila midnight; two-process: daily entry against a checkout, and canonical order with dated rows; rename keeps the pool name; menu_hidden pool products never appear in running views or the product list/CSV.
+- Help: new `todaysStock.js` (the morning routine, adding a second batch, copy yesterday), update `buildMeal.js` (counts daily stock).
+
+**B2. Meal and ala carte consumption, void and refund: 3 to 3.5 days.**
+- Scope: `meal_options.stock_portion` in the menu builder (default 1; Combo side 0.5) and `tindaflow:load-canteen-menu`; `sale_item_selections.stock_portion_snapshot`; `products.dish_id` + `stock_portion` (+ `sale_items.stock_portion_snapshot`) and the "Draws from dish" fields; the demand resolver covers selections and dish-linked products (aggregation across meals and ala carte); checkout writes one `SALE` per selection (reference `sale_item_selection`) or per dish-linked line against the pool with `stock_date`, through `recordMany`; void and refund return to the original pool/date using the stored portion and walk meal selections; refund screen defaults DAILY lines to DISPOSED with the past-day note; till: meal picker greys sold-out dishes and shows portions left, dish-linked tile shows `floor(remaining / portion)`, "No stock entered for today yet" banner. `CheckoutService`, `VoidService`, `RefundService` are edited (recorded exceptions).
+- Migrations: `add_stock_portion_to_meal_options_and_selections`; `add_dish_link_to_products_and_sale_items`.
+- Tests: STK-003; Standard meal deducts 1.0 of its dish; Combo deducts main 1.0 and side 0.5; two Combos with the same vegetable side deduct 1.0; an ala carte vegetable and a Combo side share one count (sell 1.0 ala carte then 0.5 + 0.5 sides, the fourth half is refused with 0.0 left); rice and add-ons deduct nothing; a menu portion change after the sale does not change the refund; void and refund of a same-day sale restore exactly the snapshot; void and refund after the day passed write to the original date and leave today untouched; partial refund of a dish-linked quantity; blocked when a dish has too little for the portion (0.5 needed, 0.25 left); blocking OFF: dishes deduct and may go negative; both INVOICE and SLIP modes; two-process test for two tills selling the last portion of one dish via a meal and via an ala carte product; invariant 47 test updated; `InvoiceModeUnchangedTest` green.
+- Help: update `sellMeal.js`, `makeSale.js`, `requestVoidRefund.js` / `approveVoidRefund.js` (cooked food is not put back), `buildMeal.js` (portion used).
+
+**B3. Daily stock report and leftover: 1 to 1.5 days.**
+- Scope: `GET /reports/daily-stock` (date range, per item: cooked, sold, returned, removed, leftover, oversold) and CSV through the existing export contract; the report screen; sold-versus-cooked column; negative-stock presentation when the block is OFF.
+- Migrations: none (an index on `stock_movements (product_id, stock_date)` if the query plan needs it).
+- Tests: figures reconcile with the ledger for a scripted day (entry, sales, a refund, a removal); a late return shows on its original date; a range spanning days; permission `REPORT_VIEW`; CSV shape.
+- Help: update `reports.js`.
+
+## Slice C — Rough shelf life flag: 1 to 1.5 days
+
+Depends on slice A1 (`stock_mode`, the stock view); independent of B.
+- Scope: `products.shelf_life_days` on the product form, CSV and `ProductAuditor`; a derived `check_freshness` flag (on hand > 0 and latest receipt older than the shelf life in Manila days) on the stock list, the low-stock list and the inventory-on-hand report; a filter "Check freshness"; no batch or expiry fields anywhere.
+- Migrations: `add_shelf_life_days_to_products`; index `stock_movements (product_id, movement_type, created_at)` if needed.
+- Tests: STK-006 (flag on the exact day boundary, cleared by a new receipt, cleared when on hand is 0 via an `EXPIRED` adjustment, never shown for DAILY or NONE items, never blocks a sale, null shelf life never flags); report/CSV include the flag.
+- Help: update `addProducts.js`, `editProduct.js`, `receiveStock.js`, `importProducts.js`.
+
+## Phase X — Cross-cutting: 1.5 to 2 days
+
+Extend the canteen go-live loader (lunch/breakfast dishes DAILY, Combo side 0.5, snack products DAILY) and its tests; a pre-flight command or screen listing tracked items with zero stock before blocking is turned on; update `docs/02-domain/invariant-test-coverage.md` (100 to 105), `docker/README.md` for the new tables, `docs/05-api` inventories, `docs/06-ui/sitemap.md` (Today's stock, Daily stock report, Stock rules); screenshots through `scripts/help-shots`; a full `tests/Database` run against a scratch database; ADR-017 amendment recording what was built and any deviation.
+
+## Dependency summary
+
+A1 -> A2 (optional) ; A1 -> B1 -> B2 -> B3 ; A1 -> C. B2 also needs ADR-016 slice 1.3 (built) and uses A2's token only for the override path. Critical path: A1, B1, B2, B3, X = 11.5 to 15 days; A2 and C add 3 to 4.5.
+
+## Open items (client)
+
+1. **Override of a blocked sale** (A2): wanted (manager code, one sale) or not? Recommended yes.
+2. **Stock day boundary:** does the canteen ever sell past midnight (cutover hour)?
+3. **Which items are daily:** confirm the list of breakfast, lunch and snack items that are cooked daily (DAILY) versus packed (RUNNING). Any dish sold at both breakfast and lunch from separate pots?
+4. **Baked products:** rough shelf life with "check freshness" is enough, or entered each morning like cooked food?
+5. **Returned cooked food** is never put back into stock: confirm.
+6. **Who may switch blocking on or off:** the administrator only (as designed) or also the manager?
+7. **Portion sizes:** the Combo side is 0.5 of a vegetable dish; any other fractions (half orders sold ala carte)?
+8. **Opening counts:** who will enter the first running stock for groceries and beverages before blocking is turned on (the system lists items with no stock first)?

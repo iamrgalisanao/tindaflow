@@ -113,7 +113,7 @@ Easier: menu, price and dish changes need no deploy; reports and billing can gro
 
 Harder: checkout grows a meal-resolution step and an employee lock; the lock order changes (documented, tested); roughly 18 backend and 9 frontend files that assume an invoice row (sales list/detail, void, refund, reprint, lookup, sales and void/refund reports) need a document-agnostic reference; the QR value is the guessable sequential code, so anyone who knows `TSC00012` can charge that employee. Mitigated, not eliminated, by the slip naming the employee at the till, per-employee limits, and billing review before payroll deduction; a secret in the QR is a future option. Accepted. The override code is a short secret typed at a shared till; the lockout, named approver, per-sale scope and audit limit the damage, they do not make shoulder-surfing impossible.
 
-Out of scope: dish inventory and daily reset, baked-goods shelf life, a per-store configurable role model, mixed cash and credit tender, installments or payroll-deduction files, employee self-service, any invoice or fiscal behavior in slip mode.
+Out of scope here (designed in [ADR-017](ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md), 2026-10-26: dish inventory and daily stock, blocking sales at zero, baked-goods shelf life): dish inventory and daily reset, baked-goods shelf life, a per-store configurable role model, mixed cash and credit tender, installments or payroll-deduction files, employee self-service, any invoice or fiscal behavior in slip mode.
 
 ## Amendment 2026-10-25: slice 2.2a (slip mode core) as built
 

@@ -262,18 +262,28 @@ else is carried over unchanged from revision 1.
     pair. No code path writes to `stock_balance` except as an atomic
     side-effect of inserting a `stock_movement` row in the same
     transaction.
+    *Amended by ADR-017 (proposed 2026-10-26):* the same holds for
+    `daily_stock_balance` per `(product_id, location_id, stock_date)`: it
+    equals the signed sum of the movements carrying that `stock_date`.
 45. **Every stock movement is append-only and attributed.**
     `stock_movement` rows are never updated or deleted, and every row
     records `reference_type`/`reference_id` and `created_by`.
 46. **Adjustments require a reason.** Any `stock_movement` with
     `movement_type` in (`STOCK_ADJUSTMENT_IN`, `STOCK_ADJUSTMENT_OUT`,
-    `DAMAGE`, `EXPIRED`) must have a non-empty `reason`.
+    `DAMAGE`, `EXPIRED`, `DAILY_PORTIONS_REMOVED` (ADR-017)) must have a non-empty `reason`.
 47. **Sale deducts, refund/void restore — always through the ledger, never
     through a direct balance edit.** A `COMPLETED` sale's inventory effect
     is one `SALE`-type movement per `sale_item` (negative); a `void` or a
     `RETURN_TO_STOCK` refund line produces a `SALE_RETURN`-type movement
     (positive). See Refund §30 for the disposition rule governing when a
     movement is or isn't created.
+    *Restated by ADR-017 (proposed 2026-10-26):* one `SALE` movement per
+    sale line of a tracked product; a product linked to a daily dish writes
+    against the dish's pool product with `quantity = line quantity x
+    stock_portion`; a meal line writes one `SALE` per CHOICE selection of a
+    daily dish (`quantity = meal quantity x the selection's
+    stock_portion_snapshot`) and none for its backing product or add-ons. A
+    return restores the same pool, location and `stock_date` the sale took.
 
 ## Audit & electronic journal
 
@@ -659,3 +669,28 @@ applying to the business day in slip mode.
 99. **BILL-005 — run numbers are gap-free per store.** `BR-000001`, `BR-000002` ... come from `billing_run_counters`, locked `FOR UPDATE` and bumped
     in the same transaction as the insert, so a failed save leaves no gap and concurrent saves get distinct numbers. Tests:
     `BillingRunConcurrencyTest` (two processes), `BillingStatementHttpTest`.
+100. **STK-001 — with blocking on, a sale never takes tracked stock below zero (except by a valid stock override).** When
+    `store_settings.block_sale_without_stock` is true, every aggregated demand `(pool, stock_date, quantity)` of a sale must be at most the
+    available quantity (a missing balance row is zero), checked inside the checkout transaction with the balance rows locked `FOR UPDATE` in the
+    canonical stock order; otherwise the sale is refused (`INSUFFICIENT_STOCK`, 409, listing every short line) and nothing is written. Two tills
+    selling the last portion: exactly one succeeds. With the setting false the ledger behaves as before and balances may go negative. Void and
+    refund are never blocked. *Planned, ADR-017 slice A.*
+101. **STK-002 — daily stock belongs to its stock date and nothing resets it.** A movement of a DAILY item carries `stock_date`; a sale consumes only
+    the balance of its own `stock_date` (the store-local date of `sold_at` less `stock_day_cutover_hour`, never a terminal's fiscal day); yesterday's
+    remaining quantity is never available today; a day's leftover is its remaining balance, derived, with no closing movement and no scheduled
+    job; entry is allowed for the current stock date only. *Planned, ADR-017 slice B.*
+102. **STK-003 — a portion is snapshotted and returned exactly.** The portion deducted for a meal selection is stored on
+    `sale_item_selection.stock_portion_snapshot` (and `sale_item.stock_portion_snapshot` for a dish-linked product) when the sale is made; a
+    later change to the menu or product never alters it; a void or `RETURN_TO_STOCK` refund writes `SALE_RETURN` for refunded quantity x that
+    snapshot to the original pool, location and `stock_date` (if that day has passed, the return lands on that past date and today's stock is
+    unaffected). *Planned, ADR-017 slice B.*
+103. **STK-004 — only STOCK_ADJUST enters stock, and daily entry is ledger-only.** Receipts, adjustments and daily entry need `STOCK_ADJUST`
+    (ADMIN, MANAGER; never CASHIER) and an enrolled terminal; daily entry is `DAILY_PORTIONS_ADDED` / `DAILY_PORTIONS_REMOVED` movements through
+    `StockLedger` (the only writer), attributed; lowering a day's total below what is already sold is refused (`DAILY_STOCK_BELOW_SOLD`).
+    A product's or dish's stock mode changes only when its current position is zero (`STOCK_MODE_CHANGE_BLOCKED`). *Planned, ADR-017 slice B.*
+104. **STK-005 — a stock override is one sale, one approver, audited.** A `stock_override_grant` is bound to terminal, cashier and the exact shortfall
+    demand (hash), expires in minutes, is single use (consumed atomically, only when a shortfall actually exists, with `sale_id` recorded), the
+    approver holds `STOCK_SALE_OVERRIDE` and differs from the cashier, approver codes are the OVR-002 codes (same lockout), and `STOCK_OVERRIDE_*`
+    audit events are written for every attempt. With `stock_override_enabled` false no grant is issued or accepted. *Planned, ADR-017 slice A.*
+105. **STK-006 — shelf life is advisory.** `product.shelf_life_days` only drives a derived "check freshness" flag (stock on hand and the latest
+    receipt older than the shelf life); it never blocks a sale, never changes a balance and stores no expiry date or batch. *Planned, ADR-017 slice C.*
