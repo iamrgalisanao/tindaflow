@@ -30,6 +30,8 @@ class StockMovementResource extends JsonResource
             'reason' => $this->resource->reason,
             'unit_cost' => $this->resource->unit_cost,
             'created_by' => $this->resource->created_by,
+            'approved_by' => $this->resource->approved_by,
+            'stock_date' => $this->resource->stock_date?->toDateString(),
             'occurred_at' => $this->resource->occurred_at?->toIso8601String(),
         ];
     }

@@ -96,6 +96,9 @@ final class StockCountService
                 if (! $product->track_inventory) {
                     throw ValidationException::withMessages(["lines.{$index}.product_id" => 'This product does not track inventory, so there is no stock to count.']);
                 }
+                if ($product->stock_mode === 'DAILY') {
+                    throw ValidationException::withMessages(["lines.{$index}.product_id" => "This product counts daily stock. Enter it in Today's stock; a count is for running stock."]);
+                }
 
                 StockCountLine::updateOrCreate(
                     ['stock_count_id' => $count->id, 'product_id' => $product->id],

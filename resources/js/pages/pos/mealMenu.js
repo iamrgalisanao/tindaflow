@@ -5,7 +5,7 @@ import { moneyText, pesos, toCents } from './posMoney';
  * price or a rule: the payload says which groups a meal has, how many options each takes and what each costs now, and the
  * server prices and validates the sale again when it is finalised (the preview here is only what the cashier sees first).
  *
- * @typedef {{id: string, label: string, sort_order: number, price: string|null, dish: {id: string, name: string, dish_category_id: string}|null}} MealOption
+ * @typedef {{id: string, label: string, sort_order: number, price: string|null, stock_portion?: string|null, dish: {id: string, name: string, dish_category_id: string}|null}} MealOption
  * @typedef {{id: string, name: string, kind: 'CHOICE'|'ADDON', min_select: number, max_select: number, prices_the_meal: boolean, popup_after_choice: boolean, step_order: number, options: MealOption[]}} MealGroup
  * @typedef {{id: string, name: string, menu_group_id: string|null, menu_group_path: string|null, prices: Array<{dish_category_id: string, amount: string}>, option_groups: MealGroup[]}} Meal
  * @typedef {{[groupId: string]: string[]}} Picks  option ids picked, per group
@@ -112,7 +112,7 @@ export function buildMealLine(meal, picks) {
     const choices = [];
     for (const group of choiceGroups(meal)) {
         for (const option of pickedOptions(group, picks)) {
-            choices.push({ group_id: group.id, group_name: group.name, option_id: option.id, label: option.label });
+            choices.push({ group_id: group.id, group_name: group.name, option_id: option.id, label: option.label, dish_id: option.dish?.id ?? null, stock_portion: option.stock_portion ?? null });
         }
     }
     const addons = [];

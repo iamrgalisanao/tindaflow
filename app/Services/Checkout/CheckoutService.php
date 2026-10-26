@@ -288,12 +288,17 @@ final class CheckoutService
         // `stock_override_token` goes on; its grant row is locked NOW, at the OverrideGrant position of the Global Lock Order, so the stock
         // step needs no out-of-order lock.
         $stockRules = StockRules::forStore($storeId);
+        // ADR-017 slice B: the sale's stock date (the store's stock day at the sale instant, after the cutover hour) and the stock lines of the cart.
+        // A line is the stock row a sale line or chosen dish draws on: the product itself, or a dish's daily pool for an ala carte product linked
+        // to a dish and for the dishes of a meal. With nothing daily in the cart these are exactly the sale's lines, as before.
+        $stockDate = $stockRules->stockDateAt($soldAt);
+        $stockLines = $this->stockDemands->linesFor($specs, $stockDate);
         $stockDemands = [];
         $stockOverrideToken = $payload['stock_override_token'] ?? null;
         $stockOverrideGrant = null;
         if ($stockRules->blockSaleWithoutStock) {
-            $stockDemands = $this->stockDemands->fromLines($specs);
-            $advisory = $this->stockDemands->shortfalls($stockDemands, $this->stockAvailability->availableFor($locationId, array_keys($stockDemands)));
+            $stockDemands = $this->stockDemands->demandsFrom($stockLines);
+            $advisory = $this->stockDemands->shortfalls($stockDemands, $this->stockAvailability->availableForDemands($locationId, $stockDemands));
             if ($advisory !== [] && $stockOverrideToken === null) {
                 throw InsufficientStockException::forShortfalls($advisory, $stockRules->overrideAvailable());
             }
@@ -475,6 +480,7 @@ final class CheckoutService
             'document_mode' => $documentMode->value,
         ]);
 
+        $createdSelections = [];
         foreach ($lines as $line) {
             $lineResult = $calculation->lines[$line->lineNumber];
             $spec = $specs[$line->lineNumber - 1];
@@ -508,10 +514,12 @@ final class CheckoutService
                 'meal_id' => $spec['meal']?->mealId,
                 'meal_name_snapshot' => $spec['meal']?->mealName,
                 'parent_line_number' => $spec['parent_line_number'],
+                // ADR-017 section 3: for an ala carte line drawn from a dish's daily pool, the portions drawn per unit at the time of the sale.
+                'stock_portion_snapshot' => $this->alaCartePortion($stockLines, $line->lineNumber - 1),
             ]);
 
-            foreach ($spec['meal']?->selections ?? [] as $selection) {
-                SaleItemSelection::create([
+            foreach ($spec['meal']?->selections ?? [] as $selectionIndex => $selection) {
+                $createdSelections[$line->lineNumber - 1][$selectionIndex] = SaleItemSelection::create([
                     'sale_item_id' => $saleItem->id,
                     'group_name_snapshot' => $selection['group_name'],
                     'option_label_snapshot' => $selection['option_label'],
@@ -520,6 +528,8 @@ final class CheckoutService
                     'dish_category_snapshot' => $selection['dish_category_name'],
                     'price_snapshot' => $selection['price']?->toApiString(),
                     'sort_order' => $selection['sort_order'],
+                    // ADR-017 section 5: the portions of the dish's pool this chosen dish drew (NULL when the dish counts no daily stock).
+                    'stock_portion_snapshot' => $selection['stock_portion'] ?? null,
                 ]);
             }
         }
@@ -665,7 +675,8 @@ final class CheckoutService
         // stock, recorded as oversold. Not short: the grant, if one was presented, is left untouched.
         $lockOrder->acquire(LockableResource::StockBalance);
         if ($stockRules->blockSaleWithoutStock) {
-            $onHand = $this->stockLedger->lockRows($locationId, $saleItems->pluck('product_id')->all());
+            // Every stock row the sale writes, running or daily, locked in the one canonical order (product, then stock date).
+            $onHand = $this->stockLedger->lockKeys($locationId, array_map(fn (array $stockLine): array => ['product_id' => $stockLine['product_id'], 'stock_date' => $stockLine['stock_date']], $stockLines));
             $shortfalls = $this->stockDemands->shortfalls($stockDemands, $onHand);
             if ($shortfalls !== []) {
                 if ($stockOverrideToken === null) {
@@ -676,17 +687,25 @@ final class CheckoutService
             }
         }
 
-        $this->stockLedger->recordMany($saleItems->map(fn ($saleItem) => [
-            'product_id' => $saleItem->product_id,
-            'location_id' => $locationId,
-            'terminal_id' => $terminalId,
-            'movement_type' => 'SALE',
-            'quantity' => (string) $saleItem->quantity,
-            'reference_type' => 'sale_item',
-            'reference_id' => $saleItem->id,
-            'unit_cost' => $saleItem->unit_cost_snapshot,
-            'created_by' => $cashierId,
-        ])->all());
+        $saleItemsByLine = $saleItems->keyBy('line_number');
+        $this->stockLedger->recordMany(array_map(function (array $stockLine) use ($saleItemsByLine, $createdSelections, $locationId, $terminalId, $cashierId): array {
+            $saleItem = $saleItemsByLine[$stockLine['spec'] + 1];
+            $selection = $stockLine['selection'] === null ? null : $createdSelections[$stockLine['spec']][$stockLine['selection']];
+
+            return [
+                'product_id' => $stockLine['product_id'],
+                'location_id' => $locationId,
+                'terminal_id' => $terminalId,
+                'movement_type' => 'SALE',
+                'quantity' => $stockLine['quantity'],
+                'reference_type' => $selection === null ? 'sale_item' : 'sale_item_selection',
+                'reference_id' => $selection === null ? $saleItem->id : $selection->id,
+                // A pool draw has no unit cost of its own (the dish is not a bought product).
+                'unit_cost' => $stockLine['kind'] === 'DISH' ? null : $saleItem->unit_cost_snapshot,
+                'created_by' => $cashierId,
+                'stock_date' => $stockLine['stock_date'],
+            ];
+        }, $stockLines));
 
         if ($creditEmployee !== null) {
             $documentMetadata += ['employee_id' => $creditEmployee->id, 'employee_code' => $creditEmployee->employee_code, 'payment_method' => 'CREDIT'];
@@ -804,6 +823,22 @@ final class CheckoutService
             'accreditation_valid_from' => $accreditation?->effective_from?->toDateString(),
             'accreditation_valid_to' => $accreditation?->effective_to?->toDateString(),
         ];
+    }
+
+    /**
+     * The portions per unit an ala carte line draws from its dish's daily pool, or null when the line draws from none.
+     *
+     * @param  list<array<string, mixed>>  $stockLines
+     */
+    private function alaCartePortion(array $stockLines, int $specIndex): ?string
+    {
+        foreach ($stockLines as $stockLine) {
+            if ($stockLine['spec'] === $specIndex && $stockLine['selection'] === null && $stockLine['kind'] === 'DISH') {
+                return $stockLine['portion'];
+            }
+        }
+
+        return null;
     }
 
     /**

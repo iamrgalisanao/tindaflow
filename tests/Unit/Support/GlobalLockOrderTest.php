@@ -186,4 +186,23 @@ class GlobalLockOrderTest extends TestCase
             collect(LockableResource::cases())->mapWithKeys(fn (LockableResource $resource) => [$resource->value => $resource->order()])->all(),
         );
     }
+
+    public function test_a_cashiers_daily_stock_entry_takes_its_approval_grant_before_the_stock_rows(): void
+    {
+        $order = new GlobalLockOrder;
+
+        $order->acquire(LockableResource::OverrideGrant);
+        $order->acquire(LockableResource::StockBalance);
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_the_stock_rows_cannot_be_taken_before_the_approval_grant(): void
+    {
+        $order = new GlobalLockOrder;
+        $order->acquire(LockableResource::StockBalance);
+
+        $this->expectException(LogicException::class);
+        $order->acquire(LockableResource::OverrideGrant);
+    }
 }

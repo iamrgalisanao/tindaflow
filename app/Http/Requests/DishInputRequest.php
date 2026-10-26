@@ -24,6 +24,8 @@ class DishInputRequest extends FormRequest
             'name' => [$presence, 'string', 'max:255', 'regex:/\S/'],
             'dish_category_id' => [$presence, 'uuid', Rule::exists('dish_categories', 'id')->where('store_id', $storeId)],
             'sort_order' => ['sometimes', 'integer', 'min:0', 'max:100000'],
+            // ADR-017 slice B: DAILY counts the dish's portions per stock day (entered each morning); NONE does not.
+            'stock_mode' => ['sometimes', Rule::in(['NONE', 'DAILY'])],
         ];
     }
 

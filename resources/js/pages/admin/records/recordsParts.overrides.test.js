@@ -68,3 +68,29 @@ describe('stock audit events', () => {
         expect(describeAudit({ event_type: 'PRODUCT_UPDATED', before_metadata: { reorder_level: 8 }, after_metadata: { sku: 'COK-1', reorder_level: null } })).toContain('reorder level 8 → store default');
     });
 });
+
+// ADR-017 slice B: the daily stock entry (with who entered and who approved), the approval trail and the ala carte action read in plain words.
+describe('daily stock audit events', () => {
+    it('lists the daily stock event types in the filter', () => {
+        const ids = AUDIT_TYPES.map((type) => type.id);
+        for (const id of ['DAILY_STOCK_ENTERED', 'STOCK_ENTRY_APPROVED', 'STOCK_ENTRY_APPROVAL_REFUSED', 'STOCK_ENTRY_APPROVAL_LOCKED', 'ALA_CARTE_ITEMS_CREATED']) {
+            expect(ids).toContain(id);
+        }
+    });
+
+    it('says what was entered, and when a manager approved a cashier\'s entry', () => {
+        const lines = [{ name: 'Beef nilaga', delta: '20.000', cooked_after: '20.000' }, { name: 'Pinakbet', delta: '0.000', cooked_after: '5.000' }, { name: 'Siopao', delta: '-3.000', cooked_after: '9.000' }];
+
+        expect(describeAudit({ event_type: 'DAILY_STOCK_ENTERED', after_metadata: { stock_date: '2026-10-27', approved_by: null, lines } })).toBe('Daily stock for 2026-10-27 entered: Beef nilaga +20 (now 20 cooked), Siopao -3 (now 9 cooked)');
+        expect(describeAudit({ event_type: 'DAILY_STOCK_ENTERED', after_metadata: { stock_date: '2026-10-27', approved_by: 'mgr', lines: lines.slice(0, 1) } })).toContain('by a cashier with a manager\'s approval');
+        expect(describeAudit({ event_type: 'STOCK_ENTRY_APPROVAL_REFUSED', reason: 'WRONG_STOCK_DATE', after_metadata: {} })).toBe('A daily stock approval was refused (approval was for another day)');
+    });
+
+    it('shows the stock day hour in a rule change', () => {
+        expect(describeAudit({ event_type: 'STOCK_RULES_CHANGED', before_metadata: { stock_day_cutover_hour: 0 }, after_metadata: { stock_day_cutover_hour: 5 } })).toBe('Stock rules changed: stock day starts at 00:00 → 05:00');
+    });
+
+    it('names the ala carte items created and how many were skipped', () => {
+        expect(describeAudit({ event_type: 'ALA_CARTE_ITEMS_CREATED', after_metadata: { created: [{ name: 'Beef nilaga (ala carte)' }], skipped: [{ reason: 'ALREADY_EXISTS' }] } })).toBe('Ala carte items created for dishes: Beef nilaga (ala carte) (1 skipped)');
+    });
+});

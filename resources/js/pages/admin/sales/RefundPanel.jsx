@@ -291,6 +291,7 @@ export default function RefundPanel({ sale, executesImmediately, onDone, onClose
                                                         </option>
                                                     ))}
                                                 </select>
+                                                <p className="mt-1 text-[11px] text-slate-500">Cooked food counted in Today&apos;s stock is never put back; &ldquo;Return to stock&rdquo; is recorded as thrown away for it.</p>
                                             </div>
                                         </div>
                                     )}

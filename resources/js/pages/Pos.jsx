@@ -21,7 +21,8 @@ import TenderPanel from './pos/TenderPanel';
 import XReadingPanel from './pos/XReadingPanel';
 import { attemptKey, failureText, newIdempotencyKey, settleAttempt } from './pos/attempts';
 import { creditSaleParts, isOverrideRefusal, limitRefusal, lookupFailureText, payerFromLookup } from './pos/credit';
-import { NO_STOCK_RULES, checkAdd, isStockOverrideRefusal, stockFromResponse, stockRefusal as parseStockRefusal } from './pos/stock';
+import { NO_STOCK_RULES, checkAdd, checkAddMeal, isStockOverrideRefusal, linesDrawingFromDish, stockFromResponse, stockRefusal as parseStockRefusal } from './pos/stock';
+import TodaysStockPanel from './pos/TodaysStockPanel';
 import { mealPlates, requestItems } from './pos/mealMenu';
 import { apiMoney, clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 import MoneyInput from '../components/MoneyInput';
@@ -371,9 +372,9 @@ export default function Pos() {
 
     /** The "+" on a cart line: one more, unless the stock cannot cover it. */
     function increaseLine(line) {
-        const refusal = line.meal ? null : checkAdd(stock, cart, line.product);
+        const refusal = line.meal ? checkAddMeal(stock, cart, line) : checkAdd(stock, cart, line.product);
         if (refusal) {
-            setStockNotice({ text: refusal.text, overrideAvailable: refusal.overrideAvailable, product: line.product });
+            setStockNotice({ text: refusal.text, overrideAvailable: refusal.overrideAvailable, product: line.meal ? null : line.product, meal: line.meal ? line : null, increase: line.meal ? line : null });
 
             return;
         }
@@ -381,7 +382,15 @@ export default function Pos() {
         setQuantity(line.key, fromThousandths((toThousandths(line.quantity) ?? 0n) + 1000n));
     }
 
-    function addMealToCart(mealLine) {
+    function addMealToCart(mealLine, { force = false } = {}) {
+        // ADR-017 slice B: the dishes of a plate draw portions from their daily pools; a store that blocks refuses a plate the pools cannot cover.
+        const refusal = force ? null : checkAddMeal(stock, cart, mealLine);
+        if (refusal) {
+            setStockNotice({ text: refusal.text, overrideAvailable: refusal.overrideAvailable, product: null, meal: mealLine });
+
+            return;
+        }
+        setStockNotice(null);
         addLine({ ...mealLine, quantity: '1', discount: '' });
     }
 
@@ -771,7 +780,7 @@ export default function Pos() {
     // ones it does not define -- otherwise the router's catch-all would never see them.
     // A sale id that is malformed, belongs to another store, or is not this cashier's to read is,
     // from the address bar's point of view, simply not a page that exists.
-    if (!['register', 'lookup', 'shift', 'receipt'].includes(view) || (view === 'receipt' && receiptId === '') || receiptMissing) {
+    if (!['register', 'lookup', 'shift', 'stock', 'receipt'].includes(view) || (view === 'receipt' && receiptId === '') || receiptMissing) {
         return <NotFound />;
     }
 
@@ -932,6 +941,14 @@ export default function Pos() {
                 </form>
             )}
 
+            {step === 'cart' && view === 'stock' && <TodaysStockPanel canEnterDirectly={user.capabilities.includes('STOCK_ADJUST')} onSaved={refreshStock} />}
+
+            {step === 'cart' && view === 'register' && payer !== null && stock.blocking && stock.dailyConfigured && !stock.dailyEntered && (
+                <p role="status" className="mx-4 mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                    No stock entered for today yet, so cooked items cannot be sold. A manager enters it under &ldquo;Today&rsquo;s stock&rdquo;.
+                </p>
+            )}
+
             {step === 'cart' && view === 'lookup' && <PosLookupPanel canSeeAllSales={user.capabilities.includes('REPORT_VIEW')} capabilities={user.capabilities} />}
 
             {step === 'cart' && view === 'shift' && (
@@ -983,7 +1000,10 @@ export default function Pos() {
                         return completeSale(null, undefined, grant.token);
                     }}
                     onFix={() => setStockRefusal(null)}
-                    onRemoveItem={(productId) => setCart((prior) => prior.filter((line) => line.meal || line.product.id !== productId))}
+                    onRemoveItem={(shortLine) => {
+                        const keys = shortLine.dishId ? linesDrawingFromDish(stock, cart, shortLine.dishId) : cart.filter((line) => !line.meal && line.product.id === shortLine.productId).map((line) => line.key);
+                        setCart((prior) => prior.filter((line) => !keys.includes(line.key)));
+                    }}
                 />
             )}
 
@@ -994,7 +1014,16 @@ export default function Pos() {
                         {stockNotice.overrideAvailable && (
                             <button
                                 type="button"
-                                onClick={() => addToCart(stockNotice.product, { force: true })}
+                                onClick={() => {
+                                    if (stockNotice.increase) {
+                                        setQuantity(stockNotice.increase.key, fromThousandths((toThousandths(stockNotice.increase.quantity) ?? 0n) + 1000n));
+                                        setStockNotice(null);
+                                    } else if (stockNotice.meal) {
+                                        addMealToCart(stockNotice.meal, { force: true });
+                                    } else {
+                                        addToCart(stockNotice.product, { force: true });
+                                    }
+                                }}
                                 className="min-h-11 rounded border border-amber-400 px-3 text-xs font-bold uppercase tracking-wide text-amber-100 hover:bg-amber-400/10"
                             >
                                 Add anyway, then ask a manager
@@ -1025,6 +1054,7 @@ export default function Pos() {
                             onAdd={addToCart}
                             onAddMeal={addMealToCart}
                             stock={stock}
+                            cart={cart}
                         />
                     </div>
                     <div className="flex min-h-0 flex-col lg:order-2">

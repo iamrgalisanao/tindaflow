@@ -16,6 +16,10 @@ use LogicException;
  * `INSERT ... ON CONFLICT DO UPDATE SET qty = qty + delta` -- an atomic increment, never a
  * read-then-write, so concurrent movements on the same (product, location) commute (architecture.md).
  *
+ * Two caches, one rule (ADR-017 section 3): a movement WITHOUT `stock_date` moves `stock_balances` (RUNNING stock, keyed product and location); a
+ * movement WITH one moves `daily_stock_balances` (DAILY stock, keyed product, location and stock date, so yesterday's portions never count today and
+ * nothing runs at midnight). The canonical write order is location, product, stock date (none first), then the order given.
+ *
  * Stock may go below zero by default: while the store setting `block_sale_without_stock` is OFF (the default, and stage 14's
  * rule) nothing refuses a sale or an outflow that exceeds the recorded on-hand, so the ledger records what happened. This class
  * itself never refuses anything. When the store has switched blocking ON (ADR-017), CheckoutService decides BEFORE it writes, using
@@ -26,10 +30,10 @@ use LogicException;
 final class StockLedger
 {
     /** @var list<string> */
-    public const INFLOW = ['OPENING_STOCK', 'PURCHASE_RECEIPT', 'SALE_RETURN', 'STOCK_ADJUSTMENT_IN', 'TRANSFER_IN'];
+    public const INFLOW = ['OPENING_STOCK', 'PURCHASE_RECEIPT', 'SALE_RETURN', 'STOCK_ADJUSTMENT_IN', 'TRANSFER_IN', 'DAILY_PORTIONS_ADDED'];
 
     /** @var list<string> */
-    public const OUTFLOW = ['SALE', 'STOCK_ADJUSTMENT_OUT', 'DAMAGE', 'EXPIRED', 'TRANSFER_OUT'];
+    public const OUTFLOW = ['SALE', 'STOCK_ADJUSTMENT_OUT', 'DAMAGE', 'EXPIRED', 'TRANSFER_OUT', 'DAILY_PORTIONS_REMOVED'];
 
     /** +1 for a movement type that adds stock, -1 for one that removes it. */
     public static function direction(string $movementType): int
@@ -52,6 +56,22 @@ final class StockLedger
         return bcadd((string) ($quantity ?? '0'), '0', 3);
     }
 
+    /** What the ledger says is left of a DAILY item for one stock date at a location; zero where nothing was ever entered or sold. */
+    public function dailyOnHand(string $productId, string $locationId, string $stockDate): string
+    {
+        $quantity = DB::table('daily_stock_balances')
+            ->where('product_id', $productId)->where('location_id', $locationId)->where('stock_date', $stockDate)
+            ->value('quantity_on_hand');
+
+        return bcadd((string) ($quantity ?? '0'), '0', 3);
+    }
+
+    /** The key of a balance row in the maps {@see lockKeys()} returns and the demand checks read: the product id, plus `@date` for a daily row. */
+    public static function rowKey(string $productId, ?string $stockDate): string
+    {
+        return $stockDate === null ? $productId : $productId.'@'.$stockDate;
+    }
+
     /**
      * Locks the balance rows a transaction is about to write, in the CANONICAL STOCK ORDER (location, then product id: the same order
      * {@see recordMany()} writes in), and returns what is on hand in each. Used by checkout while blocking is ON, so the decision "is there
@@ -68,40 +88,68 @@ final class StockLedger
      */
     public function lockRows(string $locationId, array $productIds): array
     {
+        return $this->lockKeys($locationId, array_map(fn (string $productId): array => ['product_id' => $productId, 'stock_date' => null], $productIds));
+    }
+
+    /**
+     * The same as {@see lockRows()} for any mix of running rows (`stock_date` null) and daily rows, locked in ONE canonical order: product id, then
+     * stock date (none first). A product is either running or daily, so the two tables never hold the same product, but taking them in one sorted
+     * pass is what keeps a sale that touches both kinds in the order every other writer uses.
+     *
+     * @param  list<array{product_id: string, stock_date: ?string}>  $keys  duplicates allowed
+     * @return array<string, string> on-hand quantity (3 decimals) per {@see rowKey()}
+     */
+    public function lockKeys(string $locationId, array $keys): array
+    {
         if (DB::transactionLevel() === 0) {
             throw new LogicException('Stock rows must be locked inside the transaction that writes the movements.');
         }
 
-        $productIds = array_values(array_unique($productIds));
-        usort($productIds, strcmp(...));
+        $unique = [];
+        foreach ($keys as $key) {
+            $unique[self::rowKey($key['product_id'], $key['stock_date'] ?? null)] = ['product_id' => $key['product_id'], 'stock_date' => $key['stock_date'] ?? null];
+        }
+        $unique = array_values($unique);
+        usort($unique, fn (array $a, array $b): int => strcmp($a['product_id'], $b['product_id']) ?: strcmp((string) $a['stock_date'], (string) $b['stock_date']));
 
         $onHand = [];
-        foreach ($productIds as $productId) {
-            $quantity = $this->lockedQuantity($productId, $locationId);
+        foreach ($unique as $key) {
+            $quantity = $this->lockedQuantity($key['product_id'], $locationId, $key['stock_date']);
             if ($quantity === null) {
-                DB::statement(
-                    'INSERT INTO stock_balances (product_id, location_id, quantity_on_hand, updated_at) VALUES (?, ?, 0, now())
-                     ON CONFLICT (product_id, location_id) DO NOTHING',
-                    [$productId, $locationId],
-                );
-                $quantity = $this->lockedQuantity($productId, $locationId) ?? '0';
+                if ($key['stock_date'] === null) {
+                    DB::statement(
+                        'INSERT INTO stock_balances (product_id, location_id, quantity_on_hand, updated_at) VALUES (?, ?, 0, now())
+                         ON CONFLICT (product_id, location_id) DO NOTHING',
+                        [$key['product_id'], $locationId],
+                    );
+                } else {
+                    DB::statement(
+                        'INSERT INTO daily_stock_balances (product_id, location_id, stock_date, quantity_on_hand, updated_at) VALUES (?, ?, ?, 0, now())
+                         ON CONFLICT (product_id, location_id, stock_date) DO NOTHING',
+                        [$key['product_id'], $locationId, $key['stock_date']],
+                    );
+                }
+                $quantity = $this->lockedQuantity($key['product_id'], $locationId, $key['stock_date']) ?? '0';
             }
-            $onHand[$productId] = bcadd((string) $quantity, '0', 3);
+            $onHand[self::rowKey($key['product_id'], $key['stock_date'])] = bcadd((string) $quantity, '0', 3);
         }
 
         return $onHand;
     }
 
-    private function lockedQuantity(string $productId, string $locationId): ?string
+    private function lockedQuantity(string $productId, string $locationId, ?string $stockDate = null): ?string
     {
-        $quantity = DB::table('stock_balances')->where('product_id', $productId)->where('location_id', $locationId)->lockForUpdate()->value('quantity_on_hand');
+        $query = $stockDate === null
+            ? DB::table('stock_balances')
+            : DB::table('daily_stock_balances')->where('stock_date', $stockDate);
+        $quantity = $query->where('product_id', $productId)->where('location_id', $locationId)->lockForUpdate()->value('quantity_on_hand');
 
         return $quantity === null ? null : (string) $quantity;
     }
 
     /**
      * Records several movements in the CANONICAL STOCK ORDER: by `location_id`, then `product_id`, then the order they
-     * were given (so two movements of the same product keep their relative order). Returns the movements in the order
+     * stock date (running rows, which have none, first), then the order they were given (so two movements of the same row keep their relative order). Returns the movements in the order
      * they were GIVEN, whatever order they were written in.
      *
      * This is the concurrency invariant for stock (docs/06-backend/stage-28-stock-write-ordering.md): every
@@ -115,7 +163,7 @@ final class StockLedger
      * restores exactly what that line took); movements of the same row sit next to each other after sorting, so the row
      * is locked once and the later writes reuse the lock.
      *
-     * @param  list<array{product_id: string, location_id: string, terminal_id?: ?string, movement_type: string, quantity: string, reference_type?: ?string, reference_id?: ?string, reason?: ?string, unit_cost?: ?string, created_by: string}>  $movements
+     * @param  list<array{product_id: string, location_id: string, terminal_id?: ?string, movement_type: string, quantity: string, reference_type?: ?string, reference_id?: ?string, reason?: ?string, unit_cost?: ?string, created_by: string, stock_date?: ?string, approved_by?: ?string}>  $movements
      * @return list<StockMovement>
      */
     public function recordMany(array $movements): array
@@ -125,6 +173,7 @@ final class StockLedger
         $writeOrder = array_keys($movements);
         usort($writeOrder, fn (int $a, int $b) => strcmp($movements[$a]['location_id'], $movements[$b]['location_id'])
             ?: strcmp($movements[$a]['product_id'], $movements[$b]['product_id'])
+            ?: strcmp((string) ($movements[$a]['stock_date'] ?? ''), (string) ($movements[$b]['stock_date'] ?? ''))
             ?: $a <=> $b);
 
         $recorded = [];
@@ -140,7 +189,7 @@ final class StockLedger
      * One movement. Fine on its own (one row cannot be part of a cycle), but a transaction that writes several
      * movements must use {@see recordMany()} so they are written in the canonical order.
      *
-     * @param  array{product_id: string, location_id: string, terminal_id?: ?string, movement_type: string, quantity: string, reference_type?: ?string, reference_id?: ?string, reason?: ?string, unit_cost?: ?string, created_by: string}  $movement
+     * @param  array{product_id: string, location_id: string, terminal_id?: ?string, movement_type: string, quantity: string, reference_type?: ?string, reference_id?: ?string, reason?: ?string, unit_cost?: ?string, created_by: string, stock_date?: ?string, approved_by?: ?string}  $movement
      */
     public function record(array $movement): StockMovement
     {
@@ -162,14 +211,26 @@ final class StockLedger
             'reason' => $movement['reason'] ?? null,
             'unit_cost' => $movement['unit_cost'] ?? null,
             'created_by' => $movement['created_by'],
+            'stock_date' => $movement['stock_date'] ?? null,
+            'approved_by' => $movement['approved_by'] ?? null,
         ]);
 
-        DB::statement(
-            'INSERT INTO stock_balances (product_id, location_id, quantity_on_hand, updated_at) VALUES (?, ?, ?, now())
-             ON CONFLICT (product_id, location_id)
-             DO UPDATE SET quantity_on_hand = stock_balances.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = now()',
-            [$movement['product_id'], $movement['location_id'], bcmul($quantity, (string) $direction, 3)],
-        );
+        $delta = bcmul($quantity, (string) $direction, 3);
+        if (($movement['stock_date'] ?? null) === null) {
+            DB::statement(
+                'INSERT INTO stock_balances (product_id, location_id, quantity_on_hand, updated_at) VALUES (?, ?, ?, now())
+                 ON CONFLICT (product_id, location_id)
+                 DO UPDATE SET quantity_on_hand = stock_balances.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = now()',
+                [$movement['product_id'], $movement['location_id'], $delta],
+            );
+        } else {
+            DB::statement(
+                'INSERT INTO daily_stock_balances (product_id, location_id, stock_date, quantity_on_hand, updated_at) VALUES (?, ?, ?, ?, now())
+                 ON CONFLICT (product_id, location_id, stock_date)
+                 DO UPDATE SET quantity_on_hand = daily_stock_balances.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = now()',
+                [$movement['product_id'], $movement['location_id'], $movement['stock_date'], $delta],
+            );
+        }
 
         return $row;
     }

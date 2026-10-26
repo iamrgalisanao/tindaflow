@@ -37,6 +37,9 @@ class ProductResource extends JsonResource
             'tax_class' => $this->resource->tax_class,
             'track_inventory' => $this->resource->track_inventory,
             'reorder_level' => $this->resource->reorder_level,
+            'stock_mode' => $this->resource->stock_mode,
+            'dish_id' => $this->resource->dish_id,
+            'stock_portion' => $this->resource->stock_portion,
             'active' => $this->resource->active,
         ];
     }

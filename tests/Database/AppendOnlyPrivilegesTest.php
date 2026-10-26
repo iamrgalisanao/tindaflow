@@ -3,6 +3,7 @@
 namespace Tests\Database;
 
 use App\Domain\CutOff;
+use App\Models\Dish;
 use App\Models\MealOptionGroup;
 use App\Models\MenuGroup;
 use App\Models\Product;
@@ -513,6 +514,38 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $this->assertTrue($this->refuses(fn () => DB::table('stock_override_grants')->delete()), 'a stock grant must not be deletable');
     }
 
+    public function test_daily_stock_works_as_the_restricted_role_the_cache_is_writable_and_the_ledger_and_the_cashiers_grant_are_not_alterable(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+        $dish = Dish::factory()->create(['store_id' => $w['storeId']]);
+        // Switching a dish to daily creates its hidden pool product (INSERT into products, UPDATE of dishes) as the restricted role.
+        $this->asUser($w['admin'])->patchJson("/api/v1/dishes/{$dish->id}", ['stock_mode' => 'DAILY'])->assertOk();
+        $pool = $dish->fresh()->stock_product_id;
+        $this->asUser($w['admin'])->putJson('/api/v1/stock-rules', ['block_sale_without_stock' => true, 'stock_override_enabled' => true, 'low_stock_default_threshold' => 3, 'stock_day_cutover_hour' => 5])->assertOk();
+
+        // A manager enters directly: the movement is inserted and the daily cache upserted (INSERT ... ON CONFLICT DO UPDATE) as the restricted role.
+        $this->asUser($w['manager'], $w['enroll2'])->postJson('/api/v1/daily-stock/entries', ['lines' => [['dish_id' => $dish->id, 'cooked' => '10']]], $this->key())->assertStatus(201);
+        $this->assertSame('10.000', bcadd((string) DB::table('daily_stock_balances')->where('product_id', $pool)->value('quantity_on_hand'), '0', 3));
+
+        // A cashier enters with the manager's code: the grant is inserted, locked FOR UPDATE and stamped consumed (column-level UPDATE).
+        $this->asUser($w['manager'])->putJson('/api/v1/credit-override-code', ['password' => 'password', 'code' => '482916'])->assertOk();
+        $token = $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/daily-stock/approvals', ['approver_id' => $w['manager']->id, 'code' => '482916'])->assertStatus(201)->json('token');
+        $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/daily-stock/entries', ['lines' => [['dish_id' => $dish->id, 'add' => '5']], 'stock_entry_token' => $token], $this->key())->assertStatus(201);
+        $this->assertNotNull(DB::table('stock_entry_grants')->value('consumed_at'));
+        $this->assertSame('15.000', bcadd((string) DB::table('daily_stock_balances')->where('product_id', $pool)->value('quantity_on_hand'), '0', 3));
+
+        // A grant can be consumed and nothing more, and is never deleted.
+        foreach ([['terminal_id', $w['t2']->id], ['cashier_id', $w['manager']->id], ['approver_id', $w['cashier']->id], ['stock_date', '2020-01-01'], ['token_hash', str_repeat('a', 64)], ['expires_at', now()->addYear()], ['store_id', $w['storeId']]] as [$column, $value]) {
+            $this->assertTrue($this->refuses(fn () => DB::table('stock_entry_grants')->update([$column => $value])), "{$column} of a stock entry grant must not be updatable");
+        }
+        $this->assertTrue($this->refuses(fn () => DB::table('stock_entry_grants')->delete()), 'a stock entry grant must not be deletable');
+
+        // The ledger rows (their stock date and approver included) are append-only; the cache can be moved but never deleted.
+        $this->assertTrue($this->refuses(fn () => DB::table('stock_movements')->where('product_id', $pool)->update(['stock_date' => '2020-01-01'])), 'the stock date of a movement is fixed');
+        $this->assertTrue($this->refuses(fn () => DB::table('stock_movements')->where('product_id', $pool)->update(['approved_by' => $w['admin']->id])), 'the approver of a movement is fixed');
+        $this->assertTrue($this->refuses(fn () => DB::table('daily_stock_balances')->delete()), 'a daily balance must not be deletable');
+    }
+
     public function test_the_tables_the_app_is_allowed_to_delete_from_are_exactly_the_ones_that_hold_no_money_or_audit_data(): void
     {
         $this->worldUnderTheHardenedRole();
@@ -522,7 +555,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries', 'billing_runs', 'billing_run_counters', 'billing_cheques', 'billing_cheque_allocations', 'stock_override_grants'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries', 'billing_runs', 'billing_run_counters', 'billing_cheques', 'billing_cheque_allocations', 'stock_override_grants', 'stock_entry_grants', 'daily_stock_balances'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }

@@ -97,7 +97,8 @@ REVOKE UPDATE ON
     billing_run_counters, -- ADR-016 slice 4.1: lifecycle -- the run number counter; UPDATE is revoked here and re-granted by column below
     billing_cheques,      -- ADR-016 slice 4.2, BILL-002: lifecycle -- UPDATE is revoked here and re-granted by column below (the return columns only)
     billing_cheque_allocations, -- ADR-016 slice 4.2, BILL-002: which cut-off periods a cheque pays; append-only
-    stock_override_grants -- ADR-017 slice A, STK-005: the approval of one blocked sale; append-only except consumed_at / sale_id (re-granted below)
+    stock_override_grants, -- ADR-017 slice A, STK-005: the approval of one blocked sale; append-only except consumed_at / sale_id (re-granted below)
+    stock_entry_grants -- ADR-017 slice B, STK-007: a manager's approval of a cashier's daily stock entry; append-only except consumed_at (re-granted below)
 FROM tindaflow_app;
 
 -- billing_cheques (slice 4.2) is a lifecycle table whose ONLY change is RECEIVED -> RETURNED (a bounced cheque), never deleted (the
@@ -132,6 +133,13 @@ GRANT UPDATE (consumed_at) ON credit_override_grants TO tindaflow_app;
 -- grant is also what lets checkout take its SELECT ... FOR UPDATE on the grant row (PostgreSQL needs UPDATE on at least one column for a row lock).
 -- It is never deleted (the store-wide REVOKE DELETE).
 GRANT UPDATE (consumed_at, sale_id) ON stock_override_grants TO tindaflow_app;
+
+-- stock_entry_grants (ADR-017 slice B, STK-007) is append-only except for ONE column: the daily stock entry stamps `consumed_at` (under the grant's row
+-- lock, in the transaction that writes the movements) when a cashier's save is approved by a manager's code. The terminal, cashier, approver, store, stock
+-- date, token hash and expiry of a grant can never be changed, so a used or expired approval cannot be revived or re-pointed at another day or till. This
+-- grant is also what lets the entry take its SELECT ... FOR UPDATE on the grant row (PostgreSQL needs UPDATE on at least one column for a row lock). It is
+-- never deleted (the store-wide REVOKE DELETE).
+GRANT UPDATE (consumed_at) ON stock_entry_grants TO tindaflow_app;
 
 -- slip_counters is the running slip number of each terminal. The checkout transaction increments `last_number` (and stamps
 -- `updated_at`) and inserts a terminal's first row; nothing else about a counter ever changes, so the UPDATE is narrowed to those two
@@ -198,6 +206,15 @@ GRANT UPDATE (status) ON sales TO tindaflow_app;
 -- products.reorder_level is an ordinary column of a lifecycle table that became nullable (NULL = the store default). stock_balances stays
 -- the derived cache described above: checkout's blocking check may also INSERT a zero row for a product that has never moved (ON CONFLICT
 -- DO NOTHING) so it can be locked, which the INSERT and UPDATE the role already holds on it cover.
+-- ADR-017 slice B (daily stock) adds two tables and several columns:
+--   daily_stock_balances    a DERIVED LIFECYCLE CACHE exactly like stock_balances (above): the signed sum of the dated stock_movements of one (product, location,
+--                           stock date), changed only by StockLedger as the atomic side effect of inserting a movement. INSERT and UPDATE for the application
+--                           role, no DELETE (the store-wide REVOKE DELETE), NOT in the append-only list. inventory:rebuild-balances recomputes it.
+--   stock_entry_grants      append-only except consumed_at (above).
+--   stock_movements         stays APPEND-ONLY: stock_date and approved_by are written at INSERT only (they sit under the table-wide UPDATE revoke).
+--   sale_item_selections / sale_items   stay APPEND-ONLY: stock_portion_snapshot is written at INSERT only.
+--   products (stock_mode, dish_id, stock_portion), dishes (stock_mode, stock_product_id), meal_options (stock_portion), store_settings (stock_day_cutover_hour)
+--                           are ordinary columns of LIFECYCLE tables (the menu, catalog and stock-rules screens update them).
 -- Slice 3.3: employee_credit_entries gained the nullable override_grant_id (written only by the CHARGE's INSERT, under the table-wide UPDATE
 -- revoke); user_override_codes and credit_override_grants are above.
 -- Slice 3.2: employee_credit_entries is append-only (in the list above); sales.employee_id sits under the table-wide UPDATE revoke of

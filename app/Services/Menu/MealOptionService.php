@@ -20,7 +20,7 @@ use Illuminate\Validation\ValidationException;
  */
 final class MealOptionService
 {
-    public const TRACKED = ['dish_id', 'label', 'sort_order', 'active'];
+    public const TRACKED = ['dish_id', 'label', 'sort_order', 'active', 'stock_portion'];
 
     public function __construct(private MenuAuditor $auditor, private MealService $meals, private MenuBackingProducts $products) {}
 
@@ -50,6 +50,9 @@ final class MealOptionService
                     $attributes['addon_product_id'] = $this->products->create($actor->store_id, $attributes['label'], 'ADDON')->id;
                 }
 
+                if (isset($data['stock_portion']) && $group->kind === MealOptionGroup::CHOICE) {
+                    $attributes['stock_portion'] = bcadd((string) $data['stock_portion'], '0', 3);
+                }
                 $option = MealOption::create($attributes + [
                     'sort_order' => $data['sort_order'] ?? ((int) MealOption::where('meal_option_group_id', $group->id)->max('sort_order')) + 1,
                 ]);
@@ -77,7 +80,10 @@ final class MealOptionService
                 if (array_key_exists('label', $data) && $option->dish_id !== null) {
                     throw ValidationException::withMessages(['label' => 'A dish option takes its name from the dish. Rename the dish instead.']);
                 }
-                $option->fill(Arr::only($data, ['label', 'sort_order']));
+                if (isset($data['stock_portion']) && $option->dish_id === null) {
+                    throw ValidationException::withMessages(['stock_portion' => 'Only a dish option draws portions from daily stock. An add-on (rice) is not counted.']);
+                }
+                $option->fill(Arr::only($data, ['label', 'sort_order', 'stock_portion']));
                 if ($option->isDirty('label')) {
                     $option->label = trim((string) $option->label);
                     if ($option->label === '') {

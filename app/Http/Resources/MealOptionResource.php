@@ -30,6 +30,8 @@ class MealOptionResource extends JsonResource
             'label' => $this->resource->label,
             'sort_order' => $this->resource->sort_order,
             'active' => $this->resource->active,
+            'stock_portion' => $this->resource->stock_portion,
+            'dish_stock_mode' => $dish?->stock_mode,
         ];
     }
 }

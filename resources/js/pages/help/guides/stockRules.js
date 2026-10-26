@@ -5,17 +5,17 @@ export default {
     summary: 'Turn on “no stock, no sale”, set the “last few left” warning, and know what the cashier sees and how a manager approves one sale.',
     roles: ['MANAGER', 'ADMIN'],
     minutes: 6,
-    before: ['Only an **Admin** can change the stock rules. A manager enters stock and approves a blocked sale.', 'Opening stock has been entered for the items you count (see “Receive stock and correct mistakes”).', 'Each manager who may approve a sale has set their own code under **My override code**.'],
+    before: ['A **Manager** or an **Admin** can change the stock rules, enter stock and approve a blocked sale.', 'Opening stock has been entered for the items you count (see “Receive stock and correct mistakes”).', 'Each manager who may approve a sale has set their own code under **My override code**.'],
     steps: [
         {
             title: 'Open Stock Rules',
-            body: 'Open **Store Setup**, then **Stock Rules**. There are two switches and one number. Nothing changes for the cashier until you save.',
+            body: 'Open **Inventory**, then **Stock rules** (an Admin also finds it under **Store Setup**). There are two switches and two numbers: the “last few left” warning, and the hour the stock day starts (for cooked food, 5 for the canteen: the day runs 5:00 AM to 5:00 AM). Nothing changes for the cashier until you save.',
             note: 'The first switch is **off** when a store starts, so a store that does nothing sees no change: a sale always goes through and stock may go below zero.',
         },
         {
             title: 'See what would be blocked, then turn it on',
             body: 'Tick **Do not allow a sale when there is not enough stock**. The page shows how many counted items have **no stock right now**. Each of those cannot be sold until stock is entered, so enter the opening stock first. Click **Save stock rules** and confirm. Turning this on or off never changes a stock figure.',
-            note: 'Items you do not count, meals and rice are never blocked. Voids, refunds, counts and transfers are never blocked.',
+            note: 'Items you do not count and rice are never blocked. Cooked dishes and daily items are counted per day: no stock entered for today means no sale, and they show **N left** or **Sold out** instead of the amber warning (enter them each morning under **Inventory, Today’s stock**). Voids, refunds, counts and transfers are never blocked.',
         },
         {
             title: 'Decide whether a manager can approve one sale',

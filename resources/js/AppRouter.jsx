@@ -30,6 +30,7 @@ import MealsPage from './pages/admin/menu/MealsPage';
 import OverrideCodePage from './pages/admin/overrides/OverrideCodePage';
 import UsersPage from './pages/admin/users/UsersPage';
 import StockPage from './pages/admin/inventory/StockPage';
+import TodaysStockPage from './pages/admin/inventory/TodaysStockPage';
 import SalesPage from './pages/admin/sales/SalesPage';
 import SaleDetailPage from './pages/admin/sales/SaleDetailPage';
 import ApprovalsPage from './pages/admin/sales/ApprovalsPage';
@@ -318,6 +319,22 @@ export default function AppRouter() {
                     }
                 />
                 <Route path="/admin/inventory" element={<Navigate to="/admin/inventory/stock" replace />} />
+                <Route
+                    path="/admin/inventory/today"
+                    element={
+                        <RequireAuth>
+                            <TodaysStockPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/inventory/rules"
+                    element={
+                        <RequireAuth>
+                            <StockRulesPage />
+                        </RequireAuth>
+                    }
+                />
                 <Route
                     path="/admin/inventory/stock"
                     element={

@@ -81,6 +81,11 @@ final class StockService
             throw ProductNotFoundException::forId((string) $payload['product_id']);
         }
 
+        if ($product->stock_mode === 'DAILY') {
+            // Daily stock has a stock date and is entered per day, never as a running receipt (ADR-017 section 3).
+            throw ValidationException::withMessages(['product_id' => "This product counts daily stock. Enter it in Today's stock."]);
+        }
+
         $locationId = $this->inventoryLocationResolver->resolveDefaultForStore($terminal->store_id);
         $reason = isset($payload['reason']) ? trim((string) $payload['reason']) : null;
         $note = isset($payload['note']) && trim((string) $payload['note']) !== '' ? trim((string) $payload['note']) : null;

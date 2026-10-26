@@ -27,12 +27,14 @@ class MealOptionInputRequest extends FormRequest
             'dish_id' => $creating ? ['nullable', 'uuid', Rule::exists('dishes', 'id')->where('store_id', $storeId)] : ['prohibited'],
             'label' => ['sometimes', 'nullable', 'string', 'max:255'],
             'sort_order' => ['sometimes', 'integer', 'min:0', 'max:100000'],
+            // ADR-017 slice B: portions of the dish one plate takes from the dish's daily stock (Standard viand 1, Combo main 1, Combo side 1 by default).
+            'stock_portion' => ['sometimes', 'regex:/^\d{1,7}(\.\d{1,3})?$/', 'gt:0'],
         ];
     }
 
     /** @return array<string, string> */
     public function messages(): array
     {
-        return ['dish_id.prohibited' => 'An option keeps its dish. Hide it and offer another dish instead.'];
+        return ['stock_portion.regex' => 'Portions are a number with up to three decimals, e.g. 1 or 0.5.', 'stock_portion.gt' => 'Portions must be more than zero.', 'dish_id.prohibited' => 'An option keeps its dish. Hide it and offer another dish instead.'];
     }
 }

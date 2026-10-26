@@ -10,14 +10,14 @@ use App\Models\Product;
  * menu path, chosen options -- is already the server's own resolution at `sold_at`; CheckoutService only turns it into
  * a sale_items row and its sale_item_selections rows.
  *
- * @phpstan-type Selection array{group_name: string, option_label: string, dish_id: ?string, dish_name: ?string, dish_category_name: ?string, price: ?Money, sort_order: int}
+ * @phpstan-type Selection array{group_name: string, option_label: string, dish_id: ?string, dish_name: ?string, dish_category_name: ?string, price: ?Money, sort_order: int, stock_product_id: ?string, stock_portion: ?string}
  */
 final readonly class ResolvedMealLine
 {
     /**
      * @param  Product  $product  the hidden backing product (inactive on purpose; it is never looked up as a plain product)
      * @param  string  $description  what the line is called on the invoice, e.g. "Standard Meal - Beef nilaga" or "Whole rice"
-     * @param  list<array{group_name: string, option_label: string, dish_id: ?string, dish_name: ?string, dish_category_name: ?string, price: ?Money, sort_order: int}>  $selections
+     * @param  list<array{group_name: string, option_label: string, dish_id: ?string, dish_name: ?string, dish_category_name: ?string, price: ?Money, sort_order: int, stock_product_id: ?string, stock_portion: ?string}>  $selections
      */
     public function __construct(
         public Product $product,

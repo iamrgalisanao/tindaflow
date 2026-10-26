@@ -3,9 +3,12 @@
 namespace App\Services\Menu;
 
 use App\Domain\Exceptions\MenuRecordNotFoundException;
+use App\Domain\Exceptions\StockModeChangeBlockedException;
 use App\Models\Dish;
 use App\Models\DishCategory;
+use App\Models\Product;
 use App\Models\User;
+use App\Services\Inventory\StockRules;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -18,9 +21,12 @@ use Illuminate\Validation\ValidationException;
  */
 final class DishService
 {
-    private const TRACKED = ['name', 'dish_category_id', 'sort_order', 'active'];
+    private const TRACKED = ['name', 'dish_category_id', 'sort_order', 'active', 'stock_mode'];
 
-    public function __construct(private MenuAuditor $auditor) {}
+    public function __construct(private MenuAuditor $auditor, private ?MenuBackingProducts $products = null)
+    {
+        $this->products ??= new MenuBackingProducts;
+    }
 
     /** @param  array<string, mixed>  $data  the already-validated DishInput */
     public function create(User $actor, array $data): Dish
@@ -58,12 +64,18 @@ final class DishService
                 if (isset($data['dish_category_id'])) {
                     $this->category($actor->store_id, $data['dish_category_id']);
                 }
-                $dish->fill(Arr::only($data, ['name', 'dish_category_id', 'sort_order']));
+                $dish->fill(Arr::only($data, ['name', 'dish_category_id', 'sort_order', 'stock_mode']));
                 if ($dish->isDirty('name')) {
                     $dish->name = trim($dish->name);
                 }
+                if ($dish->isDirty('stock_mode')) {
+                    $this->applyStockMode($dish);
+                }
                 [$before, $after] = $this->auditor->diff($dish, self::TRACKED);
                 $dish->save();
+                if (array_key_exists('name', $after) && $dish->stock_product_id !== null) {
+                    $this->products->rename($dish->stock_product_id, $dish->name); // the pool keeps the dish's name
+                }
 
                 if ($after !== []) {
                     $this->auditor->dish($actor, array_key_exists('name', $after) ? 'MENU_DISH_RENAMED' : 'MENU_DISH_UPDATED', $dish->id, $before, $after + ['name' => $dish->name]);
@@ -113,6 +125,39 @@ final class DishService
 
             return $ordered;
         });
+    }
+
+    /**
+     * ADR-017 section 3: switching a dish to DAILY creates its hidden pool product the first time (and reuses it afterwards); switching it off is
+     * refused while today's remaining portions are not zero, or while an active ala carte product still draws from it, so nothing is orphaned.
+     */
+    private function applyStockMode(Dish $dish): void
+    {
+        if ($dish->stock_mode === Dish::MODE_DAILY) {
+            if ($dish->stock_product_id === null) {
+                $dish->stock_product_id = $this->products->createDishPool($dish->store_id, $dish->name)->id;
+            } else {
+                Product::whereKey($dish->stock_product_id)->update(['name' => $dish->name]);
+            }
+
+            return;
+        }
+
+        $stockDate = StockRules::forStore($dish->store_id)->stockDateAt(now());
+        $remaining = $dish->stock_product_id === null ? '0' : (string) DB::table('daily_stock_balances')
+            ->where('product_id', $dish->stock_product_id)->where('stock_date', $stockDate)->sum('quantity_on_hand');
+        if (bccomp(bcadd($remaining, '0', 3), '0', 3) !== 0) {
+            throw StockModeChangeBlockedException::because(
+                'This dish still has '.bcadd($remaining, '0', 3).' portions for today. Remove them in Today\'s stock before switching daily stock off.',
+                ['dish_id' => $dish->id, 'position' => bcadd($remaining, '0', 3)],
+            );
+        }
+        if (Product::where('dish_id', $dish->id)->where('active', true)->exists()) {
+            throw StockModeChangeBlockedException::because(
+                'An ala carte item still draws from this dish. Hide it or unlink it first.',
+                ['dish_id' => $dish->id],
+            );
+        }
     }
 
     private function category(string $storeId, string $dishCategoryId): DishCategory

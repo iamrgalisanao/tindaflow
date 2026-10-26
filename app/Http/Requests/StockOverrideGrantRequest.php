@@ -25,6 +25,12 @@ class StockOverrideGrantRequest extends FormRequest
             'items' => ['required', 'array', 'min:1', 'max:200'],
             'items.*.product_id' => ['required_without:items.*.meal', 'nullable', 'uuid'],
             'items.*.meal' => ['nullable', 'array'],
+            'items.*.meal.meal_id' => ['required_with:items.*.meal', 'uuid'],
+            'items.*.meal.choices' => ['nullable', 'array'],
+            'items.*.meal.choices.*.group_id' => ['required', 'uuid'],
+            'items.*.meal.choices.*.option_id' => ['required', 'uuid'],
+            'items.*.meal.addons' => ['nullable', 'array'],
+            'items.*.meal.addons.*' => ['uuid'],
             'items.*.quantity' => ['required', 'regex:/^\d+(\.\d{1,3})?$/'],
         ];
     }

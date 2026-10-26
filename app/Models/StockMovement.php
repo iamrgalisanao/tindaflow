@@ -21,7 +21,7 @@ class StockMovement extends Model
 
     protected $fillable = [
         'product_id', 'location_id', 'terminal_id', 'movement_type', 'quantity',
-        'reference_type', 'reference_id', 'reason', 'unit_cost', 'created_by',
+        'reference_type', 'reference_id', 'reason', 'unit_cost', 'created_by', 'stock_date', 'approved_by',
     ];
 
     protected function casts(): array
@@ -30,6 +30,7 @@ class StockMovement extends Model
             'quantity' => 'decimal:3',
             'unit_cost' => 'decimal:2',
             'occurred_at' => 'datetime',
+            'stock_date' => 'date:Y-m-d',
         ];
     }
 

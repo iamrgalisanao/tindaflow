@@ -157,6 +157,7 @@ export default function MealsPage() {
 
     const addOption = (group) => (body) => run(`/api/v1/meal-option-groups/${group.id}/options`, { method: 'POST', body }, finish('Option added'));
     const renameOption = (option) => (label) => run(`/api/v1/meal-options/${option.id}`, { method: 'PATCH', body: { label } }, finish('Add-on renamed'));
+    const savePortion = (option) => (text) => run(`/api/v1/meal-options/${option.id}`, { method: 'PATCH', body: { stock_portion: text } }, finish('Portion saved'));
     const toggleOption = (option) => run(`/api/v1/meal-options/${option.id}/${option.active ? 'deactivate' : 'activate'}`, { method: 'POST' }, { done: option.active ? 'Option hidden' : 'Option shown' });
     const moveOption = (group, option, direction) => {
         const ids = group.options.map((row) => row.id);
@@ -307,10 +308,20 @@ export default function MealsPage() {
                                                             </span>
                                                         )}
                                                     </div>
-                                                    {editing?.renameOption !== option.id && (
+                                                    {editing?.portionOption === option.id && (
+                                                        <div className="basis-full">
+                                                            <NameForm initial={String(Number(option.stock_portion))} label={`Portions of ${option.dish_name} one plate uses`} submitLabel="Save portion" busy={busy} error={fieldError} onSubmit={savePortion(option)} onCancel={() => setEditing(null)} />
+                                                        </div>
+                                                    )}
+                                                    {editing?.renameOption !== option.id && editing?.portionOption !== option.id && (
                                                         <div className="flex flex-wrap items-center gap-3 text-xs">
                                                             <ActiveBadge active={option.active} />
                                                             <MoveButtons name={option.label ?? option.dish_name} index={index} count={group.options.length} busy={busy} onMove={(direction) => moveOption(group, option, direction)} />
+                                                            {option.dish_stock_mode === 'DAILY' && (
+                                                                <button type="button" onClick={() => startEditing({ portionOption: option.id })} className={linkButton} aria-label={`Portion used by ${option.dish_name}: ${Number(option.stock_portion)}`}>
+                                                                    Portion used: {Number(option.stock_portion)}
+                                                                </button>
+                                                            )}
                                                             {option.label && (
                                                                 <button type="button" onClick={() => startEditing({ renameOption: option.id })} className={linkButton}>
                                                                     Rename

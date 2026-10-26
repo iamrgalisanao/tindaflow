@@ -368,7 +368,7 @@ class InventoryHttpTest extends PostgresSchemaTestCase
         $everything = $this->asUser($s['cashier'])->getJson('/api/v1/inventory/movements');
         $this->assertSame(4, $everything->json('meta.total'));
         $this->assertSame(
-            ['id', 'product_id', 'location_id', 'terminal_id', 'movement_type', 'quantity', 'reference_type', 'reference_id', 'reason', 'unit_cost', 'created_by', 'occurred_at'],
+            ['id', 'product_id', 'location_id', 'terminal_id', 'movement_type', 'quantity', 'reference_type', 'reference_id', 'reason', 'unit_cost', 'created_by', 'approved_by', 'stock_date', 'occurred_at'],
             array_keys($everything->json('data.0')),
         );
     }

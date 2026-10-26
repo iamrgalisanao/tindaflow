@@ -81,7 +81,7 @@ describe('MealPicker, a priced-by-category meal', () => {
         const line = onAdd.mock.calls[0][0];
         expect(line.key).toBe('meal|m-std|o-nilaga|o-whole');
         expect(line.product).toEqual({ id: 'meal:m-std', name: 'Standard Meal - Beef nilaga', selling_price: '83.00', unit_of_measure: 'order' });
-        expect(line.meal.choices).toEqual([{ group_id: 'g-viand', group_name: 'Viand', option_id: 'o-nilaga', label: 'Beef nilaga' }]);
+        expect(line.meal.choices).toEqual([{ group_id: 'g-viand', group_name: 'Viand', option_id: 'o-nilaga', label: 'Beef nilaga', dish_id: 'nilaga', stock_portion: null }]);
         expect(line.meal.addons.map((addon) => addon.option_id)).toEqual(['o-whole']);
     });
 
@@ -165,5 +165,51 @@ describe('MealPicker, leaving', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Back' }));
         expect(onCancel).toHaveBeenCalled();
         expect(onAdd).not.toHaveBeenCalled();
+    });
+});
+
+// ADR-017 slice B: a dish that counts daily stock shows the portions left in the picker, and a sold-out dish cannot be picked when the store blocks.
+describe('MealPicker with daily stock', () => {
+    const stockOf = (blocking = true) => ({
+        loaded: true,
+        blocking,
+        overrideAvailable: true,
+        defaultThreshold: 3,
+        byProduct: {},
+        dishes: { nilaga: { remaining: 3000n, name: 'Beef nilaga' }, caldereta: { remaining: 0n, name: 'Beef caldereta' } },
+    });
+    const dailyStandard = {
+        ...standard,
+        option_groups: [
+            {
+                ...standard.option_groups[0],
+                options: [
+                    { ...dish('nilaga', 'Beef nilaga', 'beef', '68.00'), stock_portion: '1.000' },
+                    { ...dish('caldereta', 'Beef caldereta', 'beef', '68.00'), stock_portion: '1.000' },
+                    dish('adobo', 'Chicken adobo', 'cpf', '60.00'),
+                ],
+            },
+            rice,
+        ],
+    };
+
+    it('shows "3 left" and "Sold out" on the dishes and greys the sold-out one when the store blocks', () => {
+        open(dailyStandard, { stock: stockOf(), cart: [] });
+        fireEvent.click(screen.getByRole('button', { name: /Beef/ }));
+
+        expect(screen.getByText('3 left').getAttribute('data-stock')).toBe('ok');
+        const soldOut = screen.getByText('Sold out');
+        expect(soldOut.getAttribute('data-stock')).toBe('out');
+        expect(soldOut.closest('button').disabled).toBe(true);
+        expect(screen.getByRole('button', { name: /Beef nilaga/ }).disabled).toBe(false);
+    });
+
+    it('takes what the cart already holds away from the count, and does not grey a dish when the store does not block', () => {
+        const plate = { key: 'p', product: { id: 'meal:m' }, quantity: '2', meal: { choices: [{ dish_id: 'nilaga', stock_portion: '1.000' }], addons: [] } };
+        open(dailyStandard, { stock: stockOf(false), cart: [plate] });
+        fireEvent.click(screen.getByRole('button', { name: /Beef/ }));
+
+        expect(screen.getByText('1 left')).toBeTruthy();
+        expect(screen.getByRole('button', { name: /Beef caldereta/ }).disabled).toBe(false);
     });
 });

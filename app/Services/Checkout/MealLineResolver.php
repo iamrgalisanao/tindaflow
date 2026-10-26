@@ -97,6 +97,9 @@ final class MealLineResolver
                         'dish_category_name' => $option->dish->dishCategory->name,
                         'price' => $price,
                         'sort_order' => $sortOrder++,
+                        // ADR-017 section 5: a chosen dish that counts daily stock draws the option's portion from the dish's pool.
+                        'stock_product_id' => $option->dish->stock_mode === 'DAILY' ? $option->dish->stock_product_id : null,
+                        'stock_portion' => $option->dish->stock_mode === 'DAILY' && $option->dish->stock_product_id !== null ? bcadd((string) $option->stock_portion, '0', 3) : null,
                     ];
 
                     continue;
@@ -120,6 +123,8 @@ final class MealLineResolver
                         'dish_category_name' => null,
                         'price' => $addOnPrice,
                         'sort_order' => 0,
+                        'stock_product_id' => null,
+                        'stock_portion' => null,
                     ]],
                 );
             }

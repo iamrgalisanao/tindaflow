@@ -8,8 +8,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * openapi.yaml StockRules operations (ADR-017 section 1): the store's stock rules and the pre-flight count. Both need STORE_SETTINGS_MANAGE
- * (ADMIN); both act on the actor's own store, which is never a request field.
+ * openapi.yaml StockRules operations (ADR-017 section 1): the store's stock rules and the pre-flight count. Both need STOCK_ADJUST
+ * (MANAGER and ADMIN: ADR-017 slice B, client decision 8, moved them from ADMIN-only STORE_SETTINGS_MANAGE); both act on the actor's own store, which is never a request field.
  */
 class StockRulesController extends Controller
 {

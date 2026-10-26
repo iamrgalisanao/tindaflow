@@ -71,6 +71,9 @@ final class StockTransferService
             if (! $product->track_inventory) {
                 throw ValidationException::withMessages(["items.{$index}.product_id" => 'This product does not track inventory, so it has no stock to move.']);
             }
+            if ($product->stock_mode === 'DAILY') {
+                throw ValidationException::withMessages(["items.{$index}.product_id" => 'This product counts daily stock, which is not moved between locations.']);
+            }
             $products[$index] = $product;
         }
 

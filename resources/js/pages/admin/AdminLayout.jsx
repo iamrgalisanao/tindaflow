@@ -8,7 +8,7 @@ export const STORE_SETUP_NAV = [
     { to: '/admin/store-setup', label: 'Overview' },
     { to: '/admin/store-setup/business', label: 'Business Details', capability: 'STORE_SETTINGS_MANAGE' },
     { to: '/admin/store-setup/sale-documents', label: 'Sale Documents', capability: 'STORE_SETTINGS_MANAGE' },
-    { to: '/admin/store-setup/stock-rules', label: 'Stock Rules', capability: 'STORE_SETTINGS_MANAGE' },
+    { to: '/admin/store-setup/stock-rules', label: 'Stock Rules', capability: 'STOCK_ADJUST' },
     { to: '/admin/store-setup/fiscal-installations', label: 'Fiscal Installations' },
     { to: '/admin/store-setup/invoice-series', label: 'Invoice Series' },
     { to: '/admin/store-setup/inventory-locations', label: 'Inventory Locations' },
@@ -53,6 +53,10 @@ const RECORDS_NAV = [
 
 const INVENTORY_NAV = [
     { to: '/admin/inventory/stock', label: 'Stock' },
+    // ADR-017 slice B: the morning entry of the day's cooked portions, the daily leftover report (REPORT_VIEW) and the stock rules a manager may switch.
+    { to: '/admin/inventory/today', label: "Today's stock" },
+    { to: '/admin/reports/daily-stock', label: 'Daily leftover', capability: 'REPORT_VIEW' },
+    { to: '/admin/inventory/rules', label: 'Stock rules' },
     // The Low Stock report, surfaced where someone acting on stock will look for it. It lives under
     // Reports (and stays listed there); this is a second way in, not a second screen. REPORT_VIEW is
     // the report's own gate -- the Inventory section is gated on STOCK_ADJUST, which does not imply it.

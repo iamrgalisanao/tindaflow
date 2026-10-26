@@ -30,7 +30,7 @@ class InventoryController extends Controller
 {
     use ParsesListFilters, RespondsWithPagination;
 
-    /** On-hand balances of tracked products; a product that does not track inventory has no stock to report. */
+    /** On-hand balances of RUNNING-stock products; a product that does not track inventory, or counts daily stock, has none to report here. */
     public function stock(Request $request): JsonResponse
     {
         return $this->paginatedResponse(
@@ -111,7 +111,7 @@ class InventoryController extends Controller
         $query = StockBalance::query()
             ->join('products', 'products.id', '=', 'stock_balances.product_id')
             ->where('products.store_id', $actor->store_id)
-            ->where('products.track_inventory', true)
+            ->where('products.stock_mode', 'RUNNING') // daily items and the dishes' hidden pools have their own date-keyed balances, not running stock
             ->select('stock_balances.*')
             // The effective low-stock threshold travels with the row, so the screen never has to know the store default.
             ->selectRaw('COALESCE(products.reorder_level, ?) AS low_stock_threshold', [StockRules::forStore($actor->store_id)->defaultThreshold])

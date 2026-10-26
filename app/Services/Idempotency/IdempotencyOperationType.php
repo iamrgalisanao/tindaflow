@@ -30,4 +30,6 @@ enum IdempotencyOperationType: string
     case StockTransfer = 'STOCK_TRANSFER';
     // ADR-016 slice 2.2a; the CHECK constraint was extended by a forward migration.
     case SlipReprint = 'SLIP_REPRINT';
+    // ADR-017 slice B: saving the daily stock grid; the CHECK constraint was extended by a forward migration.
+    case DailyStockEntry = 'DAILY_STOCK_ENTRY';
 }

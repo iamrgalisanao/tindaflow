@@ -1110,6 +1110,26 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /dishes/ala-carte:
+    post:
+      operationId: dishAlaCarteCreate
+      tags: [Menu]
+      x-capability: CATALOG_MANAGE
+      summary: 'ADR-017 slice B, client decision 2. "Create ala carte items for dishes": one ordinary visible product per chosen DAILY dish (stock mode DAILY, dish_id = the dish, stock_portion = `stock_portion`, default 2.0), drawing from the same daily pool as the dish''s meals. Name defaults to "<Dish> (ala carte)"; SKU is ALC-<dish code> (-2, -3 on a clash). The price is the manager''s: per item, else from `category_prices` by the dish''s category, else 422. IDEMPOTENT: a dish that already has a linked product, or that does not count daily stock, is reported under `skipped` and left alone. Audited (PRODUCT_CREATED per product, one ALA_CARTE_ITEMS_CREATED).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DishAlaCarteRequest'}
+      responses:
+        '201':
+          description: What was created and what was skipped
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DishAlaCarteResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
   /dishes/reorder:
     post:
       operationId: dishReorder
@@ -2609,12 +2629,90 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/StockAvailability'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+  /daily-stock:
+    get:
+      operationId: dailyStockGet
+      tags: [DailyStock]
+      summary: 'ADR-017 slice B. The entry grid for the store''s CURRENT stock date: one row per active DAILY dish (through its hidden pool) and per active plain DAILY product, in dish-category order, with cooked (portions added minus removed today), sold, remaining (the date''s balance; negative = oversold) and yesterday''s cooked (for "copy yesterday''s quantities", which only pre-fills the form). Any signed-in user of the store (quantities only); `can_enter_directly` says whether the caller holds STOCK_ADJUST.'
+      responses:
+        '200':
+          description: Today's grid
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DailyStockGrid'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /daily-stock/approvers:
+    get:
+      operationId: dailyStockApproverList
+      tags: [DailyStock]
+      summary: 'The managers a cashier can ask to approve a daily stock entry (any signed-in user): active users of the caller''s store who hold STOCK_ADJUST and have set an override code, by name, the caller left out. No code, status or role is returned.'
+      responses:
+        '200':
+          description: Approvers by name
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string, format: uuid}
+                        name: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /daily-stock/approvals:
+    post:
+      operationId: dailyStockApprovalCreate
+      tags: [DailyStock]
+      summary: 'ADR-017 slice B, client decision 5. A NAMED manager''s code -> a single-use approval for ONE daily stock save by a cashier (terminal-scoped: session and enrolled terminal; the cashier and terminal come from the authoritative context). The approver must hold STOCK_ADJUST and differ from the cashier. The code is the approver''s ONE override code, shared with the other overrides: one generic STOCK_ENTRY_APPROVAL_INVALID (422) for a wrong code, an unknown, inactive or other-store approver, one without a code and one without STOCK_ADJUST; five wrong codes lock that approver 15 minutes whichever override they were for (STOCK_ENTRY_APPROVAL_LOCKED, 423). Shares the 10-per-15-minutes limit per terminal and user with the other override grants (RATE_LIMITED 429). The token is returned once and only its SHA-256 is stored; it is bound to this terminal, this cashier, the store and TODAY''s stock date, valid 5 minutes, and consumed by the dailyStockEntryCreate that uses it. Neither the code nor the token is ever logged or audited.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DailyStockApprovalRequest'}
+      responses:
+        '201':
+          description: The approval
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DailyStockApprovalResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '423':
+          description: STOCK_ENTRY_APPROVAL_LOCKED. details.retry_after_minutes
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /daily-stock/entries:
+    post:
+      operationId: dailyStockEntryCreate
+      tags: [DailyStock]
+      summary: 'ADR-017 slice B. Saves the daily stock grid for the CURRENT stock date: each line SETS an item''s cooked total (`cooked`; the server writes the difference as DAILY_PORTIONS_ADDED or _REMOVED) or ADDS portions (`add`, a second batch). Lowering needs `reason` and may not take the remaining below zero (DAILY_STOCK_BELOW_SOLD, 422, nothing written). Terminal-scoped and idempotent (Idempotency-Key). A user holding STOCK_ADJUST (MANAGER, ADMIN) enters directly; a CASHIER must present `stock_entry_token` from dailyStockApprovalCreate (STOCK_ENTRY_APPROVAL_REQUIRED, 403 without; _INVALID 422, _EXPIRED 409, _NOT_ALLOWED 403). The token is consumed in this transaction only; a refused save leaves it usable. Every movement records created_by and approved_by; one DAILY_STOCK_ENTERED audit event carries entered_by, approved_by and every line.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DailyStockEntryRequest'}
+      responses:
+        '201':
+          description: The entry as recorded, and the refreshed grid
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DailyStockEntryResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
   /stock-rules:
     get:
       operationId: stockRulesGet
       tags: [StockRules]
-      x-capability: STORE_SETTINGS_MANAGE
-      summary: 'ADR-017 section 1. The store''s stock rules (block a sale without stock, allow the manager override, the low-stock default) and the PRE-FLIGHT count: how many tracked, active products currently have zero or no stock (these would be unsellable if blocking were on).'
+      x-capability: STOCK_ADJUST
+      summary: 'ADR-017 section 1 (gate moved to STOCK_ADJUST, MANAGER and ADMIN, by slice B). The store''s stock rules (block a sale without stock, allow the manager override, the low-stock default, the hour the stock day starts) and the PRE-FLIGHT count: how many RUNNING-stock, active products currently have zero or no stock (these would be unsellable if blocking were on). Daily items are entered each morning and are not counted.'
       responses:
         '200':
           description: The rules and the pre-flight
@@ -2626,8 +2724,8 @@ paths:
     put:
       operationId: stockRulesSet
       tags: [StockRules]
-      x-capability: STORE_SETTINGS_MANAGE
-      summary: 'Replaces the three values. ADMIN only. Writes one STOCK_RULES_CHANGED audit event with the old and new values (and, when blocking is turned on, the unsellable count shown); saving what is already stored writes nothing. Turning blocking on never touches a balance.'
+      x-capability: STOCK_ADJUST
+      summary: 'Replaces the values (stock_day_cutover_hour optional: left out, the stored hour is kept). MANAGER and ADMIN (a cashier gets 403). Writes one STOCK_RULES_CHANGED audit event with the old and new values (and, when blocking is turned on, the unsellable count shown); saving what is already stored writes nothing. Turning blocking on never touches a balance.'
       requestBody:
         required: true
         content:
@@ -4112,6 +4210,20 @@ paths:
         '200': {$ref: '#/components/responses/ReportOk'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /reports/daily-stock:
+    get:
+      operationId: reportDailyStock
+      tags: [Reports]
+      x-capability: REPORT_VIEW
+      summary: 'ADR-017 slice B (client decision 7). The daily cooked / sold / leftover report. `from` and `to` are STOCK dates (default: the current stock date). One row per stock date and dish or daily product with any daily movement: cooked, removed, sold, returned (0 for cooked food, never put back), leftover (that date''s remaining balance, DERIVED, nothing is written at close) and oversold (leftover below zero). CSV columns are pinned in csv-export-contract.md.'
+      parameters:
+      - {$ref: '#/components/parameters/FromParam'}
+      - {$ref: '#/components/parameters/ToParam'}
+      - {$ref: '#/components/parameters/AcceptFormatHeader'}
+      responses:
+        '200': {$ref: '#/components/responses/ReportOk'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /reports/inventory-movement:
     get:
       operationId: reportInventoryMovement
@@ -4997,7 +5109,7 @@ components:
       enum: [COMPLETED, VOIDED, PARTIALLY_REFUNDED, REFUNDED]
     StockMovementType:
       type: string
-      enum: [OPENING_STOCK, PURCHASE_RECEIPT, SALE, SALE_RETURN, STOCK_ADJUSTMENT_IN, STOCK_ADJUSTMENT_OUT, DAMAGE, EXPIRED, TRANSFER_IN, TRANSFER_OUT]
+      enum: [OPENING_STOCK, PURCHASE_RECEIPT, SALE, SALE_RETURN, STOCK_ADJUSTMENT_IN, STOCK_ADJUSTMENT_OUT, DAMAGE, EXPIRED, TRANSFER_IN, TRANSFER_OUT, DAILY_PORTIONS_ADDED, DAILY_PORTIONS_REMOVED]
     RefundDisposition:
       type: string
       enum: [RETURN_TO_STOCK, DAMAGED, EXPIRED, DISPOSED]
@@ -5444,6 +5556,20 @@ components:
         dish_category_id: {type: string, format: uuid}
         sort_order: {type: integer}
         active: {type: boolean}
+        stock_mode: {type: string, enum: [NONE, DAILY], description: 'ADR-017 slice B. DAILY: the dish''s portions are counted per stock date (entered each morning). Switching it off is refused while today''s remaining is not zero or an active ala carte item draws from it (STOCK_MODE_CHANGE_BLOCKED, 409).'}
+        ala_carte_products:
+          type: array
+          description: 'Only on dishList: the products linked to the dish.'
+          items:
+            type: object
+            properties:
+              id: {type: string, format: uuid}
+              name: {type: string}
+              sku: {type: string}
+              selling_price: {$ref: '#/components/schemas/Money'}
+              active: {type: boolean}
+              stock_portion: {$ref: '#/components/schemas/Quantity'}
+              menu_group_id: {type: [string, 'null'], format: uuid}
     MealOption:
       type: object
       description: 'A dish option carries the dish (dish_id, dish_name, dish_category_id); an add-on option carries a label. Live configuration, never read back by a sale (MENU-001).'
@@ -5639,6 +5765,9 @@ components:
           anyOf:
           - {type: integer, minimum: 0, description: 'This product''s own low-stock threshold (0 = warn only when sold out).'}
           - {type: 'null', description: 'Use the store''s low_stock_default_threshold (ADR-017 section 2).'}
+        stock_mode: {type: string, enum: [NONE, RUNNING, DAILY], description: 'ADR-017 slice B. Kept equal to track_inventory (tracked exactly when not NONE). RUNNING carries over; DAILY is cooked per stock date (entered in Today''s stock). Changing it is refused while the product holds stock (STOCK_MODE_CHANGE_BLOCKED, 409).'}
+        dish_id: {type: [string, 'null'], format: uuid, description: 'An ala carte product that draws from this DAILY dish''s pool (its own balance is never written).'}
+        stock_portion: {$ref: '#/components/schemas/Quantity'}
         active: {type: boolean}
         note: {type: string, readOnly: true, description: 'selling_price/tax_class here are current catalog values for cashier preview only — never authoritative for a historical sale_item, which carries its own immutable snapshot.'}
     ProductInput:
@@ -5677,6 +5806,9 @@ components:
           - {type: integer, minimum: 0}
           - {type: 'null'}
           description: 'null or absent on create = use the store''s low-stock default; a number, even 0, is this product''s own threshold. On update, absent leaves it alone and null clears it back to the default. ADR-017 section 2.'
+        stock_mode: {type: string, enum: [NONE, RUNNING, DAILY], description: 'ADR-017 slice B. Kept equal to track_inventory (tracked exactly when not NONE). RUNNING carries over; DAILY is cooked per stock date (entered in Today''s stock). Changing it is refused while the product holds stock (STOCK_MODE_CHANGE_BLOCKED, 409).'}
+        dish_id: {type: [string, 'null'], format: uuid, description: 'An ala carte product that draws from this DAILY dish''s pool (its own balance is never written).'}
+        stock_portion: {$ref: '#/components/schemas/Quantity'}
     ImportResult:
       type: object
       properties:
@@ -5705,6 +5837,7 @@ components:
         block_sale_without_stock: {type: boolean, description: 'The master switch. false (the default): a sale never refuses and stock may go below zero. true: a sale that demands more of a tracked product than is on hand is refused (INSUFFICIENT_STOCK).'}
         stock_override_enabled: {type: boolean, description: 'Only matters while blocking is on: whether a manager may approve one blocked sale. Default true.'}
         low_stock_default_threshold: {type: integer, minimum: 0, maximum: 1000, description: 'The "N left" warning for every product whose reorder_level is null. Default 3.'}
+        stock_day_cutover_hour: {type: integer, minimum: 0, maximum: 6, description: 'ADR-017 slice B. The hour the stock day starts (store-local). 0 = the calendar day; 5 = the day runs 05:00 to 05:00 (the canteen). Optional on input: left out, the stored hour is kept. A sale''s stock date is the date of the sale minus this many hours.'}
     StockRules:
       allOf:
       - {$ref: '#/components/schemas/StockRulesInput'}
@@ -5730,24 +5863,41 @@ components:
         blocking: {type: boolean}
         override_available: {type: boolean, description: 'blocking AND stock_override_enabled.'}
         low_stock_default_threshold: {type: integer}
+        stock_date: {type: string, format: date, description: 'ADR-017 slice B. The store''s current stock date.'}
+        daily_configured: {type: boolean, description: 'Some active dish or product counts daily stock.'}
+        daily_entered: {type: boolean, description: 'Some daily row exists for stock_date (false + blocking: the till says "No stock entered for today yet").'}
         items:
           type: array
           items:
             type: object
             properties:
               product_id: {type: string, format: uuid}
+              mode: {type: string, enum: [RUNNING, DAILY]}
+              dish_id: {type: [string, 'null'], format: uuid, description: 'An ala carte product draws from this dish''s pool.'}
+              stock_portion: {anyOf: [{$ref: '#/components/schemas/Quantity'}, {type: 'null'}], description: 'Portions of the dish one unit draws.'}
               remaining: {$ref: '#/components/schemas/Quantity'}
               threshold: {type: integer}
-              low: {type: boolean}
+              low: {type: boolean, description: 'RUNNING items only; a daily item is never "low", it sells out.'}
+              sold_out: {type: boolean}
+        dishes:
+          type: array
+          description: 'Every active DAILY dish with the portions left for stock_date.'
+          items:
+            type: object
+            properties:
+              dish_id: {type: string, format: uuid}
+              name: {type: string}
+              remaining: {$ref: '#/components/schemas/Quantity'}
               sold_out: {type: boolean}
     StockShortfall:
       type: object
-      description: 'One short line of an INSUFFICIENT_STOCK refusal. kind PRODUCT and mode RUNNING in slice A; stock_date is reserved for daily stock (slice B) and is null.'
+      description: 'One short line of an INSUFFICIENT_STOCK refusal. kind PRODUCT (mode RUNNING, or DAILY for a plain daily product) or DISH (mode DAILY: the dish''s pool, in portions, with its dish_id and the stock_date). The demand of a meal''s chosen dishes, a Combo side and an ala carte portion of one dish is added up per pool before the check.'
       properties:
-        kind: {type: string, enum: [PRODUCT]}
-        product_id: {type: string, format: uuid}
+        kind: {type: string, enum: [PRODUCT, DISH]}
+        product_id: {type: string, format: uuid, description: 'For a DISH, the id of its hidden pool product.'}
+        dish_id: {type: [string, 'null'], format: uuid}
         name: {type: string}
-        mode: {type: string, enum: [RUNNING]}
+        mode: {type: string, enum: [RUNNING, DAILY]}
         stock_date: {type: [string, 'null'], format: date}
         required: {$ref: '#/components/schemas/Quantity'}
         available: {$ref: '#/components/schemas/Quantity'}
@@ -5760,7 +5910,7 @@ components:
         items:
           type: array
           minItems: 1
-          description: 'The cart as saleFinalize would carry it. Only product_id and quantity are read; a meal item demands nothing in slice A.'
+          description: 'The cart as saleFinalize would carry it: product_id + quantity, or a meal selection (its chosen daily dishes and any ala carte product draw portions from the dishes'' pools).'
           items:
             type: object
             required: [quantity]
@@ -5782,6 +5932,126 @@ components:
         shortfalls:
           type: array
           items: {$ref: '#/components/schemas/StockShortfall'}
+    DailyStockGrid:
+      type: object
+      properties:
+        stock_date: {type: string, format: date}
+        location_id: {type: string, format: uuid}
+        can_enter_directly: {type: boolean}
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: {type: string, enum: [DISH, PRODUCT]}
+              id: {type: string, format: uuid, description: 'The dish id, or the product id for a plain daily product.'}
+              name: {type: string}
+              group: {type: [string, 'null'], description: 'The dish category; null for a product.'}
+              sku: {type: [string, 'null']}
+              pool_product_id: {type: string, format: uuid}
+              cooked: {$ref: '#/components/schemas/Quantity'}
+              sold: {$ref: '#/components/schemas/Quantity'}
+              remaining: {$ref: '#/components/schemas/Quantity'}
+              yesterday_cooked: {$ref: '#/components/schemas/Quantity'}
+    DailyStockApprovalRequest:
+      type: object
+      required: [approver_id, code]
+      properties:
+        approver_id: {type: string, format: uuid, description: 'The manager the cashier picked by name (from dailyStockApproverList).'}
+        code: {type: string, pattern: '^\d{6,8}$', writeOnly: true, description: 'The manager''s own code, typed by them. Never stored, logged or audited.'}
+    DailyStockApprovalResult:
+      type: object
+      properties:
+        grant_id: {type: string, format: uuid}
+        token: {type: string, pattern: '^[0-9a-f]{64}$', description: 'Shown once. Send as dailyStockEntryCreate.stock_entry_token. Only its SHA-256 is stored.'}
+        stock_date: {type: string, format: date}
+        expires_at: {type: string, format: date-time}
+        approver:
+          type: object
+          properties:
+            id: {type: string, format: uuid}
+            name: {type: string}
+    DailyStockEntryRequest:
+      type: object
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 300
+          description: 'Each line names a dish (dish_id) or a plain daily product (product_id), once, and gives EXACTLY ONE of `cooked` (the total cooked today) or `add` (portions to add, above zero).'
+          items:
+            type: object
+            properties:
+              dish_id: {type: [string, 'null'], format: uuid}
+              product_id: {type: [string, 'null'], format: uuid}
+              cooked: {anyOf: [{$ref: '#/components/schemas/Quantity'}, {type: 'null'}]}
+              add: {anyOf: [{$ref: '#/components/schemas/Quantity'}, {type: 'null'}]}
+        reason: {type: [string, 'null'], maxLength: 255, description: 'Required when any line lowers a total.'}
+        stock_entry_token: {type: [string, 'null'], pattern: '^[0-9a-f]{64}$', description: 'A cashier''s single-use manager approval. Ignored for a user holding STOCK_ADJUST.'}
+    DailyStockEntryResult:
+      type: object
+      properties:
+        stock_date: {type: string, format: date}
+        entered_by: {type: string, format: uuid}
+        approved_by: {type: [string, 'null'], format: uuid}
+        approval_grant_id: {type: [string, 'null'], format: uuid}
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: {type: string, enum: [DISH, PRODUCT]}
+              id: {type: string, format: uuid}
+              name: {type: string}
+              cooked_before: {$ref: '#/components/schemas/Quantity'}
+              cooked_after: {$ref: '#/components/schemas/Quantity'}
+              delta: {type: string, description: 'Signed quantity written (negative = DAILY_PORTIONS_REMOVED, 0 = no movement).'}
+              remaining_after: {$ref: '#/components/schemas/Quantity'}
+        grid: {$ref: '#/components/schemas/DailyStockGrid'}
+    DishAlaCarteRequest:
+      type: object
+      required: [items]
+      properties:
+        menu_group_id: {type: [string, 'null'], format: uuid}
+        stock_portion: {$ref: '#/components/schemas/Quantity'}
+        category_prices:
+          type: object
+          description: 'Dish category id -> price (Money, two decimals). Used for a dish with no price of its own.'
+          additionalProperties: {$ref: '#/components/schemas/Money'}
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [dish_id]
+            properties:
+              dish_id: {type: string, format: uuid}
+              price: {anyOf: [{$ref: '#/components/schemas/Money'}, {type: 'null'}]}
+              name: {type: [string, 'null']}
+    DishAlaCarteResult:
+      type: object
+      properties:
+        created:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id: {type: string, format: uuid}
+              sku: {type: string}
+              name: {type: string}
+              dish_id: {type: string, format: uuid}
+              selling_price: {$ref: '#/components/schemas/Money'}
+              stock_portion: {$ref: '#/components/schemas/Quantity'}
+        skipped:
+          type: array
+          items:
+            type: object
+            properties:
+              dish_id: {type: string, format: uuid}
+              dish_name: {type: string}
+              reason: {type: string, enum: [ALREADY_EXISTS, DISH_NOT_DAILY]}
+              product_id: {type: string, format: uuid}
     StockCountStatus:
       type: string
       enum: [OPEN, POSTED, CANCELLED]

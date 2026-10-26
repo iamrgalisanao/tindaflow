@@ -237,8 +237,9 @@ final class VoidService
     {
         $items = $sale->items()->orderBy('line_number')->get();
 
-        // One call, so the ledger writes the returns in the canonical stock order (stage 28), not line order.
-        $this->stockLedger->recordMany($items->map(fn ($item) => [
+        // One call, so the ledger writes the returns in the canonical stock order (stage 28), not line order. A line drawn from DAILY stock is not put
+        // back (cooked food is never returned to stock, ADR-017 client decision 4); the meal selections' pool draws are never reversed either.
+        $this->stockLedger->recordMany($items->reject(fn ($item) => $this->returnLocator->drewDailyStock($item))->map(fn ($item) => [
             'product_id' => $item->product_id,
             'location_id' => $this->returnLocator->forSaleItem($item, $sale),
             'terminal_id' => $terminal->id,
@@ -248,7 +249,7 @@ final class VoidService
             'reference_id' => $item->id,
             'unit_cost' => $item->unit_cost_snapshot,
             'created_by' => $approver->id,
-        ])->all());
+        ])->values()->all());
 
         $sale->update(['status' => 'VOIDED']);
 

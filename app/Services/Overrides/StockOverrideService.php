@@ -53,7 +53,7 @@ final class StockOverrideService
      * The endpoint's entry: works out the cart's shortfall NOW (the server never trusts the till's idea of it) and refuses when there is
      * none, because an approval for nothing could be held back and spent on a different, later shortfall.
      *
-     * @param  list<array<string, mixed>>  $items  the cart as the sale request would carry it (`product_id` and `quantity`; a meal item demands nothing)
+     * @param  list<array<string, mixed>>  $items  the cart as the sale request would carry it (`product_id` and `quantity`, or a `meal` selection; its chosen daily dishes and an ala carte product demand portions from the dish's pool)
      * @return array{grant: StockOverrideGrant, token: string, approver: User}
      *
      * @throws StockOverrideException
@@ -202,7 +202,7 @@ final class StockOverrideService
     private function brief(array $shortfalls): array
     {
         return array_map(fn (array $line): array => [
-            'kind' => $line['kind'], 'product_id' => $line['product_id'], 'name' => $line['name'], 'stock_date' => $line['stock_date'] ?? null,
+            'kind' => $line['kind'], 'product_id' => $line['product_id'], 'dish_id' => $line['dish_id'] ?? null, 'name' => $line['name'], 'stock_date' => $line['stock_date'] ?? null,
             'required' => $line['required'], 'available' => $line['available'],
         ], $shortfalls);
     }

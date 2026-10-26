@@ -542,6 +542,38 @@ export const REPORTS = [
         exportPrefix: 'low_stock',
     },
     {
+        // ADR-017 slice B (client decision 7): the daily leftover and waste report. Leftover is derived (the stock date's remaining balance); nothing is written at close.
+        slug: 'daily-stock',
+        title: 'Daily Stock (leftover)',
+        description: 'Per stock day and dish or daily item: how many portions were cooked, removed, sold, and the leftover. An oversold item is flagged.',
+        category: 'inventory',
+        filters: [dateRange('today')],
+        summary: [
+            { key: 'cooked', label: 'Cooked', format: 'quantity' },
+            { key: 'sold', label: 'Sold', format: 'quantity' },
+            { key: 'leftover', label: 'Leftover', format: 'quantity' },
+            { key: 'oversold_count', label: 'Oversold items', format: 'integer' },
+        ],
+        note: 'Dates are stock days (the day the cooked food belongs to), not calendar days when the stock day starts early. Returned cooked food is never put back, so a refund does not change the leftover.',
+        defaultSort: { key: 'stock_date', dir: 'desc' },
+        emptyState: {
+            tone: 'ok',
+            title: 'No daily stock was entered or sold in this period.',
+            body: 'Daily stock appears here once portions are entered under Inventory, Today\'s stock.',
+        },
+        columns: [
+            col('stock_date', 'Stock day', 'date'),
+            col('item_name', 'Item', 'text'),
+            col('category', 'Category', 'text'),
+            col('cooked', 'Cooked', 'quantity', right),
+            col('removed', 'Removed', 'quantity', right),
+            col('sold', 'Sold', 'quantity', right),
+            col('leftover', 'Leftover', 'quantity', right),
+            col('oversold', 'Oversold', 'text', center),
+        ],
+        exportPrefix: 'daily_stock',
+    },
+    {
         slug: 'inventory-movement',
         title: 'Inventory Movement',
         description: 'Append-only stock ledger: receipts, sales, returns, adjustments, and transfers.',

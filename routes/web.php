@@ -7,6 +7,7 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CreditOverrideController;
+use App\Http\Controllers\DailyStockController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FiscalDayController;
 use App\Http\Controllers\FiscalInstallationController;
@@ -21,6 +22,7 @@ use App\Http\Controllers\MenuPriceController;
 use App\Http\Controllers\ProductBarcodeController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\RefundController;
+use App\Http\Controllers\Reports\DailyStockReportController;
 use App\Http\Controllers\Reports\InventoryReportController;
 use App\Http\Controllers\Reports\SalesReportController;
 use App\Http\Controllers\Reports\ShiftReportController;
@@ -312,10 +314,11 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // approver's code (the same code, the same lockout, the same 'credit-override' limiter budget) and issues a single-use grant.
     Route::get('/stock/availability', [StockAvailabilityController::class, 'show'])
         ->middleware(['auth', EnsureUserIsActive::class]);
+    // 2026-10-27 (client decision 8): the stock rules are read and written by STOCK_ADJUST (MANAGER and ADMIN), no longer ADMIN-only.
     Route::get('/stock-rules', [StockRulesController::class, 'get'])
-        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STOCK_ADJUST']);
     Route::put('/stock-rules', [StockRulesController::class, 'update'])
-        ->middleware(['auth', EnsureUserIsActive::class, 'can:STORE_SETTINGS_MANAGE']);
+        ->middleware(['auth', EnsureUserIsActive::class, 'can:STOCK_ADJUST']);
     Route::get('/stock-override-approvers', [StockOverrideController::class, 'approvers'])
         ->middleware(['auth', EnsureUserIsActive::class]);
     Route::post('/stock-overrides', [StockOverrideController::class, 'grant'])
@@ -378,6 +381,7 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         Route::get('/dishes', [MenuController::class, 'dishList']);
         Route::post('/dishes', [MenuController::class, 'dishCreate']);
         Route::post('/dishes/reorder', [MenuController::class, 'dishReorder']);
+        Route::post('/dishes/ala-carte', [MenuController::class, 'dishAlaCarteCreate']);
         Route::patch('/dishes/{dishId}', [MenuController::class, 'dishUpdate'])->whereUuid('dishId');
         Route::post('/dishes/{dishId}/activate', [MenuController::class, 'dishActivate'])->whereUuid('dishId');
         Route::post('/dishes/{dishId}/deactivate', [MenuController::class, 'dishDeactivate'])->whereUuid('dishId');
@@ -420,6 +424,19 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:STOCK_ADJUST']);
     Route::post('/inventory/adjustments', [InventoryController::class, 'adjust'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'can:STOCK_ADJUST']);
+
+    // ADR-017 slice B: daily stock for cooked items. dailyStockGet and the approver list are for any signed-in user (quantities and names only).
+    // dailyStockEntryCreate is terminal-scoped and idempotent; authorisation is inside the service (STOCK_ADJUST enters directly, a cashier needs
+    // a manager's single-use token). dailyStockApprovalCreate verifies a NAMED manager's code (the same code and lockout as the other overrides,
+    // and the same 'credit-override' limiter budget) and issues that token.
+    Route::get('/daily-stock', [DailyStockController::class, 'grid'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::get('/daily-stock/approvers', [DailyStockController::class, 'approvers'])
+        ->middleware(['auth', EnsureUserIsActive::class]);
+    Route::post('/daily-stock/approvals', [DailyStockController::class, 'approve'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, 'throttle:credit-override']);
+    Route::post('/daily-stock/entries', [DailyStockController::class, 'enter'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
 
     // Stock counts and transfers between a store's own locations (stage 25, forward-committed; see
     // docs/06-backend/stage-25-stock-counts-and-transfers.md). Everything needs STOCK_ADJUST. Drafting a count
@@ -522,6 +539,7 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         Route::get('/reports/refunds', [VoidRefundReportController::class, 'refunds']);
         Route::get('/reports/inventory-on-hand', [InventoryReportController::class, 'inventoryOnHand']);
         Route::get('/reports/low-stock', [InventoryReportController::class, 'lowStock']);
+        Route::get('/reports/daily-stock', [DailyStockReportController::class, 'dailyStock']);
         Route::get('/reports/inventory-movement', [InventoryReportController::class, 'inventoryMovement']);
         Route::get('/reports/shifts', [ShiftReportController::class, 'shifts']);
         Route::get('/reports/cash-variance', [ShiftReportController::class, 'cashVariance']);

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\RespondsWithPagination;
+use App\Http\Requests\DishAlaCarteRequest;
 use App\Http\Requests\DishCategoryInputRequest;
 use App\Http\Requests\DishInputRequest;
 use App\Http\Requests\MealInputRequest;
@@ -18,6 +19,7 @@ use App\Models\Dish;
 use App\Models\DishCategory;
 use App\Models\Meal;
 use App\Models\User;
+use App\Services\Menu\DishAlaCarteService;
 use App\Services\Menu\DishCategoryService;
 use App\Services\Menu\DishService;
 use App\Services\Menu\MealOptionGroupService;
@@ -80,7 +82,7 @@ class MenuController extends Controller
 
     public function dishList(Request $request): JsonResponse
     {
-        $query = Dish::where('store_id', $this->storeId());
+        $query = Dish::where('store_id', $this->storeId())->with('alaCarteProducts');
 
         if ($request->filled('dish_category_id')) {
             $categoryId = (string) $request->query('dish_category_id');
@@ -95,6 +97,12 @@ class MenuController extends Controller
         $query->orderBy('sort_order')->orderBy('name')->orderBy('id');
 
         return $this->paginatedResponse($query->paginate(perPage: $this->perPage($request), page: (int) $request->query('page', 1)), DishResource::class);
+    }
+
+    /** openapi.yaml dishAlaCarteCreate (ADR-017 slice B, client decision 2): create the ala carte product of each chosen daily dish. */
+    public function dishAlaCarteCreate(DishAlaCarteRequest $request, DishAlaCarteService $service): JsonResponse
+    {
+        return response()->json($service->create($this->actor(), $request->validated()), 201);
     }
 
     public function dishCreate(DishInputRequest $request, DishService $service): JsonResponse

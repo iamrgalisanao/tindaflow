@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import OverrideApproval from './OverrideApproval';
+import { requestItems } from './mealMenu';
 import { stockGrantFromResponse, stockOverrideFailureText } from './stock';
 
 /**
@@ -12,22 +13,24 @@ import { stockGrantFromResponse, stockOverrideFailureText } from './stock';
 export default function StockRefusalPanel({ refusal, cart, busy, onApproved, onFix, onRemoveItem }) {
     const [asking, setAsking] = useState(false);
     const lines = refusal.shortfalls;
-    // The approval is for exactly this cart: plain product lines only (a meal demands no stock of its own in this release).
-    const items = cart.filter((line) => !line.meal).map((line) => ({ product_id: line.product.id, quantity: line.quantity }));
+    // The approval is for exactly this cart: its product lines and its meal plates (their chosen daily dishes draw portions from the dishes' pools).
+    const items = cart.flatMap((line) => requestItems(line, 0n));
 
     return (
         <section role="alert" aria-label="Not enough stock" className="mx-4 mt-3 rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
             <p className="font-semibold">Not enough stock, so this sale was not made. Nothing was charged.</p>
             <ul aria-label="Items short of stock" className="mt-2 divide-y divide-red-500/20 rounded border border-red-500/20 bg-slate-950/40">
                 {lines.map((line) => (
-                    <li key={line.productId} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                    <li key={`${line.productId}:${line.stockDate ?? ''}`} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                         <span className="min-w-0 break-words font-medium text-red-100">{line.name}</span>
                         <span className="font-mono text-xs text-red-200">
-                            needs {line.required}, {Number(line.available) > 0 ? `only ${line.available} in stock` : 'no stock'}
+                            {line.kind === 'DISH'
+                                ? `needs ${line.required} portions, ${Number(line.available) > 0 ? `only ${line.available} left today` : 'none left today'}`
+                                : `needs ${line.required}, ${Number(line.available) > 0 ? `only ${line.available} in stock` : 'no stock'}`}
                         </span>
                         <button
                             type="button"
-                            onClick={() => onRemoveItem(line.productId)}
+                            onClick={() => onRemoveItem(line)}
                             disabled={busy}
                             aria-label={`Remove ${line.name} from the cart`}
                             className="min-h-11 rounded border border-red-400/60 px-3 text-xs font-bold uppercase tracking-wide text-red-100 hover:bg-red-500/20 disabled:opacity-50"

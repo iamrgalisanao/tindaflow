@@ -96,3 +96,41 @@ describe('CatalogPanel stock marks', () => {
         expect(document.querySelector('[data-stock]')).toBeNull();
     });
 });
+
+// ADR-017 slice B: a daily item's tile reads "N left" or "Sold out" and never carries the amber "last 3" warning.
+describe('CatalogPanel daily stock marks', () => {
+    const dailyStock = (rules = {}) =>
+        stockFromResponse({
+            blocking: true,
+            override_available: true,
+            low_stock_default_threshold: 3,
+            dishes: [{ dish_id: 'nilaga', name: 'Beef nilaga', remaining: '5.000' }],
+            items: [
+                { product_id: 'plenty', mode: 'DAILY', dish_id: 'nilaga', stock_portion: '2.000', remaining: '2.000', threshold: 0 },
+                { product_id: 'low', mode: 'DAILY', dish_id: null, stock_portion: null, remaining: '1.000', threshold: 0 },
+                { product_id: 'none', mode: 'DAILY', dish_id: null, stock_portion: null, remaining: '0.000', threshold: 0 },
+            ],
+            ...rules,
+        });
+
+    it('shows "N left" for a daily item even when only one is left, and "Sold out" at zero', async () => {
+        render(panel(dailyStock()));
+
+        expect((await screen.findByText('2 left')).getAttribute('data-stock')).toBe('ok');
+        expect(screen.getByText('1 left').getAttribute('data-stock')).toBe('ok');
+        expect(screen.getByText('Sold out').getAttribute('data-stock')).toBe('out');
+    });
+
+    it('a sold-out daily tile cannot be tapped when the store blocks, and can when it does not', async () => {
+        const onAdd = vi.fn();
+        const { unmount } = render(panel(dailyStock(), onAdd));
+        await screen.findByText('Sold out');
+        expect(screen.getByRole('button', { name: 'Pandesal, Sold out' }).disabled).toBe(true);
+        unmount();
+
+        render(panel(dailyStock({ blocking: false }), onAdd));
+        await screen.findByText('Sold out');
+        fireEvent.click(screen.getByRole('button', { name: 'Pandesal, Sold out' }));
+        expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ id: 'none' }));
+    });
+});

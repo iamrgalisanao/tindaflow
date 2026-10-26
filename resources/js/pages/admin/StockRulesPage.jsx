@@ -18,9 +18,9 @@ function parseThreshold(text) {
 }
 
 /**
- * /admin/store-setup/stock-rules -- stockRulesGet / stockRulesSet (ADR-017 section 1, slice A). The store's three stock switches: block a sale
+ * /admin/inventory/rules (also /admin/store-setup/stock-rules) -- stockRulesGet / stockRulesSet (ADR-017 section 1, slice A; slice B). The store's stock switches: block a sale
  * that has no stock (off by default, so a store that does nothing sees no change), let a manager approve one blocked sale with their code,
- * and the "N left" warning that every product without a level of its own uses. Administrator only (STORE_SETTINGS_MANAGE). Before blocking is
+ * and the "N left" warning that every product without a level of its own uses. A manager or administrator (STOCK_ADJUST, since slice B). Also the hour the stock day starts. Before blocking is
  * turned on the page says how many tracked items have no stock right now: the sale of each is refused until stock is entered. Turning it
  * on or off never changes a stock figure.
  */
@@ -31,6 +31,7 @@ export default function StockRulesPage() {
     const [block, setBlock] = useState(false);
     const [override, setOverride] = useState(true);
     const [threshold, setThreshold] = useState('3');
+    const [cutover, setCutover] = useState('0');
     const [confirming, setConfirming] = useState(false);
     const [saveError, setSaveError] = useState(null);
     const [thresholdError, setThresholdError] = useState(null);
@@ -43,6 +44,7 @@ export default function StockRulesPage() {
         setBlock(body.block_sale_without_stock);
         setOverride(body.stock_override_enabled);
         setThreshold(String(body.low_stock_default_threshold));
+        setCutover(String(body.stock_day_cutover_hour ?? 0));
     }, []);
 
     const load = useCallback(() => {
@@ -62,7 +64,8 @@ export default function StockRulesPage() {
     }
 
     const parsed = parseThreshold(threshold);
-    const dirty = rules !== null && (block !== rules.block_sale_without_stock || override !== rules.stock_override_enabled || parsed !== rules.low_stock_default_threshold);
+    const parsedCutover = /^[0-6]$/.test(cutover.trim()) ? Number(cutover.trim()) : null;
+    const dirty = rules !== null && (block !== rules.block_sale_without_stock || override !== rules.stock_override_enabled || parsed !== rules.low_stock_default_threshold || parsedCutover !== (rules.stock_day_cutover_hour ?? 0));
     const turningOn = rules !== null && block && !rules.block_sale_without_stock;
 
     async function save() {
@@ -70,7 +73,7 @@ export default function StockRulesPage() {
         setSaveError(null);
         const result = await request('/api/v1/stock-rules', {
             method: 'PUT',
-            body: { block_sale_without_stock: block, stock_override_enabled: override, low_stock_default_threshold: parsed },
+            body: { block_sale_without_stock: block, stock_override_enabled: override, low_stock_default_threshold: parsed, stock_day_cutover_hour: parsedCutover },
         });
         setSaving(false);
         setConfirming(false);
@@ -83,7 +86,7 @@ export default function StockRulesPage() {
             signIn();
             return;
         }
-        setSaveError(fieldErrors(result).low_stock_default_threshold ?? failureMessage(result, 'The stock rules could not be saved.'));
+        setSaveError(fieldErrors(result).low_stock_default_threshold ?? fieldErrors(result).stock_day_cutover_hour ?? failureMessage(result, 'The stock rules could not be saved.'));
     }
 
     function submit(event) {
@@ -93,6 +96,10 @@ export default function StockRulesPage() {
             return;
         }
         setThresholdError(null);
+        if (parsedCutover === null) {
+            setSaveError('Use a whole hour from 0 (midnight) to 6.');
+            return;
+        }
         if (turningOn) {
             setConfirming(true);
             return;
@@ -103,13 +110,13 @@ export default function StockRulesPage() {
     const preflight = rules?.preflight;
 
     return (
-        <AdminLayout title="Stock rules" requiredCapability="STORE_SETTINGS_MANAGE">
+        <AdminLayout title="Stock rules" requiredCapability="STOCK_ADJUST">
             {toast && <Toast message={toast} onDismiss={dismissToast} />}
 
             <div className="mb-4">
                 <h2 className="text-xl font-semibold text-slate-100">Stock rules</h2>
                 <p className="mt-1 max-w-2xl text-sm text-slate-400">
-                    Whether the till refuses to sell what is not in stock, and when it warns that the last few are left. Only an administrator can change these.
+                    Whether the till refuses to sell what is not in stock, and when it warns that the last few are left. A manager or an administrator can change these.
                 </p>
             </div>
 
@@ -182,6 +189,28 @@ export default function StockRulesPage() {
                                 </p>
                             </div>
                         )}
+                    </section>
+
+                    <section className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-4" aria-labelledby="stock_day_heading">
+                        <h3 id="stock_day_heading" className="font-mono text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                            The stock day
+                        </h3>
+                        <div>
+                            <label htmlFor="stock_day_cutover_hour" className="mb-1 block text-sm text-slate-200">
+                                The day&apos;s cooked stock starts at this hour (0 to 6)
+                            </label>
+                            <input
+                                id="stock_day_cutover_hour"
+                                type="text"
+                                inputMode="numeric"
+                                value={cutover}
+                                onChange={(event) => setCutover(event.target.value)}
+                                className={inputClass(parsedCutover === null)}
+                            />
+                            <p className="mt-1 text-xs text-slate-500">
+                                Cooked dishes and daily items are counted per stock day. With 0 the day is the calendar day. With 5 the day runs from 5:00 AM to the next 5:00 AM, so a sale at 4:30 AM still uses yesterday&apos;s stock and nobody has to close anything.
+                            </p>
+                        </div>
                     </section>
 
                     <section className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-4" aria-labelledby="stock_low_heading">

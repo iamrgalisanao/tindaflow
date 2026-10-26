@@ -149,6 +149,8 @@ final class TillMenuBuilder
             'sort_order' => $option->sort_order,
             'dish' => ['id' => $dish->id, 'name' => $dish->name, 'dish_category_id' => $dish->dish_category_id],
             'price' => $price,
+            // ADR-017 slice B: the portions this option takes from the dish's daily pool (the till compares them with what is left; the server decides).
+            'stock_portion' => $dish->stock_mode === 'DAILY' ? bcadd((string) $option->stock_portion, '0', 3) : null,
         ];
     }
 }

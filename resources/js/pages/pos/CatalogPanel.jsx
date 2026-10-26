@@ -16,8 +16,11 @@ const PAGE_SIZE = 100;
  * `stock` (ADR-017 slice A) is the till's read of what is left of each tracked product. A tile shows "N in stock", an amber "Only N left"
  * at or below the low-stock threshold, or "No stock"; when the store blocks sales without stock, a tile with none is greyed and not tappable.
  * It is advisory (up to a minute old); checkout decides.
+ *
+ * Slice B (daily stock): a daily item's tile reads "N left" or "Sold out" (no amber warning: cooked food just sells out), and a meal's dishes show the
+ * portions left in the picker, which also needs the `cart` to take away what it already holds.
  */
-export default function CatalogPanel({ search, onSearchChange, onSearch, onClearSearch, searchRef, scanNotice, results, onAdd, onAddMeal, stock = NO_STOCK_RULES }) {
+export default function CatalogPanel({ search, onSearchChange, onSearch, onClearSearch, searchRef, scanNotice, results, onAdd, onAddMeal, stock = NO_STOCK_RULES, cart = [] }) {
     const [categories, setCategories] = useState([]);
     const [categoryId, setCategoryId] = useState(''); // '' = all
     const [menuTabs, setMenuTabs] = useState(null); // null = loading; [] = this store has no active menu groups
@@ -194,6 +197,8 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                         key={pickingMeal.id}
                         meal={pickingMeal}
                         categories={menu.dish_categories}
+                        stock={stock}
+                        cart={cart}
                         onAdd={(line) => {
                             onAddMeal(line);
                             setPickingMeal(null);

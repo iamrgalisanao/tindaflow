@@ -360,7 +360,8 @@ class StockBlockingHttpTest extends PostgresSchemaTestCase
         $this->assertTrue($body['override_available']);
         $this->assertSame(3, $body['low_stock_default_threshold']);
         $row = collect($body['items'])->firstWhere('product_id', $plain->id);
-        $this->assertSame(['product_id', 'remaining', 'threshold', 'low', 'sold_out'], array_keys($row));
+        $this->assertSame(['product_id', 'mode', 'dish_id', 'stock_portion', 'remaining', 'threshold', 'low', 'sold_out'], array_keys($row));
+        $this->assertSame('RUNNING', $row['mode']);
         $this->assertSame('7.000', $row['remaining']);
         $this->assertStringNotContainsString('cost', json_encode($body));
     }
@@ -423,14 +424,22 @@ class StockBlockingHttpTest extends PostgresSchemaTestCase
 
     // ------------------------------------------------------------------ the rules screen
 
-    public function test_only_the_administrator_reads_and_changes_the_rules(): void
+    public function test_the_manager_and_the_administrator_read_and_change_the_rules_but_a_cashier_may_not(): void
     {
         $w = $this->world();
+        $body = ['block_sale_without_stock' => true, 'stock_override_enabled' => true, 'low_stock_default_threshold' => 3];
 
-        foreach (['manager', 'cashier'] as $who) {
-            $this->asUser($w[$who])->getJson('/api/v1/stock-rules')->assertStatus(403);
-            $this->asUser($w[$who])->putJson('/api/v1/stock-rules', ['block_sale_without_stock' => true, 'stock_override_enabled' => true, 'low_stock_default_threshold' => 3])->assertStatus(403);
-        }
+        // ADR-017 slice B, client decision 8: STOCK_ADJUST (MANAGER and ADMIN), no longer the administrator alone.
+        $this->asUser($w['cashier'])->getJson('/api/v1/stock-rules')->assertStatus(403);
+        $this->asUser($w['cashier'])->putJson('/api/v1/stock-rules', $body)->assertStatus(403);
+        $this->assertFalse((bool) DB::table('store_settings')->where('store_id', $w['storeId'])->value('block_sale_without_stock'));
+
+        $this->asUser($w['manager'])->getJson('/api/v1/stock-rules')->assertOk();
+        $this->asUser($w['manager'])->putJson('/api/v1/stock-rules', $body)->assertOk()->assertJsonPath('block_sale_without_stock', true);
+        $this->assertTrue((bool) DB::table('store_settings')->where('store_id', $w['storeId'])->value('block_sale_without_stock'));
+        $this->assertSame($w['manager']->id, AuditEvent::where('event_type', 'STOCK_RULES_CHANGED')->sole()->actor_user_id);
+
+        $this->asUser($w['admin'])->putJson('/api/v1/stock-rules', array_merge($body, ['block_sale_without_stock' => false]))->assertOk();
         $this->assertFalse((bool) DB::table('store_settings')->where('store_id', $w['storeId'])->value('block_sale_without_stock'));
     }
 
@@ -475,7 +484,7 @@ class StockBlockingHttpTest extends PostgresSchemaTestCase
 
         $event = AuditEvent::where('event_type', 'STOCK_RULES_CHANGED')->sole();
         $this->assertSame($w['admin']->id, $event->actor_user_id);
-        $this->assertEquals(['block_sale_without_stock' => false, 'stock_override_enabled' => true, 'low_stock_default_threshold' => 3], $event->before_metadata);
+        $this->assertEquals(['block_sale_without_stock' => false, 'stock_override_enabled' => true, 'low_stock_default_threshold' => 3, 'stock_day_cutover_hour' => 0], $event->before_metadata);
         $this->assertSame(true, $event->after_metadata['block_sale_without_stock']);
         $this->assertSame(false, $event->after_metadata['stock_override_enabled']);
         $this->assertSame(5, $event->after_metadata['low_stock_default_threshold']);
@@ -572,8 +581,11 @@ class StockBlockingHttpTest extends PostgresSchemaTestCase
     {
         $w = $this->world();
         // Slip mode needs no fiscal installation, so the manager's second till can ring a sale too.
+        // Park both codes first: the factory picks a random T-nn, which may be the code the other till is about to take.
         foreach (['t1' => 'T-01', 't2' => 'T-02'] as $till => $code) {
             $w[$till]->update(['terminal_code' => 'PARK-'.$code]);
+        }
+        foreach (['t1' => 'T-01', 't2' => 'T-02'] as $till => $code) {
             $w[$till]->update(['terminal_code' => $code]);
         }
         $this->rules($w, ['sale_document_mode' => 'SLIP']);

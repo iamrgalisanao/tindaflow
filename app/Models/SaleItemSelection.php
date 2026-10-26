@@ -21,7 +21,7 @@ class SaleItemSelection extends Model
 
     protected $fillable = [
         'sale_item_id', 'group_name_snapshot', 'option_label_snapshot', 'dish_id', 'dish_name_snapshot',
-        'dish_category_snapshot', 'price_snapshot', 'sort_order',
+        'dish_category_snapshot', 'price_snapshot', 'sort_order', 'stock_portion_snapshot',
     ];
 
     protected function casts(): array
@@ -29,6 +29,7 @@ class SaleItemSelection extends Model
         return [
             'price_snapshot' => 'decimal:2',
             'sort_order' => 'integer',
+            'stock_portion_snapshot' => 'decimal:3',
         ];
     }
 

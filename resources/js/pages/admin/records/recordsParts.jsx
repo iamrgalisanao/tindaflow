@@ -39,6 +39,11 @@ export const AUDIT_TYPES = [
     { id: 'STOCK_OVERRIDE_USED', label: 'Sale without stock approved' },
     { id: 'STOCK_OVERRIDE_REFUSED', label: 'Stock approval refused' },
     { id: 'STOCK_OVERRIDE_LOCKED', label: 'Manager locked out (stock)' },
+    { id: 'DAILY_STOCK_ENTERED', label: 'Daily stock entered' },
+    { id: 'STOCK_ENTRY_APPROVED', label: 'Stock entry approved' },
+    { id: 'STOCK_ENTRY_APPROVAL_REFUSED', label: 'Stock entry approval refused' },
+    { id: 'STOCK_ENTRY_APPROVAL_LOCKED', label: 'Manager locked out (stock entry)' },
+    { id: 'ALA_CARTE_ITEMS_CREATED', label: 'Ala carte items created' },
     { id: 'OVERRIDE_CODE_SET', label: 'Override code set' },
     { id: 'OVERRIDE_CODE_RESET', label: 'Override code cleared' },
     { id: 'BILLING_RUN_CREATED', label: 'Billing run saved' },
@@ -216,6 +221,8 @@ const OVERRIDE_REASONS = {
     DEMAND_CHANGED: 'the cart changed after it was approved',
     NO_SHORTFALL: 'nothing in the cart was short of stock',
     OVERRIDE_DISABLED: 'approving a sale without stock is switched off',
+    WRONG_STOCK_DATE: 'approval was for another day',
+    APPROVAL_REQUIRED: 'a manager approval is needed',
 };
 
 /** "Coke (needed 3, had 1)" for each short line of a stock approval. */
@@ -223,9 +230,13 @@ function describeShortfalls(shortfalls = []) {
     return shortfalls.map((line) => `${line.name ?? 'an item'} (needed ${formatQuantity(line.required)}, had ${formatQuantity(line.available)})`).join(', ') || 'no items recorded';
 }
 
-const STOCK_RULE_NAMES = { block_sale_without_stock: 'block a sale without stock', stock_override_enabled: 'manager approval of a blocked sale', low_stock_default_threshold: 'low-stock warning' };
+const STOCK_RULE_NAMES = { block_sale_without_stock: 'block a sale without stock', stock_override_enabled: 'manager approval of a blocked sale', low_stock_default_threshold: 'low-stock warning', stock_day_cutover_hour: 'stock day starts at' };
 
 function stockRuleValue(field, value) {
+    if (field === 'stock_day_cutover_hour') {
+        return `${String(value ?? 0).padStart(2, '0')}:00`;
+    }
+
     return field === 'low_stock_default_threshold' ? `${value} left` : value ? 'on' : 'off';
 }
 
@@ -303,6 +314,21 @@ export function describeAudit(event) {
             return `A stock approval was refused (${OVERRIDE_REASONS[event.reason ?? after.reason] ?? event.reason ?? after.reason ?? 'no reason recorded'})`;
         case 'STOCK_OVERRIDE_LOCKED':
             return `A manager was locked out of approving for ${after.locked_minutes ?? 15} minutes after too many wrong codes`;
+        case 'DAILY_STOCK_ENTERED':
+            return `Daily stock for ${after.stock_date ?? 'today'} entered${after.approved_by ? ' by a cashier with a manager\'s approval' : ''}: ${
+                (after.lines ?? [])
+                    .filter((line) => Number(line.delta) !== 0)
+                    .map((line) => `${line.name} ${Number(line.delta) > 0 ? '+' : ''}${Number(line.delta)} (now ${Number(line.cooked_after)} cooked)`)
+                    .join(', ') || 'no change'
+            }`;
+        case 'STOCK_ENTRY_APPROVED':
+            return `A manager approved a cashier's entry of daily stock for ${after.stock_date ?? 'today'}`;
+        case 'STOCK_ENTRY_APPROVAL_REFUSED':
+            return `A daily stock approval was refused (${OVERRIDE_REASONS[event.reason ?? after.reason] ?? event.reason ?? after.reason ?? 'no reason recorded'})`;
+        case 'STOCK_ENTRY_APPROVAL_LOCKED':
+            return `A manager was locked out of approving for ${after.locked_minutes ?? 15} minutes after too many wrong codes`;
+        case 'ALA_CARTE_ITEMS_CREATED':
+            return `Ala carte items created for dishes: ${(after.created ?? []).map((item) => item.name).join(', ') || 'none'}${(after.skipped ?? []).length > 0 ? ` (${after.skipped.length} skipped)` : ''}`;
         case 'OVERRIDE_CODE_SET':
             return (event.before_metadata ?? {}).has_code ? 'Override code changed by its owner' : 'Override code set by its owner';
         case 'OVERRIDE_CODE_RESET':

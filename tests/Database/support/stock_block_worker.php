@@ -9,7 +9,7 @@
  * `pause_ms` (optional) sleeps after the stock check has been passed, as each SALE movement is written, inside the checkout transaction
  * and while the stock row locks are held: without those locks a second till would read the same balance in the meantime and both would pass.
  *
- * job: {"terminal_id", "cashier_id", "key", "lines": [{"product_id", "quantity"}], "total", "stock_override_token" (optional), "pause_ms" (optional)}
+ * job: {"terminal_id", "cashier_id", "key", "lines": [{"product_id", "quantity"}] (or "items", any sale items such as a meal selection), "total", "stock_override_token" (optional), "pause_ms" (optional)}
  */
 
 require __DIR__.'/../../../vendor/autoload.php';
@@ -60,7 +60,7 @@ try {
         new IdempotencyService, new CanonicalRequestHasher, new FinancialCalculator, new FiscalInstallationResolver,
         new InventoryLocationResolver, new TaxRegistrationResolver, new InvoiceSeriesAllocator, new StockLedger,
     ))->finalize($job['terminal_id'], $job['cashier_id'], $job['key'], [
-        'items' => $job['lines'],
+        'items' => $job['items'] ?? $job['lines'],
         'payments' => [['method' => 'CASH', 'amount' => $job['total']]],
     ] + (isset($job['stock_override_token']) ? ['stock_override_token' => $job['stock_override_token']] : []));
 

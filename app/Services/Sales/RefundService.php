@@ -295,7 +295,10 @@ final class RefundService
                 $quantity,
             );
 
-            $lines[] = ['item' => $item, 'quantity' => $quantity, 'disposition' => $requested['disposition'], 'amount' => $amount];
+            // Cooked food drawn from daily stock is never put back (ADR-017 client decision 4): "back to stock" is recorded as DISPOSED, which is what
+            // really happens to it, so the refund's story (screen, audit, journal) matches a ledger that has no return movement for the line.
+            $disposition = $requested['disposition'] === 'RETURN_TO_STOCK' && $this->returnLocator->drewDailyStock($item) ? 'DISPOSED' : $requested['disposition'];
+            $lines[] = ['item' => $item, 'quantity' => $quantity, 'disposition' => $disposition, 'amount' => $amount];
         }
 
         return $lines;

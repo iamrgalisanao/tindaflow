@@ -56,6 +56,7 @@ or removing an existing column is breaking.
 | Low Stock | `reportLowStock` | `product_id, sku, product_name, quantity_on_hand, reorder_level, shortfall` |
 
 *ADR-017 slice A (2026-10-26): in the two inventory reports `reorder_level` is the EFFECTIVE low-stock threshold (the product's own, else the store default), and Low Stock lists products whose on-hand is at or below it (`shortfall` may be 0). The product catalog CSV is unchanged in shape; a blank `reorder_level` there means the store default.*
+| Daily Stock (leftover) | `reportDailyStock` | `stock_date, item_type, item_name, category, cooked, removed, sold, returned, leftover, oversold` |
 | Inventory Movement | `reportInventoryMovement` | `occurred_at, product_id, sku, movement_type, quantity, reference_type, reference_id, reason, created_by` |
 | Shift Report | `reportShifts` | `shift_id, terminal_id, cashier_id, opened_at, closed_at, opening_cash, declared_cash, expected_cash, variance` |
 | Cash Variance Report | `reportCashVariance` | `shift_id, terminal_id, cashier_id, closed_at, expected_cash, declared_cash, variance` |
@@ -63,6 +64,8 @@ or removing an existing column is breaking.
 | Billing statement | `billingStatementGet`, `billingRunGet` (`Accept: text/csv`) | `row_type, employee_code, employee_name, employee_type, meal_type, item, item_kind, quantity_sold, amount_sold, quantity_returned, amount_returned, quantity_net, amount_net, adjustment_type, adjustment_date, sold_on, document_reference, reason` |
 | Billing cheques | `billingChequeList` (`Accept: text/csv`; every cheque, optional `status`) | `cheque_number, bank, cheque_date, received_on, amount, status, periods_paid, returned_on, return_reason, notes, received_by` |
 | Billing balance | `billingBalanceGet` (`Accept: text/csv`) | `row_type, period_start, period_end, billed_amount, received_amount, owed_amount, status` |
+
+**Daily Stock (ADR-017 slice B, 2026-10-27).** One row per STOCK date (the store-local date less the stock-day cutover hour) and dish or daily product with any daily movement, oldest date first. `item_type` is `DISH` (a dish counted through its hidden pool) or `PRODUCT` (a plain daily product); `category` is the dish category (empty for a product); `cooked` is the portions entered (added), `removed` the portions taken off with a reason, `sold` the portions sold, `returned` always `0.000` for cooked food (it is never put back), `leftover` that date's remaining balance (derived, never stored as a closing row) and `oversold` is `true` when the leftover is below zero. Quantities are three-decimal strings. `from`/`to` are stock dates and default to the current stock date.
 
 **Billing cheques and balance (ADR-016 slice 4.2).** Cheques: one row per cheque, newest first; `periods_paid` is `period_start amount` pairs joined by `; `. Balance: one `PERIOD` row per cut-off period (newest first), then a `TOTAL` row (billed, received, and the amount STILL OWED, which adds only the periods that owe) and a `CREDIT_TO_PARTY` row (`owed_amount` = the credit of overpaid periods, positive). Money is the API's two-decimal string. Text cells (bank, reason, notes, name) starting with `=`, `+`, `-` or `@` get a leading apostrophe. Each export writes `BILLING_EXPORTED` with `report` = `cheques` | `balance`.
 

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import SlideOver from '../SlideOver';
 import AlternateBarcodes from './AlternateBarcodes';
-import { TAX_CLASSES, failureMessage, fieldErrors, normalizeMoney, request } from './catalogApi';
+import { TAX_CLASSES, failureMessage, fetchAll, fieldErrors, normalizeMoney, request } from './catalogApi';
 import MoneyInput from '../../../components/MoneyInput';
 import { menuGroupOptions } from './menuGroupOptions';
 
@@ -21,6 +21,9 @@ function initialValues(product) {
         selling_price: product?.selling_price ?? '',
         tax_class: product?.tax_class ?? 'VATABLE',
         track_inventory: product?.track_inventory ?? true,
+        stock_mode: product?.stock_mode && product.stock_mode !== 'NONE' ? product.stock_mode : 'RUNNING', // ADR-017: running stock carries over, daily stock is cooked each day
+        dish_id: product?.dish_id ?? '',
+        stock_portion: product?.stock_portion ? String(Number(product.stock_portion)) : '1',
         reorder_level: product?.reorder_level == null ? '' : String(product.reorder_level), // blank = the store's low-stock default (ADR-017)
     };
 }
@@ -44,6 +47,9 @@ function validate(values) {
     }
     if (values.reorder_level.trim() !== '' && !/^\d+$/.test(values.reorder_level.trim())) {
         errors.reorder_level = 'Enter a whole number, 0 or more, or leave it blank.';
+    }
+    if (values.track_inventory && values.stock_mode === 'DAILY' && values.dish_id !== '' && !(/^\d{1,7}(\.\d{1,3})?$/.test(values.stock_portion.trim()) && Number(values.stock_portion) > 0)) {
+        errors.stock_portion = 'Enter the portions of the dish one unit uses, above zero.';
     }
     return errors;
 }
@@ -178,6 +184,23 @@ export default function ProductFormPanel({
         }
     }
 
+    const [dailyDishes, setDailyDishes] = useState([]);
+    useEffect(() => {
+        if (!(values.track_inventory && values.stock_mode === 'DAILY')) {
+            return undefined;
+        }
+        let live = true;
+        fetchAll('/api/v1/dishes').then((result) => {
+            if (live && result.ok) {
+                setDailyDishes(result.rows.filter((dish) => dish.stock_mode === 'DAILY'));
+            }
+        });
+
+        return () => {
+            live = false;
+        };
+    }, [values.track_inventory, values.stock_mode]);
+
     async function submit(event) {
         event.preventDefault();
         const clientErrors = validate(values);
@@ -200,6 +223,9 @@ export default function ProductFormPanel({
             selling_price: normalizeMoney(values.selling_price),
             tax_class: values.tax_class,
             track_inventory: values.track_inventory,
+            stock_mode: values.track_inventory ? values.stock_mode : 'NONE',
+            dish_id: values.track_inventory && values.stock_mode === 'DAILY' && values.dish_id !== '' ? values.dish_id : null,
+            ...(values.track_inventory && values.stock_mode === 'DAILY' && values.dish_id !== '' ? { stock_portion: values.stock_portion.trim() } : {}),
             reorder_level: values.reorder_level.trim() === '' ? null : Number(values.reorder_level),
         };
         const result = await request(editing ? `/api/v1/products/${product.id}` : '/api/v1/products', {
@@ -495,6 +521,36 @@ export default function ProductFormPanel({
                             />
                         </Field>
                     </div>
+
+                    {values.track_inventory && (
+                        <div className="space-y-3 rounded-md border border-slate-800 p-3">
+                            <Field id="product_stock_mode" label="How is its stock counted?" hint="Running stock carries over from day to day. Daily stock is cooked or made each day and starts again at zero each morning (entered in Today's stock).">
+                                <select id="product_stock_mode" value={values.stock_mode} onChange={(event) => set('stock_mode', event.target.value)} className={inputClass(false)}>
+                                    <option value="RUNNING">Running stock (carries over)</option>
+                                    <option value="DAILY">Daily stock (cooked each day)</option>
+                                </select>
+                            </Field>
+                            {values.stock_mode === 'DAILY' && (
+                                <div className="grid grid-cols-2 items-end gap-3">
+                                    <Field id="product_dish" label="Draws from dish" hint="Optional. An ala carte item of a dish shares the dish's count with its meals.">
+                                        <select id="product_dish" value={values.dish_id} onChange={(event) => set('dish_id', event.target.value)} className={inputClass(false)}>
+                                            <option value="">None (its own count)</option>
+                                            {dailyDishes.map((dish) => (
+                                                <option key={dish.id} value={dish.id}>
+                                                    {dish.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </Field>
+                                    {values.dish_id !== '' && (
+                                        <Field id="product_portion" label="Portions per unit" error={errors.stock_portion}>
+                                            <input id="product_portion" type="text" inputMode="decimal" value={values.stock_portion} onChange={(event) => set('stock_portion', event.target.value)} className={`${inputClass(errors.stock_portion, true)} text-right`} />
+                                        </Field>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {editing && (
                         <div className="border-t border-slate-800 pt-4">

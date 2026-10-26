@@ -53,6 +53,14 @@ class MealMenuSeeder extends Seeder
     /** Combo Meal: PENDING CLIENT CONFIRMATION (canteen-build-plan.md open item 1) -- 85 / 80 are an assumption. */
     public const COMBO_PRICES = ['Beef' => '85.00', 'Chicken/Pork/Fish' => '80.00'];
 
+    /**
+     * Portions of a dish's daily pool one plate (or ala carte order) takes (ADR-017 slice B, client decision 1, 2026-10-27): a Standard Meal viand, a Combo
+     * main and the Combo vegetable side take 1.0 each (the earlier 0.5 for the side was withdrawn: "it is for all including vegetable"); an ALA CARTE sale of a
+     * dish takes 2.0 (used by the "Create ala carte items" action). All are per-option / per-product settings the manager can change; this seeder only
+     * writes them on the options it creates and never touches an existing one.
+     */
+    public const PORTIONS = ['standard_viand' => '1.000', 'combo_main' => '1.000', 'combo_side' => '1.000', 'ala_carte' => '2.000'];
+
     public const COMBO_PENDING_NOTE = 'Pending client confirmation: assumed opening price';
 
     /** @var array<string, string> the optional rice add-ons, offered in a pop-up after the main dish is chosen */
@@ -87,15 +95,15 @@ class MealMenuSeeder extends Seeder
         $subGroup = fn (string $name) => $lunch === null ? null : MenuGroup::where('parent_id', $lunch->id)->where('name', $name)->value('id');
 
         $standard = $this->meal($actor, 'Standard Meal', 'Viand', $subGroup('Standard Meal'));
-        $this->offerDishes($actor, $this->groupNamed($standard, 'Viand'), $dishes, ['Beef', 'Chicken/Pork/Fish', 'Vegetable']);
+        $this->offerDishes($actor, $this->groupNamed($standard, 'Viand'), $dishes, ['Beef', 'Chicken/Pork/Fish', 'Vegetable'], self::PORTIONS['standard_viand']);
         $this->price($actor, $standard, $categories, self::STANDARD_PRICES, null);
         $this->rice($actor, $standard);
 
         $combo = $this->meal($actor, 'Combo Meal', 'Main', $subGroup('Combo Meal'));
-        $this->offerDishes($actor, $this->groupNamed($combo, 'Main'), $dishes, ['Beef', 'Chicken/Pork/Fish']);
+        $this->offerDishes($actor, $this->groupNamed($combo, 'Main'), $dishes, ['Beef', 'Chicken/Pork/Fish'], self::PORTIONS['combo_main']);
         $this->price($actor, $combo, $categories, self::COMBO_PRICES, self::COMBO_PENDING_NOTE);
         $side = $this->group($actor, $combo, 'Side', MealOptionGroup::CHOICE, 1, 1, false);
-        $this->offerDishes($actor, $side, $dishes, ['Vegetable']);
+        $this->offerDishes($actor, $side, $dishes, ['Vegetable'], self::PORTIONS['combo_side']);
         $this->rice($actor, $combo);
 
         $this->command?->info("Seeded the canteen meal menu into '{$store->name}'. Combo Meal prices are pending client confirmation.");
@@ -158,7 +166,7 @@ class MealMenuSeeder extends Seeder
      * @param  array<string, list<Dish>>  $dishes
      * @param  list<string>  $categoryNames
      */
-    private function offerDishes(User $actor, MealOptionGroup $group, array $dishes, array $categoryNames): void
+    private function offerDishes(User $actor, MealOptionGroup $group, array $dishes, array $categoryNames, string $portion): void
     {
         $service = app(MealOptionService::class);
         $offered = MealOption::where('meal_option_group_id', $group->id)->pluck('dish_id')->all();
@@ -166,7 +174,7 @@ class MealMenuSeeder extends Seeder
         foreach ($categoryNames as $categoryName) {
             foreach ($dishes[$categoryName] as $dish) {
                 if (! in_array($dish->id, $offered, true)) {
-                    $service->create($actor, $group->id, ['dish_id' => $dish->id]);
+                    $service->create($actor, $group->id, ['dish_id' => $dish->id, 'stock_portion' => $portion]);
                 }
             }
         }

@@ -26,6 +26,8 @@ final class ProductAuditor
     public const TRACKED = [
         'sku', 'barcode', 'name', 'description', 'category_id', 'brand_id', 'menu_group_id', 'unit_of_measure',
         'cost', 'selling_price', 'tax_class', 'track_inventory', 'reorder_level', 'active',
+        // ADR-017 slice B: daily stock and the ala carte link to a dish.
+        'stock_mode', 'dish_id', 'stock_portion',
     ];
 
     /**

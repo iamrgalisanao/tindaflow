@@ -52,6 +52,11 @@ class ProductInputRequest extends FormRequest
             'track_inventory' => ['sometimes', 'boolean'],
             // ADR-017 section 2: null (or left blank) means "use the store's low-stock default"; a number, even 0, is this product's own threshold.
             'reorder_level' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            // ADR-017 slice B. NONE: not counted. RUNNING: a stock that carries over. DAILY: cooked for the day (own pool, or drawn from a dish).
+            // `dish_id` makes it an ala carte product of a dish; `stock_portion` is how many portions of the dish one unit takes.
+            'stock_mode' => ['sometimes', Rule::in(['NONE', 'RUNNING', 'DAILY'])],
+            'dish_id' => ['sometimes', 'nullable', 'uuid', Rule::exists('dishes', 'id')->where('store_id', $storeId)],
+            'stock_portion' => ['sometimes', 'nullable', 'regex:/^\d{1,7}(\.\d{1,3})?$/', 'gt:0'],
         ];
     }
 
@@ -81,6 +86,8 @@ class ProductInputRequest extends FormRequest
         return [
             'sku.unique' => 'This SKU is already used by another product.',
             'selling_price.regex' => 'The selling price must be a decimal with exactly two places, e.g. 55.00.',
+            'stock_portion.regex' => 'Portions are a number with up to three decimals, e.g. 2 or 0.5.',
+            'stock_portion.gt' => 'Portions must be more than zero.',
             'cost.regex' => 'The cost must be a decimal with exactly two places, e.g. 40.00.',
         ];
     }

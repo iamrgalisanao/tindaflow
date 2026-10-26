@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { addonGroups, buildMealLine, categoryChoices, categoryOfOption, choiceGroups, choicesComplete, dishesIn, isComplete, pricingGroup, previewCents, togglePick } from './mealMenu';
 import { pesos } from './posMoney';
+import { NO_STOCK_RULES, dishAvailability } from './stock';
 
 const tile = (selected) =>
     `min-h-14 w-full rounded-lg border px-3 text-left text-sm ${
@@ -15,8 +16,11 @@ const heading = 'mb-2 font-mono text-[11px] font-bold uppercase tracking-widest 
  * group (the Combo's side) lists its dishes. When the choices are complete, an add-on group flagged `popup_after_choice` (the
  * rice) opens as a pop-up the cashier can skip if it allows none. The Add button stays inactive until every group has its
  * required picks and then shows what is being added. Ids only go back up (`onAdd`): the server prices the sale itself.
+ *
+ * `stock` and `cart` (ADR-017 slice B): a dish that counts daily stock shows the portions left ("3 left") or "Sold out" after what the cart already
+ * takes from it; when the store blocks sales without stock a sold-out dish cannot be picked. Advisory; checkout decides.
  */
-export default function MealPicker({ meal, categories, onAdd, onCancel }) {
+export default function MealPicker({ meal, categories, onAdd, onCancel, stock = NO_STOCK_RULES, cart = [] }) {
     const [picks, setPicks] = useState({});
     const [categoryId, setCategoryId] = useState(null);
     const [popupGroupId, setPopupGroupId] = useState(null);
@@ -108,13 +112,28 @@ export default function MealPicker({ meal, categories, onAdd, onCancel }) {
                             <>
                                 <p className={heading}>{isPricing ? `${group.name} · dish` : group.name}</p>
                                 <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                    {dishesIn(group, isPricing ? categoryId : null).map((option) => (
-                                        <li key={option.id}>
-                                            <button type="button" aria-pressed={chosenIds.includes(option.id)} onClick={() => choose(group, option)} className={tile(chosenIds.includes(option.id))}>
-                                                {option.label}
-                                            </button>
-                                        </li>
-                                    ))}
+                                    {dishesIn(group, isPricing ? categoryId : null).map((option) => {
+                                        const available = option.stock_portion ? dishAvailability(stock, cart, option.dish.id, option.stock_portion) : null;
+                                        const chosen = chosenIds.includes(option.id);
+                                        return (
+                                            <li key={option.id}>
+                                                <button
+                                                    type="button"
+                                                    aria-pressed={chosen}
+                                                    disabled={!chosen && available?.blocked === true}
+                                                    onClick={() => choose(group, option)}
+                                                    className={`${tile(chosen)} ${!chosen && available?.blocked ? 'cursor-not-allowed opacity-50' : ''}`}
+                                                >
+                                                    {option.label}
+                                                    {available && (
+                                                        <span data-stock={available.soldOut ? 'out' : 'ok'} className={`mt-0.5 block font-mono text-[11px] font-bold ${available.soldOut ? 'text-red-300' : 'text-slate-500'}`}>
+                                                            {available.text}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            </li>
+                                        );
+                                    })}
                                 </ul>
                             </>
                         )}

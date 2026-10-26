@@ -4,6 +4,7 @@ const TABS = [
     { key: 'register', label: 'Register' },
     { key: 'payment', label: 'Payment' },
     { key: 'lookup', label: 'Lookup' },
+    { key: 'stock', label: "Today's stock" },
     { key: 'shift', label: 'Shift' },
 ];
 

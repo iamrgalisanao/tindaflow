@@ -24,7 +24,7 @@ class SaleItem extends Model
         'gross_line_amount', 'line_discount_amount', 'order_discount_eligible',
         'allocated_order_discount_amount', 'net_line_amount', 'tax_classification_snapshot',
         'tax_rate_snapshot', 'taxable_base', 'tax_amount', 'unit_cost_snapshot',
-        'menu_group_path_snapshot', 'meal_id', 'meal_name_snapshot', 'parent_line_number',
+        'menu_group_path_snapshot', 'meal_id', 'meal_name_snapshot', 'parent_line_number', 'stock_portion_snapshot',
     ];
 
     protected function casts(): array
@@ -42,6 +42,7 @@ class SaleItem extends Model
             'tax_amount' => 'decimal:2',
             'unit_cost_snapshot' => 'decimal:2',
             'parent_line_number' => 'integer',
+            'stock_portion_snapshot' => 'decimal:3',
         ];
     }
 

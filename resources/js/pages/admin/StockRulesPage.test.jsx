@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import StockRulesPage from './StockRulesPage';
 
 vi.mock('./AdminLayout', () => ({ default: ({ children }) => <div>{children}</div> }));
-vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ setUser: () => {}, user: { capabilities: ['STORE_SETTINGS_MANAGE'] } }) }));
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ setUser: () => {}, user: { capabilities: ['STOCK_ADJUST'] } }) }));
 
 const json = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
 const preflight = { unsellable_count: 2, tracked_count: 5, sample: [{ product_id: 'a', name: 'Pandesal', sku: 'BAK-1' }, { product_id: 'b', name: 'Soda', sku: 'BEV-1' }] };
@@ -92,7 +92,7 @@ describe('StockRulesPage', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Save stock rules' }));
 
         await waitFor(() => expect(puts()).toHaveLength(1));
-        expect(puts()[0].body).toEqual({ block_sale_without_stock: true, stock_override_enabled: false, low_stock_default_threshold: 5 });
+        expect(puts()[0].body).toEqual({ block_sale_without_stock: true, stock_override_enabled: false, low_stock_default_threshold: 5, stock_day_cutover_hour: 0 });
     });
 
     it('does not offer to save until something changed, and refuses a number that is not 0 to 1000', async () => {
@@ -122,5 +122,28 @@ describe('StockRulesPage', () => {
         page();
 
         expect((await screen.findByRole('alert')).textContent).toContain('Your role does not allow this action');
+    });
+
+    // ADR-017 slice B (client decisions 3 and 8): the stock day starts at an hour the manager sets, here by whoever holds STOCK_ADJUST.
+    it('shows the hour the stock day starts and saves a change of it, with the other values', async () => {
+        rules = { ...rules, stock_day_cutover_hour: 5 };
+        page();
+        const hour = await screen.findByLabelText(/The day.s cooked stock starts at this hour/);
+        expect(hour.value).toBe('5');
+
+        fireEvent.change(hour, { target: { value: '4' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save stock rules' }));
+
+        await waitFor(() => expect(puts()).toHaveLength(1));
+        expect(puts()[0].body).toMatchObject({ stock_day_cutover_hour: 4, low_stock_default_threshold: 3 });
+    });
+
+    it('refuses an hour outside 0 to 6 before sending anything', async () => {
+        page();
+        fireEvent.change(await screen.findByLabelText(/The day.s cooked stock starts at this hour/), { target: { value: '9' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save stock rules' }));
+
+        expect((await screen.findByRole('alert')).textContent).toContain('whole hour from 0 (midnight) to 6');
+        expect(puts()).toHaveLength(0);
     });
 });

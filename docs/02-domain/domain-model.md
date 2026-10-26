@@ -166,7 +166,7 @@ Unchanged.
 `name`, `description`, `category_id`, `brand_id`, `unit_of_measure`,
 `cost`, `selling_price`, `tax_class`
 (`VATABLE`|`VAT_EXEMPT`|`ZERO_RATED`|`NON_VAT`), `track_inventory`,
-`reorder_level`, `active`. Unchanged in revision 1. *ADR-017 (proposed 2026-10-26)* adds `stock_mode` (`NONE`|`RUNNING`|`DAILY`, consistent with
+`reorder_level`, `active`. Unchanged in revision 1. *ADR-017 (slice B built 2026-10-27; `shelf_life_days` is slice C, not built)* adds `stock_mode` (`NONE`|`RUNNING`|`DAILY`, consistent with
 `track_inventory`), `shelf_life_days` (nullable), `dish_id` + `stock_portion` (an ala carte product that draws from a daily dish) and makes
 `reorder_level` nullable (NULL = the store's default low-stock threshold). See §2.14.
 
@@ -180,7 +180,7 @@ unchanged from revision 1. See [invariants.md](invariants.md) for the
 append-only/derived-balance rules, restated and cross-referenced from the
 new Refund disposition rules in §2.9 below.
 
-*ADR-017 (proposed 2026-10-26):* `stock_movement` gains nullable `stock_date`; new derived cache `daily_stock_balance` keyed
+*ADR-017 (built, slice B, 2026-10-27):* `stock_movement` gains nullable `stock_date` and `approved_by`; new derived cache `daily_stock_balances` keyed
 `(product_id, location_id, stock_date)`. See §2.14.
 
 ### 2.5 Fiscal day, shift, and readings
@@ -774,24 +774,32 @@ mode reuses `FISCAL_CONFIGURATION_MANAGE` (vendor unlock, ADR-014). The V1 roles
 **Slip mode and the fiscal day.** Entity names `fiscal_day` and `z_reading` stay; in slip mode they mean business day and internal
 end-of-day report. Shift open/close, cash count and X-reading are unchanged.
 
-### 2.14 Stock rules: blocking, daily dish stock, shelf life (ADR-017, proposed 2026-10-26)
+### 2.14 Stock rules: blocking, daily dish stock, shelf life (ADR-017, slices A and B built; C proposed)
 
-Additive; full rationale in [ADR-017](../03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md). **Slice A is built (2026-10-26):** the three `store_settings` columns `block_sale_without_stock`, `stock_override_enabled`, `low_stock_default_threshold`; `product.reorder_level` nullable; the `STOCK_SALE_OVERRIDE` capability; `stock_override_grant` (`terminal_id`, `cashier_id`, `approver_id`, `demand_hash`, `shortfalls`, `token_hash`, `expires_at`, `consumed_at`, `sale_id`; lifecycle: only `consumed_at` and `sale_id` are updated). `stock_mode`, the daily balance, snapshots, dishes' pools and shelf life (the rest of this section) are slices B and C and are NOT built; slice A did not add `product.stock_mode` or `stock_day_cutover_hour`.
+Additive; full rationale in [ADR-017](../03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md). **Slice A (2026-10-26):** the `store_settings` columns `block_sale_without_stock`, `stock_override_enabled`, `low_stock_default_threshold`; `product.reorder_level` nullable; the `STOCK_SALE_OVERRIDE` capability; `stock_override_grant` (lifecycle: only `consumed_at` and `sale_id` are updated). **Slice B (2026-10-27):** daily stock for cooked items, as follows. Slice C (shelf life) is not built.
 
-- **Stock modes.** `product.stock_mode` `NONE|RUNNING|DAILY` (RUNNING = today's behaviour, balances carry over; DAILY = stock exists for one stock date).
-  `dish.stock_mode` `NONE|DAILY`; a DAILY dish owns a hidden **pool product** (`dish.stock_product_id`) so every stock row stays keyed by product.
-  `product.dish_id` + `product.stock_portion` link an ala carte product to a dish's pool; `meal_option.stock_portion` (default 1; Combo side 0.5) says
-  how much of the option's dish a meal deducts. Rice (add-on backing products) is NONE and not counted.
-- **Daily balance.** `daily_stock_balance` (`product_id`, `location_id`, `stock_date`, `quantity_on_hand` NUMERIC(10,3)): a derived cache, written only by
-  `StockLedger`. `stock_movement.stock_date` is set for every movement of a DAILY item. New movement types `DAILY_PORTIONS_ADDED` (in) and
-  `DAILY_PORTIONS_REMOVED` (out, reason required). Leftover of a date = its remaining balance (derived).
-- **Stock date.** The store-local date of `sold_at` less `store_settings.stock_day_cutover_hour`; not the terminal's `fiscal_day.business_date`.
-- **Snapshots.** `sale_item_selection.stock_portion_snapshot`, `sale_item.stock_portion_snapshot` (dish-linked products).
+- **Stock modes.** `product.stock_mode` `NONE|RUNNING|DAILY`, kept equal to `track_inventory` (tracked exactly when not NONE; backfilled from it). RUNNING = balances
+  carry over; DAILY = stock exists for one stock date. `dish.stock_mode` `NONE|DAILY`; a DAILY dish owns a hidden **pool product** (`dish.stock_product_id`: hidden,
+  inactive, tracked, DAILY, renamed with the dish) so every stock row stays keyed by product. `product.dish_id` + `product.stock_portion` link an ALA CARTE product to a
+  dish's pool (the product's own balance is never written); `meal_option.stock_portion` says how much of the option's dish a plate draws. **Client portions
+  (2026-10-27):** Standard viand 1.0, Combo main 1.0, Combo vegetable side 1.0 (the earlier 0.5 was withdrawn), ala carte 2.0; all are settings. Rice and other add-ons
+  (backing products, NONE) draw nothing. A mode changes only at a zero position.
+- **Daily balance.** `daily_stock_balances` (`product_id`, `location_id`, `stock_date`, `quantity_on_hand` NUMERIC(10,3)): a derived lifecycle cache, written only by
+  `StockLedger`. `stock_movement.stock_date` is set for every movement of a DAILY item; `stock_movement.approved_by` is the manager whose code allowed a cashier's entry.
+  New movement types `DAILY_PORTIONS_ADDED` (in) and `DAILY_PORTIONS_REMOVED` (out, reason required). Leftover of a date = its remaining balance (derived; nothing
+  written at close).
+- **Stock date.** The store-local date of `sold_at` less `store_settings.stock_day_cutover_hour` (0 to 6; the canteen: 5, so the day runs 05:00 to 05:00); not the
+  terminal's `fiscal_day.business_date`. Class `StockDay`.
+- **Demand.** Per sale, stock lines are added up per stock row across the whole cart: a meal's main, an ala carte portion of the same dish and a Combo side pool together
+  (`StockDemandResolver`). No row = zero.
+- **Snapshots.** `sale_item_selection.stock_portion_snapshot`, `sale_item.stock_portion_snapshot` (dish-linked products): what was drawn, fixed at the sale.
+- **Void and refund.** Cooked food is never put back: no movement for a line that drew from DAILY stock; a `RETURN_TO_STOCK` refund line is recorded `DISPOSED`.
 - **Store settings** (columns on `store_settings`): `block_sale_without_stock` (default false), `stock_override_enabled` (default true),
-  `low_stock_default_threshold` (default 3), `stock_day_cutover_hour` (default 0).
-- **Stock override.** Capability `STOCK_SALE_OVERRIDE` (MANAGER, ADMIN); `stock_override_grant` (lifecycle: `consumed_at`, `sale_id`); approver codes are
-  the existing `user_override_code`.
-- **Shelf life.** `product.shelf_life_days` drives a derived freshness flag only; no batch or expiry entity exists by decision.
+  `low_stock_default_threshold` (default 3), `stock_day_cutover_hour` (default 0). Switched by `STOCK_ADJUST` (MANAGER, ADMIN).
+- **Entry.** `STOCK_ADJUST` enters directly; a cashier with a manager's code: `stock_entry_grant` (`store_id`, `terminal_id`, `cashier_id`, `approver_id`, `stock_date`,
+  `token_hash`, `expires_at`, `consumed_at`; lifecycle: only `consumed_at` is updated). Audit `DAILY_STOCK_ENTERED` (entered_by, approved_by, lines).
+- **Stock override of a blocked sale.** Capability `STOCK_SALE_OVERRIDE` (MANAGER, ADMIN); `stock_override_grant`; approver codes are the existing `user_override_code`.
+- **Shelf life** (slice C). `product.shelf_life_days` drives a derived freshness flag only; no batch or expiry entity exists by decision.
 
 ## 3. Money & Quantity model
 

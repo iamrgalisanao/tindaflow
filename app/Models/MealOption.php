@@ -19,13 +19,16 @@ class MealOption extends Model
 
     protected $table = 'meal_options';
 
-    protected $fillable = ['meal_option_group_id', 'dish_id', 'label', 'addon_product_id', 'sort_order', 'active'];
+    protected $attributes = ['stock_portion' => '1.000'];
+
+    protected $fillable = ['meal_option_group_id', 'dish_id', 'label', 'addon_product_id', 'sort_order', 'active', 'stock_portion'];
 
     protected function casts(): array
     {
         return [
             'sort_order' => 'integer',
             'active' => 'boolean',
+            'stock_portion' => 'decimal:3',
         ];
     }
 

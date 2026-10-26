@@ -246,12 +246,12 @@ final class ReportQueryService
                 '=',
                 'products.id',
             )
-            ->selectRaw('products.id as product_id, products.sku as sku, products.name as product_name, products.track_inventory as track_inventory')
+            ->selectRaw('products.id as product_id, products.sku as sku, products.name as product_name, products.stock_mode as stock_mode')
             ->selectRaw('COALESCE(SUM(CASE WHEN sales.id IS NOT NULL THEN sale_items.quantity ELSE 0 END), 0) as quantity_sold')
             ->selectRaw('COUNT(DISTINCT sales.id) as transaction_count')
             ->selectRaw('COALESCE(SUM(CASE WHEN sales.id IS NOT NULL THEN sale_items.net_line_amount ELSE 0 END), 0) as net_sales')
             ->selectRaw('stock.quantity_on_hand as quantity_on_hand')
-            ->groupBy('products.id', 'products.sku', 'products.name', 'products.track_inventory', 'stock.quantity_on_hand')
+            ->groupBy('products.id', 'products.sku', 'products.name', 'products.stock_mode', 'stock.quantity_on_hand')
             ->orderByDesc('quantity_sold')
             ->orderBy('products.name') // deterministic tie-break, e.g. between two never-sold products
             ->get();
@@ -265,7 +265,7 @@ final class ReportQueryService
             'net_sales' => $this->money($row->net_sales),
             // Untracked (track_inventory = false): no ledger exists, so this is null ("not tracked"),
             // never 0 ("confirmed empty") -- the same distinction lowStock/inventoryOnHand already draw.
-            'quantity_on_hand' => $row->track_inventory ? $this->quantity($row->quantity_on_hand) : null,
+            'quantity_on_hand' => $row->stock_mode === 'RUNNING' ? $this->quantity($row->quantity_on_hand) : null,
         ])->all();
 
         return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['net_sales'])];
@@ -555,7 +555,7 @@ final class ReportQueryService
         $rows = DB::table('stock_balances')
             ->join('products', 'products.id', '=', 'stock_balances.product_id')
             ->where('products.store_id', $storeId)
-            ->where('products.track_inventory', true) // same rule as lowStock: an untracked product's ledger is not stock
+            ->where('products.stock_mode', 'RUNNING') // same rule as lowStock: an untracked product's ledger is not stock, and daily stock has its own report
             ->select([
                 'stock_balances.product_id', 'products.sku', 'products.name as product_name',
                 'stock_balances.location_id', 'stock_balances.quantity_on_hand',
@@ -586,7 +586,7 @@ final class ReportQueryService
         $rows = DB::table('stock_balances')
             ->join('products', 'products.id', '=', 'stock_balances.product_id')
             ->where('products.store_id', $storeId)
-            ->where('products.track_inventory', true)
+            ->where('products.stock_mode', 'RUNNING')
             ->selectRaw('stock_balances.product_id as product_id, products.sku as sku, products.name as product_name, COALESCE(products.reorder_level, ?) as reorder_level', [$default])
             ->selectRaw('SUM(stock_balances.quantity_on_hand) as quantity_on_hand')
             ->groupBy('stock_balances.product_id', 'products.sku', 'products.name', 'products.reorder_level')

@@ -12,7 +12,7 @@ describe('stockFromResponse', () => {
         const stock = stockFromResponse(availability([item('coke', '5.000'), item('soda', '-2.000')]));
 
         expect(stock).toMatchObject({ loaded: true, blocking: true, overrideAvailable: true, defaultThreshold: 3 });
-        expect(stock.byProduct.coke).toEqual({ remaining: 5000n, threshold: 3 });
+        expect(stock.byProduct.coke).toEqual({ remaining: 5000n, threshold: 3, mode: 'RUNNING', dishId: null, portion: null });
         expect(stock.byProduct.soda.remaining).toBe(-2000n);
     });
 
@@ -133,7 +133,10 @@ describe('the refusal', () => {
     it('lists every short line with the quantities as plain numbers', () => {
         expect(stockRefusal(result)).toEqual({
             overrideAvailable: true,
-            shortfalls: [{ productId: 'coke', name: 'Coke', required: '3', available: '1' }, { productId: 'chips', name: 'Chips', required: '1', available: '-2' }],
+            shortfalls: [
+                { productId: 'coke', dishId: null, kind: 'PRODUCT', stockDate: null, name: 'Coke', required: '3', available: '1' },
+                { productId: 'chips', dishId: null, kind: 'PRODUCT', stockDate: null, name: 'Chips', required: '1', available: '-2' },
+            ],
         });
     });
 

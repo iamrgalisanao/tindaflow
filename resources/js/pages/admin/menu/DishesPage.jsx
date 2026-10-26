@@ -4,6 +4,7 @@ import AdminLayout from '../AdminLayout';
 import { ActiveBadge, ErrorAlert, Toast } from '../catalog/CatalogParts';
 import { RETURN_KEY, failureMessage, fetchAll } from '../catalog/catalogApi';
 import { moveId } from '../catalog/menuGroupOptions';
+import AlaCartePanel from './AlaCartePanel';
 import { dishesByCategory } from './menuConfig';
 import { Loading, MoveButtons, NameForm, linkButton, primaryButton, inputClass } from './menuParts';
 import { useMenuAction } from './useMenuAction';
@@ -12,6 +13,9 @@ import { useMenuAction } from './useMenuAction';
  * /admin/menu/dishes -- the dishes the meal picker offers, grouped by dish category (the price category: Beef, Chicken/Pork/Fish,
  * Vegetable ...). Add, rename, move to another category, reorder, hide and show. Nothing is deleted (ADR-016, MENU-005), and a
  * rename never changes a past sale: sales keep their own copy of the name.
+ *
+ * ADR-017 slice B: each dish can count DAILY stock (portions entered each morning in Today's stock), and "Create ala carte items" makes a sellable
+ * product for every daily dish, drawing from the same pool as its meals.
  */
 export default function DishesPage() {
     const { setUser } = useAuth();
@@ -75,6 +79,8 @@ export default function DishesPage() {
     const addDish = (categoryId) => (name) => run('/api/v1/dishes', { method: 'POST', body: { name, dish_category_id: categoryId } }, { ...finish, done: 'Dish added' });
     const renameDish = (dish) => (name) => run(`/api/v1/dishes/${dish.id}`, { method: 'PATCH', body: { name } }, { ...finish, done: 'Dish renamed' });
     const toggleDish = (dish) => run(`/api/v1/dishes/${dish.id}/${dish.active ? 'deactivate' : 'activate'}`, { method: 'POST' }, { done: dish.active ? 'Dish hidden from the picker' : 'Dish shown in the picker' });
+    const toggleDailyStock = (dish) =>
+        run(`/api/v1/dishes/${dish.id}`, { method: 'PATCH', body: { stock_mode: dish.stock_mode === 'DAILY' ? 'NONE' : 'DAILY' } }, { done: dish.stock_mode === 'DAILY' ? 'Daily stock switched off' : 'Daily stock switched on' });
     const moveDishToCategory = (dish, categoryId) => run(`/api/v1/dishes/${dish.id}`, { method: 'PATCH', body: { dish_category_id: categoryId } }, { done: 'Dish moved' });
     const moveDish = (rows, categoryId, dish, direction) => {
         const ids = rows.map((row) => row.id);
@@ -106,7 +112,12 @@ export default function DishesPage() {
 
             {categories !== null && (
                 <>
-                    <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                    {editing?.alaCarte && <AlaCartePanel categories={categories} dishes={dishes} onDone={() => load()} onCancel={() => setEditing(null)} />}
+
+                    <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                        <button type="button" onClick={() => startEditing({ alaCarte: true })} className="min-h-11 rounded border border-emerald-600 px-4 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/10 lg:min-h-0 lg:py-1.5">
+                            Create ala carte items for dishes
+                        </button>
                         {editing?.newCategory ? (
                             <NameForm label="New dish category" submitLabel="Add category" busy={busy} error={fieldError} onSubmit={addCategory} onCancel={() => setEditing(null)} />
                         ) : (
@@ -153,7 +164,15 @@ export default function DishesPage() {
                                                     {editing?.dish === dish.id ? (
                                                         <NameForm initial={dish.name} label="Dish name" submitLabel="Save" busy={busy} error={fieldError} onSubmit={renameDish(dish)} onCancel={() => setEditing(null)} />
                                                     ) : (
-                                                        <span className={dish.active ? 'text-slate-100' : 'text-slate-500'}>{dish.name}</span>
+                                                        <span className={dish.active ? 'text-slate-100' : 'text-slate-500'}>
+                                                            {dish.name}
+                                                            {dish.stock_mode === 'DAILY' && <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-300">daily stock</span>}
+                                                            {(dish.ala_carte_products ?? []).map((item) => (
+                                                                <span key={item.id} className="ml-2 font-mono text-[11px] text-slate-500">
+                                                                    {item.name} ₱{item.selling_price}
+                                                                </span>
+                                                            ))}
+                                                        </span>
                                                     )}
                                                 </div>
                                                 {editing?.dish !== dish.id && (
@@ -173,6 +192,9 @@ export default function DishesPage() {
                                                                 </option>
                                                             ))}
                                                         </select>
+                                                        <button type="button" disabled={busy} onClick={() => toggleDailyStock(dish)} aria-label={`Daily stock for ${dish.name}: ${dish.stock_mode === 'DAILY' ? 'on' : 'off'}`} className={linkButton}>
+                                                            {dish.stock_mode === 'DAILY' ? 'Daily stock: on' : 'Daily stock: off'}
+                                                        </button>
                                                         <button type="button" disabled={busy} onClick={() => toggleDish(dish)} className={`min-h-11 hover:underline lg:min-h-0 ${dish.active ? 'text-slate-400 hover:text-rose-400' : 'text-emerald-400'}`}>
                                                             {dish.active ? 'Hide' : 'Show'}
                                                         </button>

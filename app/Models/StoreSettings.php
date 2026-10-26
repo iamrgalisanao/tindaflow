@@ -19,7 +19,7 @@ class StoreSettings extends Model
         'store_id', 'business_name', 'registered_name', 'business_address',
         'tin', 'branch_code', 'invoice_header', 'invoice_footer', 'telephone', 'email',
         'sale_document_mode', 'slip_footer',
-        'block_sale_without_stock', 'stock_override_enabled', 'low_stock_default_threshold',
+        'block_sale_without_stock', 'stock_override_enabled', 'low_stock_default_threshold', 'stock_day_cutover_hour',
     ];
 
     protected function casts(): array

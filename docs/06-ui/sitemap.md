@@ -60,6 +60,8 @@ manager/admin can switch to Back-office mode.
   /back-office/inventory/receive     receive stock
   /back-office/inventory/adjust      stock adjustment (reason required)
   /back-office/inventory/low-stock
+  /admin/inventory/today              Today's stock: the morning grid of cooked portions (ADR-017 slice B); the same grid is the till's /pos/stock tab, where a cashier needs a manager's code
+  /admin/inventory/rules              Stock rules (block a sale without stock, the manager override, the low-stock number, the hour the stock day starts); MANAGER and ADMIN
 
   /back-office/sales                 sales history (search/filter)
   /back-office/sales/:id              transaction detail (items, payments, audit, refunds/voids)
@@ -84,6 +86,7 @@ manager/admin can switch to Back-office mode.
   /back-office/reports/discount-report
   /back-office/reports/inventory-on-hand
   /back-office/reports/low-stock
+  /admin/reports/daily-stock          Daily stock (leftover and waste per stock day; CSV) (ADR-017 slice B)
   /back-office/reports/inventory-movement
   /back-office/reports/shift-report
   /back-office/reports/cash-variance
