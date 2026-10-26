@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EmployeesPage from './EmployeesPage';
 
 vi.mock('../AdminLayout', () => ({ default: ({ children }) => <div>{children}</div> }));
-vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ setUser: () => {}, user: { capabilities: ['EMPLOYEE_MANAGE'] } }) }));
+let capabilities;
+vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ setUser: () => {}, user: { capabilities } }) }));
 
 const json = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
 const employee = (overrides = {}) => ({
@@ -14,6 +15,7 @@ const employee = (overrides = {}) => ({
 let calls;
 let rows;
 beforeEach(() => {
+    capabilities = ['EMPLOYEE_MANAGE', 'EMPLOYEE_POLICY_MANAGE']; // an administrator unless a test says otherwise
     calls = [];
     rows = [employee(), employee({ id: 'e2', employee_code: 'SUB00001', employee_type: 'SUBCONTRACTOR', name: 'Ramon Garcia', first_name: 'Ramon', last_name: 'Garcia', active: false })];
     vi.stubGlobal(
@@ -107,5 +109,28 @@ describe('EmployeesPage', () => {
         fireEvent.change(input, { target: { value: 'abc' } });
         expect(screen.getAllByRole('button', { name: 'Save' })[1].disabled).toBe(true);
         expect(calls.some((call) => call.method === 'PUT')).toBe(false);
+    });
+
+    it('shows a manager the list, the create and edit controls and the limits read-only, with no limit editing and no CSV import', async () => {
+        capabilities = ['EMPLOYEE_MANAGE'];
+        page();
+        await screen.findAllByText('TSC00001');
+
+        expect(screen.getByRole('button', { name: 'New employee' })).toBeTruthy();
+        expect(screen.getAllByRole('button', { name: 'Edit' }).length).toBeGreaterThan(0);
+        expect(screen.getAllByRole('button', { name: 'Deactivate' }).length).toBeGreaterThan(0);
+        expect(screen.getByRole('link', { name: 'Print ID cards' })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Import CSV' })).toBeNull();
+        expect(await screen.findByText('₱1,500.00')).toBeTruthy();
+        expect(screen.queryByLabelText(/limit per cut-off/)).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    });
+
+    it('shows an administrator the limit fields and the CSV import', async () => {
+        page();
+        await screen.findAllByText('TSC00001');
+
+        expect(screen.getByRole('button', { name: 'Import CSV' })).toBeTruthy();
+        expect(await screen.findByLabelText(/DIRECT|TSC \(direct\)/)).toBeTruthy();
     });
 });

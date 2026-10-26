@@ -29,7 +29,7 @@ final class RoleCapabilityCatalog
         'PRICE_OVERRIDE', 'DISCOUNT_OVERRIDE', 'STOCK_ADJUST', 'CASH_OUT',
         'REPORT_VIEW', 'STORE_SETTINGS_MANAGE', 'FISCAL_DAY_CLOSE', 'CATALOG_MANAGE',
         'AUDIT_VIEW', 'JOURNAL_VIEW', 'USER_MANAGE', 'TERMINAL_MANAGE',
-        'FISCAL_CONFIGURATION_MANAGE', 'EMPLOYEE_MANAGE', 'CREDIT_LIMIT_OVERRIDE',
+        'FISCAL_CONFIGURATION_MANAGE', 'EMPLOYEE_MANAGE', 'EMPLOYEE_POLICY_MANAGE', 'CREDIT_LIMIT_OVERRIDE',
     ];
 
     /**
@@ -47,14 +47,15 @@ final class RoleCapabilityCatalog
             'PRICE_OVERRIDE', 'DISCOUNT_OVERRIDE', 'STOCK_ADJUST', 'CASH_OUT',
             'REPORT_VIEW', 'STORE_SETTINGS_MANAGE', 'FISCAL_DAY_CLOSE', 'CATALOG_MANAGE',
             'AUDIT_VIEW', 'JOURNAL_VIEW', 'USER_MANAGE', 'TERMINAL_MANAGE',
-            'EMPLOYEE_MANAGE', // ADR-016 section 5: ADMIN only. A MANAGER does not hold it (a manager is the credit supervisor, not the one who enrols staff).
+            'EMPLOYEE_MANAGE', // ADR-016 section 5 (amended 2026-10-26): ADMIN and MANAGER. Create, edit, deactivate, list, ID cards, read the limits.
+            'EMPLOYEE_POLICY_MANAGE', // ADR-016 amendment 2026-10-26: ADMIN only. Change the credit limit per type and run the CSV bulk import.
             'CREDIT_LIMIT_OVERRIDE', // ADR-016 section 6: may approve one over-limit credit sale with a personal code. MANAGER and ADMIN, never CASHIER.
         ],
         'MANAGER' => [
             'SALE_VOID', 'SALE_VOID_APPROVE', 'SALE_REFUND', 'SALE_REFUND_APPROVE',
             'PRICE_OVERRIDE', 'DISCOUNT_OVERRIDE', 'STOCK_ADJUST', 'CASH_OUT',
             'REPORT_VIEW', 'CATALOG_MANAGE', 'AUDIT_VIEW', 'JOURNAL_VIEW',
-            'FISCAL_DAY_CLOSE', 'CREDIT_LIMIT_OVERRIDE',
+            'FISCAL_DAY_CLOSE', 'EMPLOYEE_MANAGE', 'CREDIT_LIMIT_OVERRIDE',
         ],
         'CASHIER' => [
             'SALE_VOID', 'SALE_REFUND',

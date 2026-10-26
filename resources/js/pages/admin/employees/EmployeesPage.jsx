@@ -22,7 +22,8 @@ const STATUSES = [
  * (made by the system) never changes or comes back.
  */
 export default function EmployeesPage() {
-    const { setUser } = useAuth();
+    const { setUser, user } = useAuth();
+    const canManagePolicy = user.capabilities.includes('EMPLOYEE_POLICY_MANAGE'); // ADMIN only: credit limits and the CSV import
     const [search, setSearch] = useState('');
     const [term, setTerm] = useState('');
     const [type, setType] = useState('');
@@ -136,16 +137,18 @@ export default function EmployeesPage() {
                     <Link to="/admin/employees/cards" className="flex min-h-11 items-center rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 lg:min-h-0">
                         Print ID cards
                     </Link>
-                    <button type="button" onClick={() => setPanel({ importing: true })} className="min-h-11 rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 lg:min-h-0">
-                        Import CSV
-                    </button>
+                    {canManagePolicy && (
+                        <button type="button" onClick={() => setPanel({ importing: true })} className="min-h-11 rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 lg:min-h-0">
+                            Import CSV
+                        </button>
+                    )}
                     <button type="button" onClick={() => setPanel({})} className="min-h-11 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 lg:min-h-0">
                         New employee
                     </button>
                 </div>
             </div>
 
-            <CreditLimitsPanel onUnauthorized={signIn} onSaved={setToast} />
+            <CreditLimitsPanel readOnly={!canManagePolicy} onUnauthorized={signIn} onSaved={setToast} />
 
             <div className="mb-3 flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3 md:flex-row md:items-end">
                 <form onSubmit={submitSearch} role="search" className="flex flex-1 items-end gap-2">
@@ -294,7 +297,7 @@ export default function EmployeesPage() {
                 </div>
             )}
 
-            {panel?.importing && <EmployeeImportPanel onClose={closePanel} onImported={reload} onUnauthorized={signIn} />}
+            {canManagePolicy && panel?.importing && <EmployeeImportPanel onClose={closePanel} onImported={reload} onUnauthorized={signIn} />}
             {panel && !panel.importing && <EmployeeFormPanel key={panel.employee?.id ?? 'new'} employee={panel.employee} onSaved={saved} onClose={closePanel} onUnauthorized={signIn} />}
 
             {confirm && (

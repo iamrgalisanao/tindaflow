@@ -24,7 +24,8 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * openapi.yaml Employee operations (ADR-016 section 5, slice 3.1). Everything except employeeLookup needs EMPLOYEE_MANAGE
- * (ADMIN), reads included: a cashier or manager cannot list, create, edit, import or print employees. employeeLookup is the one
+ * (ADMIN and MANAGER, amendment 2026-10-26), reads included: a cashier cannot list, create, edit or print employees. The CSV import and
+ * the credit-limit change need EMPLOYEE_POLICY_MANAGE (ADMIN only). employeeLookup is the one
  * till operation, open to any signed-in user, and it returns one employee by exact code or nothing. Everything is scoped to the
  * actor's own store. There is no delete: deactivating is the way out, and the code is never reissued.
  */

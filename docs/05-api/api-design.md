@@ -170,7 +170,8 @@ addition is disclosed here, not silently made — see §28):
 | `USER_MANAGE` | Create/update/deactivate/activate users |
 | `TERMINAL_MANAGE` | Terminal enrollment tokens, enrollment, list/get/revoke |
 | `FISCAL_CONFIGURATION_MANAGE` | Tax-registration changes, fiscal-installation records |
-| `EMPLOYEE_MANAGE` | (ADR-016 slice 3.1, 2026-10-25) Employees: create, list, edit, deactivate, CSV import, ID-card data, and the credit limit per employee type. ADMIN only |
+| `EMPLOYEE_MANAGE` | (ADR-016 slice 3.1, 2026-10-25) Employees: create, list, edit, deactivate, ID-card data, and a read of the credit limit per employee type. ADMIN and MANAGER (MANAGER added 2026-10-26) |
+| `EMPLOYEE_POLICY_MANAGE` | (ADR-016 amendment 2026-10-26) Change the credit limit per employee type; CSV import of employees. ADMIN only |
 
 This is **contract vocabulary — a fixed enum of string constants — not a
 dynamic/configurable RBAC system.** Every sensitive operation's required
@@ -208,7 +209,8 @@ change, since call sites ask `can($user, CAPABILITY)`, never `if role ==
 | `USER_MANAGE` | ✓ | — | — |
 | `TERMINAL_MANAGE` | ✓ | — | — |
 | `FISCAL_CONFIGURATION_MANAGE` | only while unlocked (ADR-014) | — | — |
-| `EMPLOYEE_MANAGE` | ✓ | — | — |
+| `EMPLOYEE_MANAGE` | ✓ | ✓ | — |
+| `EMPLOYEE_POLICY_MANAGE` | ✓ | — | — |
 
 This matches the governing brief's own role sketch (Manager: "POS,
 products, inventory, reports, shifts, approve void/refund, limited

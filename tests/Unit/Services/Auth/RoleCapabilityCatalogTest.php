@@ -12,7 +12,7 @@ class RoleCapabilityCatalogTest extends TestCase
     {
         $capabilities = RoleCapabilityCatalog::forRole('ADMIN');
 
-        $this->assertCount(18, $capabilities);
+        $this->assertCount(19, $capabilities);
         $this->assertContains('USER_MANAGE', $capabilities);
         $this->assertContains('TERMINAL_MANAGE', $capabilities);
         $this->assertContains('STORE_SETTINGS_MANAGE', $capabilities);
@@ -26,10 +26,20 @@ class RoleCapabilityCatalogTest extends TestCase
         $this->assertContains('SALE_VOID_APPROVE', $capabilities);
         $this->assertContains('FISCAL_DAY_CLOSE', $capabilities);
         $this->assertNotContains('USER_MANAGE', $capabilities);
-        $this->assertNotContains('EMPLOYEE_MANAGE', $capabilities);
+        $this->assertNotContains('EMPLOYEE_POLICY_MANAGE', $capabilities);
         $this->assertNotContains('TERMINAL_MANAGE', $capabilities);
         $this->assertNotContains('STORE_SETTINGS_MANAGE', $capabilities);
         $this->assertNotContains('FISCAL_CONFIGURATION_MANAGE', $capabilities);
+    }
+
+    public function test_employee_management_belongs_to_manager_and_admin_but_the_credit_limits_and_bulk_import_to_admin_only(): void
+    {
+        $this->assertContains('EMPLOYEE_MANAGE', RoleCapabilityCatalog::forRole('ADMIN'));
+        $this->assertContains('EMPLOYEE_MANAGE', RoleCapabilityCatalog::forRole('MANAGER'));
+        $this->assertNotContains('EMPLOYEE_MANAGE', RoleCapabilityCatalog::forRole('CASHIER'));
+        $this->assertContains('EMPLOYEE_POLICY_MANAGE', RoleCapabilityCatalog::forRole('ADMIN'));
+        $this->assertNotContains('EMPLOYEE_POLICY_MANAGE', RoleCapabilityCatalog::forRole('MANAGER'));
+        $this->assertNotContains('EMPLOYEE_POLICY_MANAGE', RoleCapabilityCatalog::forRole('CASHIER'));
     }
 
     public function test_the_credit_limit_override_belongs_to_manager_and_admin_and_never_to_a_cashier(): void
@@ -49,11 +59,11 @@ class RoleCapabilityCatalogTest extends TestCase
         $this->assertSame([], RoleCapabilityCatalog::forRole('NOT_A_ROLE'));
     }
 
-    // A2: the fixed vocabulary itself -- 19 entries (CREDIT_LIMIT_OVERRIDE added by ADR-016 slice 3.3), no duplicates.
-    public function test_capabilities_constant_has_exactly_nineteen_unique_entries(): void
+    // A2: the fixed vocabulary itself -- 20 entries (CREDIT_LIMIT_OVERRIDE added by ADR-016 slice 3.3, EMPLOYEE_POLICY_MANAGE by its 2026-10-26 amendment), no duplicates.
+    public function test_capabilities_constant_has_exactly_twenty_unique_entries(): void
     {
-        $this->assertCount(19, RoleCapabilityCatalog::CAPABILITIES);
-        $this->assertCount(19, array_unique(RoleCapabilityCatalog::CAPABILITIES));
+        $this->assertCount(20, RoleCapabilityCatalog::CAPABILITIES);
+        $this->assertCount(20, array_unique(RoleCapabilityCatalog::CAPABILITIES));
     }
 
     public function test_admin_is_defined_as_every_capability_but_the_unlock_only_one(): void

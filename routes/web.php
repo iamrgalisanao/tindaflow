@@ -302,7 +302,8 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         ->middleware(['auth', EnsureUserIsActive::class, 'can:USER_MANAGE', 'throttle:override-code']);
 
     // Employees and credit limits (ADR-016 section 5, slice 3.1). employeeLookup is the one till operation: any signed-in user, one
-    // employee by exact code, no listing. Everything else, reads included, is EMPLOYEE_MANAGE (ADMIN only; a cashier or manager gets 403).
+    // employee by exact code, no listing. Everything else, reads included, is EMPLOYEE_MANAGE (ADMIN and MANAGER; a cashier gets 403).
+    // Amendment 2026-10-26: changing a credit limit and the CSV import are EMPLOYEE_POLICY_MANAGE (ADMIN only); a manager may read the limits.
     // No delete: an employee is deactivated and the code is never reissued (EMP-001). The literal paths come before {employeeId}.
     // Slice 3.2: the lookup now also carries the credit status, and employeeCreditStatusGet refreshes it. Codes are sequential, so both
     // share one named limiter (config tindaflow.employee_lookup_throttle, per signed-in user) that stops a session from walking the code space.
@@ -313,7 +314,6 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     Route::middleware(['auth', EnsureUserIsActive::class, 'can:EMPLOYEE_MANAGE'])->group(function () {
         Route::get('/employees', [EmployeeController::class, 'list']);
         Route::post('/employees', [EmployeeController::class, 'create']);
-        Route::post('/employees/import', [EmployeeController::class, 'import']);
         Route::get('/employees/id-cards', [EmployeeController::class, 'idCards']);
         Route::get('/employees/{employeeId}', [EmployeeController::class, 'get'])->whereUuid('employeeId');
         Route::patch('/employees/{employeeId}', [EmployeeController::class, 'update'])->whereUuid('employeeId');
@@ -321,6 +321,9 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         Route::post('/employees/{employeeId}/deactivate', [EmployeeController::class, 'deactivate'])->whereUuid('employeeId');
 
         Route::get('/credit-policies', [EmployeeController::class, 'creditPolicies']);
+    });
+    Route::middleware(['auth', EnsureUserIsActive::class, 'can:EMPLOYEE_POLICY_MANAGE'])->group(function () {
+        Route::post('/employees/import', [EmployeeController::class, 'import']);
         Route::put('/credit-policies/{employeeType}', [EmployeeController::class, 'creditPolicySetLimit']);
     });
 

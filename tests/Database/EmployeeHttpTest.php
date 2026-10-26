@@ -14,7 +14,7 @@ use Illuminate\Testing\TestResponse;
 
 /**
  * ADR-016 slice 3.1 (EMP-001): employees with generated, immutable codes, the credit limit per type, the CSV import, the ID-card
- * data and the till's exact-code lookup. EMPLOYEE_MANAGE (ADMIN only) gates everything but the lookup; everything is store scoped;
+ * data and the till's exact-code lookup. EMPLOYEE_MANAGE (ADMIN and MANAGER) gates everything but the lookup, and EMPLOYEE_POLICY_MANAGE (ADMIN only) gates the credit-limit change and the CSV import; everything is store scoped;
  * nothing is deleted. The gap-free guarantee under real concurrency is EmployeeCodeConcurrencyTest; the database role is
  * AppendOnlyPrivilegesTest.
  */
@@ -196,26 +196,62 @@ class EmployeeHttpTest extends PostgresSchemaTestCase
 
     // ---------------------------------------------------------------- who may manage
 
-    public function test_only_an_admin_manages_employees_a_manager_and_a_cashier_get_403_everywhere(): void
+    public function test_a_cashier_gets_403_on_every_management_operation(): void
     {
         $admin = User::factory()->admin()->create();
         $employee = Employee::factory()->create(['store_id' => $admin->store_id]);
+        $cashier = User::factory()->create(['store_id' => $admin->store_id]);
 
-        foreach ([User::factory()->manager()->create(['store_id' => $admin->store_id]), User::factory()->create(['store_id' => $admin->store_id])] as $user) {
-            $this->asUser($user)->postJson('/api/v1/employees', $this->input())->assertStatus(403);
-            $this->asUser($user)->getJson('/api/v1/employees')->assertStatus(403);
-            $this->asUser($user)->getJson("/api/v1/employees/{$employee->id}")->assertStatus(403);
-            $this->asUser($user)->patchJson("/api/v1/employees/{$employee->id}", ['first_name' => 'Hacked'])->assertStatus(403);
-            $this->asUser($user)->postJson("/api/v1/employees/{$employee->id}/deactivate")->assertStatus(403);
-            $this->asUser($user)->postJson("/api/v1/employees/{$employee->id}/activate")->assertStatus(403);
-            $this->importCsv($user, "first_name,last_name,employee_type\nA,B,DIRECT\n")->assertStatus(403);
-            $this->asUser($user)->getJson('/api/v1/employees/id-cards')->assertStatus(403);
-            $this->asUser($user)->getJson('/api/v1/credit-policies')->assertStatus(403);
-            $this->asUser($user)->putJson('/api/v1/credit-policies/DIRECT', ['limit_per_cutoff' => '9999'])->assertStatus(403);
-        }
+        $this->asUser($cashier)->postJson('/api/v1/employees', $this->input())->assertStatus(403);
+        $this->asUser($cashier)->getJson('/api/v1/employees')->assertStatus(403);
+        $this->asUser($cashier)->getJson("/api/v1/employees/{$employee->id}")->assertStatus(403);
+        $this->asUser($cashier)->patchJson("/api/v1/employees/{$employee->id}", ['first_name' => 'Hacked'])->assertStatus(403);
+        $this->asUser($cashier)->postJson("/api/v1/employees/{$employee->id}/deactivate")->assertStatus(403);
+        $this->asUser($cashier)->postJson("/api/v1/employees/{$employee->id}/activate")->assertStatus(403);
+        $this->importCsv($cashier, "first_name,last_name,employee_type\nA,B,DIRECT\n")->assertStatus(403);
+        $this->asUser($cashier)->getJson('/api/v1/employees/id-cards')->assertStatus(403);
+        $this->asUser($cashier)->getJson('/api/v1/credit-policies')->assertStatus(403);
+        $this->asUser($cashier)->putJson('/api/v1/credit-policies/DIRECT', ['limit_per_cutoff' => '9999'])->assertStatus(403);
 
         $this->assertSame(1, Employee::count());
         $this->assertNotSame('Hacked', $employee->fresh()->first_name);
+    }
+
+    public function test_a_manager_registers_and_maintains_employees_and_the_audit_names_the_manager(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $manager = User::factory()->manager()->create(['store_id' => $admin->store_id]);
+
+        $id = $this->asUser($manager)->postJson('/api/v1/employees', $this->input(['first_name' => 'Test', 'last_name' => 'Hire']))
+            ->assertStatus(201)->assertJson(['employee_code' => 'TSC00001', 'active' => true])->json('id');
+        $this->asUser($manager)->getJson("/api/v1/employees/{$id}")->assertOk();
+        $this->asUser($manager)->patchJson("/api/v1/employees/{$id}", ['first_name' => 'Renamed'])->assertOk()->assertJson(['first_name' => 'Renamed']);
+        $this->asUser($manager)->postJson("/api/v1/employees/{$id}/deactivate")->assertOk()->assertJson(['active' => false]);
+        $this->asUser($manager)->postJson("/api/v1/employees/{$id}/activate")->assertOk()->assertJson(['active' => true]);
+        $this->assertSame([$id], collect($this->asUser($manager)->getJson('/api/v1/employees?search=renamed')->assertOk()->json('data'))->pluck('id')->all());
+        $this->assertSame(['TSC00001'], collect($this->asUser($manager)->getJson('/api/v1/employees/id-cards')->assertOk()->json('data'))->pluck('employee_code')->all());
+        $this->asUser($manager)->getJson('/api/v1/employees/lookup?code=TSC00001')->assertOk();
+
+        foreach (['EMPLOYEE_CREATED', 'EMPLOYEE_UPDATED', 'EMPLOYEE_DEACTIVATED', 'EMPLOYEE_REACTIVATED'] as $type) {
+            $events = $this->events($type);
+            $this->assertCount(1, $events, $type);
+            $this->assertSame($manager->id, $events[0]->actor_user_id, "$type is attributed to the manager");
+        }
+    }
+
+    public function test_a_manager_can_read_the_credit_limits_but_cannot_change_them_or_import_a_csv(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $manager = User::factory()->manager()->create(['store_id' => $admin->store_id]);
+
+        $this->asUser($manager)->getJson('/api/v1/credit-policies')->assertOk()->assertJsonCount(2, 'data');
+        $this->asUser($manager)->putJson('/api/v1/credit-policies/DIRECT', ['limit_per_cutoff' => '9999'])->assertStatus(403);
+        $this->importCsv($manager, "first_name,last_name,employee_type\nA,B,DIRECT\n")->assertStatus(403);
+        $this->importCsv($manager, "first_name,last_name,employee_type\nA,B,DIRECT\n", dryRun: true)->assertStatus(403);
+
+        $this->assertSame(0, Employee::count());
+        $this->assertCount(0, $this->events('CREDIT_LIMIT_CHANGED'));
+        $this->asUser($admin)->putJson('/api/v1/credit-policies/DIRECT', ['limit_per_cutoff' => '1800'])->assertOk();
     }
 
     public function test_an_unauthenticated_request_is_refused(): void
@@ -224,15 +260,19 @@ class EmployeeHttpTest extends PostgresSchemaTestCase
         $this->getJson('/api/v1/employees/lookup?code=TSC00001')->assertStatus(401);
     }
 
-    public function test_the_admin_capability_list_carries_employee_manage_and_no_other_role_does(): void
+    public function test_the_capability_lists_carry_employee_manage_for_admin_and_manager_and_the_policy_one_for_admin_only(): void
     {
         $admin = User::factory()->admin()->create();
         $manager = User::factory()->manager()->create();
         $cashier = User::factory()->create();
+        $login = fn (User $user) => $this->postJson('/api/v1/auth/login', ['email' => $user->email, 'password' => 'password'])->json('capabilities');
 
-        $this->assertContains('EMPLOYEE_MANAGE', $this->postJson('/api/v1/auth/login', ['email' => $admin->email, 'password' => 'password'])->json('capabilities'));
-        $this->assertNotContains('EMPLOYEE_MANAGE', $this->postJson('/api/v1/auth/login', ['email' => $manager->email, 'password' => 'password'])->json('capabilities'));
-        $this->assertNotContains('EMPLOYEE_MANAGE', $this->postJson('/api/v1/auth/login', ['email' => $cashier->email, 'password' => 'password'])->json('capabilities'));
+        $this->assertContains('EMPLOYEE_MANAGE', $login($admin));
+        $this->assertContains('EMPLOYEE_POLICY_MANAGE', $login($admin));
+        $this->assertContains('EMPLOYEE_MANAGE', $login($manager));
+        $this->assertNotContains('EMPLOYEE_POLICY_MANAGE', $login($manager));
+        $this->assertNotContains('EMPLOYEE_MANAGE', $login($cashier));
+        $this->assertNotContains('EMPLOYEE_POLICY_MANAGE', $login($cashier));
     }
 
     // ---------------------------------------------------------------- list, search, store scope

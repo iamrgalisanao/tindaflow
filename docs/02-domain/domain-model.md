@@ -131,7 +131,8 @@ JOURNAL_VIEW           -- read electronic_journal_entry records
 USER_MANAGE            -- create/edit user accounts and roles
 TERMINAL_MANAGE        -- enroll/decommission terminals
 FISCAL_CONFIGURATION_MANAGE  -- edit tax_registration / fiscal_installation records
-EMPLOYEE_MANAGE        -- (ADR-016 slice 3.1) employees, their ID cards and the credit limit per type; ADMIN only
+EMPLOYEE_MANAGE        -- (ADR-016 slice 3.1; MANAGER added 2026-10-26) employees, their ID cards, read of the credit limits; ADMIN and MANAGER
+EMPLOYEE_POLICY_MANAGE -- (ADR-016 amendment 2026-10-26) change the credit limit per type, CSV bulk import of employees; ADMIN only
 ```
 
 **Amendment (Stage 4 remediation, 2026-09-16):** the six capabilities
@@ -739,7 +740,7 @@ and options per meal line), `sale_slip` (slip mode document), `employee_credit_e
 gain `BANK_TRANSFER` and `CREDIT`; `store_settings` gains `sale_document_mode`; a user may hold an override code (`user_override_code`).
 
 **`employee`** — `store_id`, `employee_type` (`DIRECT`|`SUBCONTRACTOR`), `employee_code` (system generated `TSC00001` / `SUB00001`, immutable,
-also the QR value), `name`, `billing_party_id`, `active`. Created only by a user holding `EMPLOYEE_MANAGE` (ADMIN).
+also the QR value), `name`, `billing_party_id`, `active`. Created only by a user holding `EMPLOYEE_MANAGE` (ADMIN or MANAGER).
 
 **Built in slice 3.1 (2026-10-25).** `employee` stores `first_name`, `middle_name?` and `last_name` (the joined `name` is derived), `created_by`, and
 UNIQUE `(store_id, employee_code)`; the application role has no UPDATE on `employee_code`, `employee_type`, `store_id` or `created_by`.
@@ -754,7 +755,7 @@ SUBCONTRACTOR 1,000.00 (client, 2026-10-25), created by the migration for existi
 
 **Built in slice 3.3 (2026-10-26).** `user_override_code`: `user_id` (key), `store_id`, `code_hash` (slow hash, NULL after a clear), `failed_attempts`, `locked_until`, `set_at`, `set_by`; lifecycle, one row per approver, application UPDATE limited to those columns. `credit_override_grant`: `store_id`, `terminal_id`, `employee_id`, `cashier_id`, `approver_id` (CHECK differs from the cashier), `max_amount`, `token_hash` (unique SHA-256), `expires_at`, `consumed_at`, `created_at`; append-only except `consumed_at`. `employee_credit_entry.override_grant_id` (nullable, UNIQUE) names the grant that let a CHARGE past the limit. Lock order: shift, fiscal day, employee, **override grant**, sale. The override approves one over-limit credit sale and nothing else: discounts and every other action stay capability-gated.
 
-**Capabilities added** (catalog grows from 17 to 20; `EMPLOYEE_MANAGE` is built, slice 3.1, 2026-10-25, and `CREDIT_LIMIT_OVERRIDE`, slice 3.3, 2026-10-26): `EMPLOYEE_MANAGE` (ADMIN), `CREDIT_LIMIT_OVERRIDE` (MANAGER, ADMIN),
+**Capabilities added** (catalog grows from 17 to 20; `EMPLOYEE_MANAGE` is built, slice 3.1, 2026-10-25, and `CREDIT_LIMIT_OVERRIDE`, slice 3.3, 2026-10-26): `EMPLOYEE_MANAGE` (ADMIN, and MANAGER from 2026-10-26), `EMPLOYEE_POLICY_MANAGE` (ADMIN, 2026-10-26), `CREDIT_LIMIT_OVERRIDE` (MANAGER, ADMIN),
 `BILLING_MANAGE` (MANAGER, ADMIN). Menu editing reuses `CATALOG_MANAGE`; billing read reuses `REPORT_VIEW`; changing the sale document
 mode reuses `FISCAL_CONFIGURATION_MANAGE` (vendor unlock, ADR-014). The V1 roles stay ADMIN/MANAGER/CASHIER: the client's "supervisor" is a MANAGER.
 

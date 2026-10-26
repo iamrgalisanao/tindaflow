@@ -73,7 +73,7 @@ function LimitRow({ policy, onSaved, onUnauthorized }) {
  * The credit limit per cut-off of each employee type (creditPolicyList / creditPolicySetLimit). Changing a limit is recorded in the
  * audit log with the old and new value. Nothing is charged to credit yet; the limit is used once credit sales are switched on.
  */
-export default function CreditLimitsPanel({ onUnauthorized, onSaved }) {
+export default function CreditLimitsPanel({ onUnauthorized, onSaved, readOnly = false }) {
     const [policies, setPolicies] = useState(null);
     const [failure, setFailure] = useState(null);
 
@@ -96,7 +96,10 @@ export default function CreditLimitsPanel({ onUnauthorized, onSaved }) {
     return (
         <section aria-label="Credit limits" className="mb-4 rounded-lg border border-slate-800 bg-slate-900 p-3">
             <h3 className="text-sm font-semibold text-slate-100">Credit limits</h3>
-            <p className="mb-3 mt-1 max-w-2xl text-xs text-slate-400">What an employee may charge to credit in one cut-off. Each type has its own limit. A change is recorded in the audit log.</p>
+            <p className="mb-3 mt-1 max-w-2xl text-xs text-slate-400">
+                What an employee may charge to credit in one cut-off. Each type has its own limit.{' '}
+                {readOnly ? 'Only an administrator can change a limit.' : 'A change is recorded in the audit log.'}
+            </p>
             {failure && (
                 <p role="alert" className="text-sm text-rose-300">
                     {failureMessage(failure, 'The credit limits could not be loaded.')}{' '}
@@ -108,7 +111,13 @@ export default function CreditLimitsPanel({ onUnauthorized, onSaved }) {
             {!policies && !failure && <div className="h-12 animate-pulse rounded bg-slate-950" aria-busy="true" aria-label="Loading credit limits" />}
             {policies && (
                 <div className="flex flex-wrap gap-x-8 gap-y-3">
-                    {policies.map((policy) => (
+                    {policies.map((policy) =>
+                        readOnly ? (
+                            <p key={policy.employee_type} className="text-sm text-slate-200">
+                                <span className="block text-xs text-slate-400">{typeLabel(policy.employee_type)} &mdash; limit per cut-off</span>
+                                <span className="font-mono">{formatLimit(policy.limit_per_cutoff)}</span>
+                            </p>
+                        ) : (
                         <LimitRow
                             key={policy.employee_type}
                             policy={policy}
@@ -118,7 +127,8 @@ export default function CreditLimitsPanel({ onUnauthorized, onSaved }) {
                                 onSaved(`${typeLabel(saved.employee_type)} limit saved`);
                             }}
                         />
-                    ))}
+                        ),
+                    )}
                 </div>
             )}
         </section>

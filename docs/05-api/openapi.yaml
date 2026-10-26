@@ -1931,7 +1931,7 @@ paths:
       operationId: employeeList
       tags: [Employees]
       x-capability: EMPLOYEE_MANAGE
-      summary: 'List employees (ADR-016 section 5, slice 3.1). ADMIN only, reads included: a cashier or manager cannot list employees; the till has employeeLookup. Ordered by last name, first name, code. search matches any part of the name or the code, ignoring case.'
+      summary: 'List employees (ADR-016 section 5, slice 3.1). ADMIN and MANAGER (amendment 2026-10-26), reads included: a cashier cannot list employees; the till has employeeLookup. Ordered by last name, first name, code. search matches any part of the name or the code, ignoring case.'
       parameters:
       - {$ref: '#/components/parameters/PageParam'}
       - {$ref: '#/components/parameters/PerPageParam'}
@@ -1983,8 +1983,8 @@ paths:
     post:
       operationId: employeeImport
       tags: [Employees]
-      x-capability: EMPLOYEE_MANAGE
-      summary: 'Bulk-create employees from a CSV body (columns first_name, middle_name?, last_name, employee_type; type takes DIRECT, SUBCONTRACTOR, TSC or SUB). Codes are generated; the file cannot carry one. Re-importing creates NEW employees except that an exact duplicate (same type and names, ignoring case and spaces) of an existing employee or an earlier row is skipped and reported. Rows succeed or fail independently. ?dry_run=true reports and changes nothing. A problem with the file as a whole is a 422 on `file`.'
+      x-capability: EMPLOYEE_POLICY_MANAGE
+      summary: 'ADMIN only (EMPLOYEE_POLICY_MANAGE; a manager gets 403). Bulk-create employees from a CSV body (columns first_name, middle_name?, last_name, employee_type; type takes DIRECT, SUBCONTRACTOR, TSC or SUB). Codes are generated; the file cannot carry one. Re-importing creates NEW employees except that an exact duplicate (same type and names, ignoring case and spaces) of an existing employee or an earlier row is skipped and reported. Rows succeed or fail independently. ?dry_run=true reports and changes nothing. A problem with the file as a whole is a 422 on `file`.'
       parameters:
       - name: dry_run
         in: query
@@ -2175,8 +2175,8 @@ paths:
     put:
       operationId: creditPolicySetLimit
       tags: [Employees]
-      x-capability: EMPLOYEE_MANAGE
-      summary: 'Set the limit per cut-off of one employee type (an amount of at most two decimals, 0 allowed). Recorded as CREDIT_LIMIT_CHANGED with the old and new value; setting the value it already has records nothing.'
+      x-capability: EMPLOYEE_POLICY_MANAGE
+      summary: 'ADMIN only (EMPLOYEE_POLICY_MANAGE; a manager gets 403, though a manager can read the limits). Set the limit per cut-off of one employee type (an amount of at most two decimals, 0 allowed). Recorded as CREDIT_LIMIT_CHANGED with the old and new value; setting the value it already has records nothing.'
       requestBody:
         required: true
         content:
@@ -4702,7 +4702,7 @@ components:
       description: 'The full Stage 2 capability catalog (domain-model.md §2.2), including the six additions synced back into Stage 2 during Stage 4 remediation pass 2 (2026-09-16) — CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE — so this enum and Stage 2''s canonical list never drift again. This is a fixed enum of string constants, not a dynamic/configurable permission system — see api-design.md §4 for the role→capability mapping and rationale.
 
         '
-      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE, EMPLOYEE_MANAGE, CREDIT_LIMIT_OVERRIDE]
+      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE, EMPLOYEE_MANAGE, EMPLOYEE_POLICY_MANAGE, CREDIT_LIMIT_OVERRIDE]
     UserSummary:
       type: object
       properties:

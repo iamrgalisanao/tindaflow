@@ -585,8 +585,8 @@ applying to the business day in slip mode.
 86. **MENU-005 — no hard delete of menu data.** Dishes, meals, groups and options are hidden (`active = false`), never deleted, because
     snapshots and the inventory phase reference `dish.id`.
 87. **EMP-001 — the code is system generated.** `employee_code` is `TSC`/`SUB` plus a gap-free-per-type five-digit number from a locked
-    counter, unique per store, immutable, never reused (including after deactivation). Only a user holding `EMPLOYEE_MANAGE` can create or
-    edit an employee; no cashier or till endpoint can.
+    counter, unique per store, immutable, never reused (including after deactivation). Only a user holding `EMPLOYEE_MANAGE` (ADMIN or MANAGER, amended 2026-10-26) can create or
+    edit an employee; no cashier or till endpoint can. Every creation and change is audited with the acting user.
     *Built in slice 3.1 (2026-10-25):* the counter is `employee_code_sequences`, one row per store and type, locked `FOR UPDATE` in the creating transaction (a rollback gives the number back; two real processes get distinct gap-free codes — `EmployeeCodeConcurrencyTest`). The number grows past 99999 (`TSC100000`) rather than failing. Immutability is enforced twice: the API refuses `employee_code`/`employee_type` in a request, and the application database role has no UPDATE on those columns. The till's `employeeLookup` is an exact match only (case and surrounding whitespace ignored), store-scoped, and refuses an inactive employee (`EMPLOYEE_INACTIVE`).
 88. **CREDIT-001 — credit is a whole-sale tender.** A `CREDIT` payment is the sale's only payment, equals its grand total, requires an
     active employee on the sale, and is refused in a sale that has any other tender.
