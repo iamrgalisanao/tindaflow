@@ -151,7 +151,7 @@ class GlobalLockOrderTest extends TestCase
     public function test_the_order_values_are_the_documented_ones(): void
     {
         $this->assertSame(
-            ['shift' => 0, 'fiscal_day' => 1, 'employee' => 2, 'override_grant' => 3, 'sale' => 4, 'sale_item' => 5, 'invoice_series' => 6, 'slip_counter' => 7],
+            ['shift' => 0, 'fiscal_day' => 1, 'employee' => 2, 'override_grant' => 3, 'sale' => 4, 'sale_item' => 5, 'invoice_series' => 6, 'slip_counter' => 7, 'billing_party' => 8, 'billing_cheque' => 9],
             collect(LockableResource::cases())->mapWithKeys(fn (LockableResource $resource) => [$resource->value => $resource->order()])->all(),
         );
     }

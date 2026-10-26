@@ -38,6 +38,8 @@ export const AUDIT_TYPES = [
     { id: 'OVERRIDE_CODE_RESET', label: 'Override code cleared' },
     { id: 'BILLING_RUN_CREATED', label: 'Billing run saved' },
     { id: 'BILLING_EXPORTED', label: 'Billing exported' },
+    { id: 'BILLING_CHEQUE_RECORDED', label: 'Cheque recorded' },
+    { id: 'BILLING_CHEQUE_RETURNED', label: 'Cheque returned' },
     { id: 'SALE_VOID_REQUESTED', label: 'Void requested' },
     { id: 'SALE_VOIDED', label: 'Sale voided' },
     { id: 'SALE_VOID_REJECTED', label: 'Void rejected' },
@@ -270,7 +272,17 @@ export function describeAudit(event) {
             return `Override code of ${after.user_name ?? 'a user'}${after.role ? ` (${after.role})` : ''} cleared by an administrator${(event.before_metadata ?? {}).locked ? ' (it was locked)' : ''}`;
         case 'BILLING_RUN_CREATED':
             return `Billing run ${after.run_number ?? '—'} saved for ${after.from ?? '—'} to ${after.to ?? '—'}${after.employee_type ? ` (${EMPLOYEE_TYPE_NAMES[after.employee_type] ?? after.employee_type} only)` : ''}${after.employee_code ? `, ${after.employee_code} only` : ''}: total due ${money(after.net_amount)} for ${after.employee_count ?? 0} employees`;
+        case 'BILLING_CHEQUE_RECORDED':
+            return `Cheque ${after.cheque_number ?? '—'} from ${after.bank ?? '—'} for ${money(after.amount)} recorded, received ${after.received_on ?? '—'}, paying ${(after.allocations ?? []).length} cut-off period${(after.allocations ?? []).length === 1 ? '' : 's'}`;
+        case 'BILLING_CHEQUE_RETURNED':
+            return `Cheque ${after.cheque_number ?? '—'} from ${after.bank ?? '—'} for ${money(after.amount)} marked returned on ${after.returned_on ?? '—'}${event.reason ? ` (${event.reason})` : ''}; the amount is owed again`;
         case 'BILLING_EXPORTED':
+            if (after.report === 'balance') {
+                return `Cheques balance exported as CSV (still owed ${money(after.owed_amount)})`;
+            }
+            if (after.report === 'cheques') {
+                return `Cheque list exported as CSV (${after.cheque_count ?? 0} cheques)`;
+            }
             return `Billing ${after.run_number ? `run ${after.run_number}` : `statement for ${after.from ?? '—'} to ${after.to ?? '—'}`} exported as CSV (total due ${money(after.net_amount)})`;
         case 'MENU_DISH_CREATED':
             return `Dish "${after.name ?? '—'}" created`;

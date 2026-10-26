@@ -2,6 +2,7 @@
 
 namespace Tests\Database;
 
+use App\Domain\CutOff;
 use App\Models\MealOptionGroup;
 use App\Models\MenuGroup;
 use App\Models\Product;
@@ -377,6 +378,40 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $this->assertSame(2, (int) DB::table('billing_run_counters')->where('store_id', $w['storeId'])->value('last_number'));
     }
 
+    public function test_cheques_are_recorded_and_returned_by_the_restricted_role_and_only_the_return_columns_can_change(): void
+    {
+        $w = $this->worldUnderTheHardenedRole();
+        $created = $this->asUser($w['admin'])->postJson('/api/v1/employees', ['employee_type' => 'DIRECT', 'first_name' => 'Ana', 'last_name' => 'Reyes'])->assertStatus(201);
+        $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
+            'items' => [['product_id' => $w['product']->id, 'quantity' => '2']],
+            'payments' => [['method' => 'CREDIT', 'amount' => '200.00']],
+            'employee_id' => $created->json('id'),
+        ], $this->key())->assertStatus(201);
+        $period = CutOff::containing(now(), 'Asia/Manila')->startDate();
+        $today = now()->setTimezone('Asia/Manila')->toDateString();
+
+        // Recording writes the cheque and its allocation, and the party row lock (SELECT ... FOR UPDATE) needs UPDATE on billing_parties.
+        $cheque = $this->asUser($w['manager'])->postJson('/api/v1/billing-cheques', [
+            'cheque_number' => '0001', 'bank' => 'BDO', 'cheque_date' => $today, 'amount' => '150.00', 'received_on' => $today,
+            'allocations' => [['period_start' => $period, 'amount' => '150.00']],
+        ])->assertStatus(201);
+        $this->asUser($w['manager'])->getJson('/api/v1/billing/balance')->assertOk()->assertJsonPath('data.totals.owed_amount', '50.00');
+
+        foreach (['amount' => '1.00', 'cheque_number' => '9999', 'bank' => 'BPI', 'cheque_date' => '2020-01-01', 'received_on' => '2020-01-01', 'notes' => 'x', 'store_id' => $w['storeId'], 'received_by' => $w['manager']->id] as $column => $value) {
+            $this->assertTrue($this->refuses(fn () => DB::table('billing_cheques')->update([$column => $value])), "{$column} of a cheque must not be updatable");
+        }
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_cheques')->delete()), 'a cheque must not be deletable');
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_cheque_allocations')->update(['amount' => '1.00'])), 'an allocation must not be updatable');
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_cheque_allocations')->update(['period_start' => '2020-01-01'])), 'the period of an allocation is fixed');
+        $this->assertTrue($this->refuses(fn () => DB::table('billing_cheque_allocations')->delete()), 'an allocation must not be deletable');
+
+        // Returning takes the row lock and writes exactly the return columns; the allocations are kept.
+        $this->asUser($w['manager'])->postJson('/api/v1/billing-cheques/'.$cheque->json('data.id').'/return', ['returned_on' => $today, 'reason' => 'Insufficient funds'])->assertOk()->assertJsonPath('data.status', 'RETURNED');
+        $this->asUser($w['manager'])->getJson('/api/v1/billing/balance')->assertOk()->assertJsonPath('data.totals.owed_amount', '200.00');
+        $this->assertSame(1, DB::table('billing_cheque_allocations')->count());
+        $this->assertSame(['billing_cheque', 'billing_cheque'], DB::table('audit_events')->whereIn('event_type', ['BILLING_CHEQUE_RECORDED', 'BILLING_CHEQUE_RETURNED'])->pluck('entity_type')->all());
+    }
+
     public function test_credit_sales_void_and_refund_work_as_the_restricted_role_and_the_ledger_is_append_only(): void
     {
         $w = $this->worldUnderTheHardenedRole();
@@ -457,7 +492,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
             ->orderBy('table_name')->pluck('table_name')->all();
 
         $this->assertSame(['cache', 'cache_locks', 'product_barcodes', 'sessions', 'stock_count_lines'], $deletable);
-        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries', 'billing_runs', 'billing_run_counters'] as $table) {
+        foreach (['sales', 'sale_items', 'payments', 'invoices', 'audit_events', 'electronic_journal_entries', 'stock_movements', 'x_readings', 'z_readings', 'refunds', 'voids', 'menu_groups', 'menu_prices', 'dish_categories', 'dishes', 'meals', 'meal_option_groups', 'meal_options', 'sale_item_selections', 'sale_slips', 'slip_counters', 'employees', 'employee_code_sequences', 'credit_policies', 'billing_parties', 'employee_credit_entries', 'billing_runs', 'billing_run_counters', 'billing_cheques', 'billing_cheque_allocations'] as $table) {
             $this->assertNotContains($table, $deletable, "{$table} must stay undeletable");
         }
     }

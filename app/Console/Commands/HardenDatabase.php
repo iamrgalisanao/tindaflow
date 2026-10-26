@@ -125,6 +125,11 @@ class HardenDatabase extends Command
             'billing_runs must refuse DELETE' => "select not has_table_privilege('{$role}', 'billing_runs', 'DELETE')",
             'billing_runs must allow INSERT (a run is saved in one transaction with its number)' => "select has_table_privilege('{$role}', 'billing_runs', 'INSERT')",
             'billing_run_counters must allow UPDATE of the running number only and refuse DELETE' => "select has_column_privilege('{$role}', 'billing_run_counters', 'last_number', 'UPDATE') and not has_column_privilege('{$role}', 'billing_run_counters', 'store_id', 'UPDATE') and has_table_privilege('{$role}', 'billing_run_counters', 'INSERT') and not has_table_privilege('{$role}', 'billing_run_counters', 'DELETE')",
+            'billing_cheques must allow UPDATE of the return columns only (a recorded cheque is never edited; it can only be marked returned) and refuse DELETE' => "select bool_and(has_column_privilege('{$role}', 'billing_cheques', c, 'UPDATE')) and has_table_privilege('{$role}', 'billing_cheques', 'INSERT') and not has_table_privilege('{$role}', 'billing_cheques', 'DELETE') from unnest(array['status','returned_on','returned_at','returned_by','return_reason']) as c",
+            'billing_cheques must refuse UPDATE of the amount, number, bank, dates, party and receiver' => "select bool_and(not has_column_privilege('{$role}', 'billing_cheques', c, 'UPDATE')) from unnest(array['amount','cheque_number','bank','cheque_date','received_on','received_by','billing_party_id','store_id','notes']) as c",
+            'billing_cheque_allocations must refuse UPDATE (the periods a cheque pays are fixed; a returned cheque keeps them)' => "select not has_table_privilege('{$role}', 'billing_cheque_allocations', 'UPDATE')",
+            'billing_cheque_allocations must refuse DELETE' => "select not has_table_privilege('{$role}', 'billing_cheque_allocations', 'DELETE')",
+            'billing_cheque_allocations must allow INSERT (written in the transaction that records the cheque)' => "select has_table_privilege('{$role}', 'billing_cheque_allocations', 'INSERT')",
             'sales must allow UPDATE of the status (void and refund)' => "select has_column_privilege('{$role}', 'sales', 'status', 'UPDATE')",
         ];
 

@@ -35,6 +35,7 @@ const EMPLOYEE_NAV = [
 const BILLING_NAV = [
     { to: '/admin/billing', label: 'Statement' },
     { to: '/admin/billing/runs', label: 'Billing runs' },
+    { to: '/admin/billing/cheques', label: 'Cheques and balance' },
 ];
 
 const SALES_NAV = [

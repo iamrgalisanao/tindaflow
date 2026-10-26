@@ -684,11 +684,11 @@ applied, so every row below is fully specified.**
 **The global order, most-coarse to most-specific:**
 
 ```
-shift  →  fiscal_day  →  employee  →  override_grant  →  sale  →  sale_item (ascending id/line_number)  →  invoice_series  →  slip_counter
+shift  →  fiscal_day  →  employee  →  override_grant  →  sale  →  sale_item (ascending id/line_number)  →  invoice_series  →  slip_counter  →  billing_party  →  billing_cheque
 ```
 
 (`employee` was inserted at position 2 by ADR-016 slice 3.2, 2026-10-26; `slip_counter` was appended by slice 2.2a. In code:
-`LockableResource` Shift 0, FiscalDay 1, **Employee 2**, **OverrideGrant 3** (ADR-016 slice 3.3, 2026-10-26: the supervisor grant a credit sale consumes, taken `FOR UPDATE` only when the charge exceeds the limit, after the employee and before the sale exists), Sale 4, SaleItem 5, InvoiceSeries 6, SlipCounter 7.)
+`LockableResource` Shift 0, FiscalDay 1, **Employee 2**, **OverrideGrant 3** (ADR-016 slice 3.3, 2026-10-26: the supervisor grant a credit sale consumes, taken `FOR UPDATE` only when the charge exceeds the limit, after the employee and before the sale exists), Sale 4, SaleItem 5, InvoiceSeries 6, SlipCounter 7, **BillingParty 8** and **BillingCheque 9** (ADR-016 slice 4.2, 2026-10-26: the billing party row `FOR UPDATE` that serialises recording or returning a cheque, then the cheque row of a return; no other operation takes either, so no existing order changes).)
 
 Every operation acquires a **subset** of this list, always in this
 relative order (an operation may skip a level it doesn't need, but never

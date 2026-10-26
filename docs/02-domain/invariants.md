@@ -619,8 +619,26 @@ applying to the business day in slip mode.
     lines, the menu-group path snapshot for a plain product in a group, otherwise "Other items"; Item = the chosen dishes joined with " + ", the
     add-on label (its own row, counted as an item) or the product name. Amounts are `sale_items.net_line_amount` (DISC-006: they add up to the
     charge); a void reverses every line, a refund the `refund_items` it recorded. Tests: `BillingStatementHttpTest`.
-95. **BILL-002 — cheques only reduce what is owed.** `billing_cheque_allocation` rows are append-only, their sum per cheque never exceeds the
-    cheque amount, and recording a cheque never creates a `cash_movement` or touches a shift.
+95. **BILL-002 — cheques only reduce what is owed, and never more than is owed.** A `billing_cheque` is allocated IN FULL to one or more real
+    cut-off periods (`billing_cheque_allocation`: append-only, positive, one row per cheque and period, the periods starting on the 1st or the
+    16th), the allocations add up to the cheque amount exactly (no "on account" balance), and each allocation is at most what its period owes at
+    the moment of recording (billed minus the allocations of RECEIVED cheques), checked under a row lock on the billing party so concurrent
+    cheques cannot over-allocate. Recording a cheque never creates a `cash_movement`, a sale, a payment, a ledger entry, a journal entry or a
+    reading, and never touches a shift or expected cash.
+    *Built in slice 4.2 (2026-10-26):* `BillingChequeRequest` (shape, sum, real cut-off starts, no duplicate period), `BillingChequeService::record`
+    (party lock, owed check via `BillingBalanceService::owedFor`, one transaction with the audit event), tables with `CHECK (amount > 0)`.
+    Tests: `BillingChequeHttpTest`, `BillingChequeConcurrencyTest` (real processes), `AppendOnlyPrivilegesTest`.
+    BILL-006 — **owed is derived.** Per cut-off period owed = billed - received, where billed = SUM(CHARGE) - SUM(REVERSAL) of the party's ledger
+    entries with that `period_start` (the figure the statement of the same cut-off shows) and received = the allocations of cheques that are not
+    RETURNED; nothing stores a balance. A void or refund recorded after a cheque lowers billed, so a period can become OVERPAID (owed < 0): it is
+    shown as a credit to the party and never clamped or netted against other periods. "As of" ignores ledger entries and cheques recorded after the
+    instant and counts a cheque returned only after it as received. Tests: `BillingChequeHttpTest`.
+    BILL-007 — **a returned cheque reinstates the amount, once and for good.** `billing_cheques` is a lifecycle table: a recorded cheque is never
+    edited or deleted; its only change is RECEIVED -> RETURNED with the reason, date, actor and instant, which makes its allocations stop counting
+    (they are kept). A second return is refused (`CHEQUE_ALREADY_RETURNED`), a returned cheque is never un-returned, and a re-presented cheque is a
+    new row; a second RECEIVED cheque with the same bank and number is refused (`CHEQUE_DUPLICATE`). The application role may UPDATE only
+    `status`, `returned_on`, `returned_at`, `returned_by`, `return_reason`. Tests: `BillingChequeHttpTest`, `BillingChequeConcurrencyTest`,
+    `AppendOnlyPrivilegesTest`.
 96. **SLIP-001 — one document per sale, in the store's mode.** A sale has exactly one of an `invoice` or a `sale_slip`, matching `sale.document_mode`.
     A slip sale never consumes an invoice number; a slip number is a per-terminal running integer allocated in the finalize transaction (no gap
     from a rolled-back sale), formatted so it cannot be mistaken for an invoice number. The store's `sale_document_mode` changes only under

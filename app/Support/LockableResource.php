@@ -21,6 +21,11 @@ enum LockableResource: string
     case InvoiceSeries = 'invoice_series';
     // ADR-016 slice 2.2a: a terminal's slip counter row (SLIP mode only). Taken last; an operation never takes it together with InvoiceSeries.
     case SlipCounter = 'slip_counter';
+    // ADR-016 slice 4.2: the billing party row (FOR UPDATE) that serialises recording or returning a cheque, so two cheques cannot over-allocate a period.
+    // A cheque operation takes no other lock, so it sits last; it never runs inside a sale.
+    case BillingParty = 'billing_party';
+    // ADR-016 slice 4.2: the cheque row a return changes, taken after the party.
+    case BillingCheque = 'billing_cheque';
 
     public function order(): int
     {
@@ -33,6 +38,8 @@ enum LockableResource: string
             self::SaleItem => 5,
             self::InvoiceSeries => 6,
             self::SlipCounter => 7,
+            self::BillingParty => 8,
+            self::BillingCheque => 9,
         };
     }
 }

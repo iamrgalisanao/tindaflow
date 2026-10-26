@@ -2294,6 +2294,127 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  # ----------------------------------------------------------- Cheques against what is owed (ADR-016 section 8, slice 4.2)
+  /billing/balance:
+    get:
+      operationId: billingBalanceGet
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'What the billing party (TSC) owes per cut-off period, derived and never stored: billed (the credit ledger''s CHARGE minus REVERSAL, the figure the billing statement of the same cut-off shows) minus received (the allocations of cheques that have not been returned). A period paid more than it now owes (a refund arrived after the cheque) is OVERPAID with a NEGATIVE owed amount, shown as a credit and never netted against other periods; `totals.owed_amount` adds the periods that owe, `totals.credit_amount` the credit. `as_of` reproduces a past balance. `Accept: text/csv` returns the CSV and records BILLING_EXPORTED (report = balance). MANAGER and ADMIN; a cashier gets 403.'
+      parameters:
+      - {name: as_of, in: query, schema: {type: string, format: date-time}, description: 'Ignore ledger entries and cheques recorded after this instant, and count a cheque as received if it was returned only after it. Default: now.'}
+      responses:
+        '200':
+          description: The balance (JSON), or the CSV when Accept is text/csv
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/BillingBalance'}
+            text/csv:
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /billing-cheques:
+    get:
+      operationId: billingChequeList
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'Cheques received, newest first, each with the periods it pays. `status` filters. `Accept: text/csv` returns every matching cheque as CSV (csv-export-contract.md) and records BILLING_EXPORTED (report = cheques).'
+      parameters:
+      - {name: status, in: query, schema: {type: string, enum: [RECEIVED, RETURNED]}}
+      - {$ref: '#/components/parameters/PageParam'}
+      - {$ref: '#/components/parameters/PerPageParam'}
+      responses:
+        '200':
+          description: Paginated cheques (JSON), or the CSV when Accept is text/csv
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/PaginatedResponse'}
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items: {$ref: '#/components/schemas/BillingCheque'}
+            text/csv:
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+    post:
+      operationId: billingChequeRecord
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'Records a cheque received from the billing party against the cut-off periods it pays (BILL-002). The allocations must add up to the cheque amount exactly (no "on account" balance), each period listed once and starting on the 1st or 16th, and each at most what that period currently owes; the check runs under a lock on the billing party, so two cheques cannot over-allocate. A cheque is not a sale or a payment and never touches a shift, the cash drawer or a reading. No Idempotency-Key (a back-office action has no terminal): a repeat of the same bank and number is CHEQUE_DUPLICATE (409). Audit BILLING_CHEQUE_RECORDED. MANAGER and ADMIN.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BillingChequeRequest'}
+      responses:
+        '201':
+          description: The recorded cheque
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/BillingCheque'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}  # CHEQUE_DUPLICATE or CHEQUE_ALLOCATION_EXCEEDS_OWED (details name the period, what it owes and what was allocated); nothing is recorded
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /billing-cheques/{chequeId}:
+    get:
+      operationId: billingChequeGet
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'One cheque with its allocations. Another store''s cheque is CHEQUE_NOT_FOUND (404).'
+      parameters:
+      - {name: chequeId, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: The cheque
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/BillingCheque'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /billing-cheques/{chequeId}/return:
+    post:
+      operationId: billingChequeReturn
+      tags: [Billing]
+      x-capability: BILLING_MANAGE
+      summary: 'Marks a cheque RETURNED (it bounced): it stops counting as received and the amounts it paid are owed again, by derivation (nothing else is written). Final: a second attempt is CHEQUE_ALREADY_RETURNED (409), and a cheque the bank pays later is recorded as a NEW cheque. Requires a reason and the date returned (not in the future). Audit BILLING_CHEQUE_RETURNED with the reason. No Idempotency-Key (the status change is one-way, so a retry is refused clearly).'
+      parameters:
+      - {name: chequeId, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BillingChequeReturnRequest'}
+      responses:
+        '200':
+          description: The cheque, now RETURNED
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/BillingCheque'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
   /credit-override-approvers:
     get:
       operationId: creditOverrideApproverList
@@ -5082,6 +5203,85 @@ components:
         properties:
           statement_intact: {type: boolean}
           statement: {$ref: '#/components/schemas/BillingStatement'}
+    BillingCheque:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        cheque_number: {type: string, example: '0012345', description: 'Trimmed and upper-cased.'}
+        bank: {type: string, example: BDO}
+        cheque_date: {type: string, format: date, description: 'The date written on the cheque; may be post-dated, up to a year from received_on.'}
+        amount: {$ref: '#/components/schemas/Money'}
+        received_on: {type: string, format: date}
+        received_by: {type: object, properties: {id: {type: string, format: uuid}, name: {type: [string, 'null']}}}
+        status: {type: string, enum: [RECEIVED, RETURNED]}
+        returned_on: {type: [string, 'null'], format: date}
+        returned_at: {type: [string, 'null'], format: date-time}
+        returned_by: {type: [object, 'null'], properties: {id: {type: string, format: uuid}, name: {type: [string, 'null']}}}
+        return_reason: {type: [string, 'null']}
+        notes: {type: [string, 'null']}
+        created_at: {type: string, format: date-time}
+        allocations:
+          type: array
+          description: 'The cut-off periods this cheque pays; they add up to `amount`. A returned cheque keeps them (RETURNED is what stops them counting).'
+          items: {type: object, properties: {period_start: {type: string, format: date}, period_end: {type: string, format: date}, amount: {$ref: '#/components/schemas/Money'}}}
+    BillingChequeRequest:
+      type: object
+      required: [cheque_number, bank, cheque_date, amount, received_on, allocations]
+      properties:
+        cheque_number: {type: string, maxLength: 40, pattern: '^[A-Za-z0-9][A-Za-z0-9 \-/]*$'}
+        bank: {type: string, minLength: 2, maxLength: 80}
+        cheque_date: {type: string, format: date}
+        amount: {$ref: '#/components/schemas/Money'}
+        received_on: {type: string, format: date, description: 'Manila calendar date, not in the future.'}
+        notes: {type: [string, 'null'], maxLength: 500}
+        allocations:
+          type: array
+          minItems: 1
+          maxItems: 36
+          items:
+            type: object
+            required: [period_start, amount]
+            properties:
+              period_start: {type: string, format: date, description: 'The 1st or the 16th of a month; each period once.'}
+              amount: {$ref: '#/components/schemas/Money'}
+    BillingChequeReturnRequest:
+      type: object
+      required: [returned_on, reason]
+      properties:
+        returned_on: {type: string, format: date, description: 'Manila calendar date, not in the future.'}
+        reason: {type: string, minLength: 3, maxLength: 255}
+    BillingBalance:
+      type: object
+      properties:
+        party: {type: object, properties: {id: {type: string, format: uuid}, name: {type: string}}}
+        as_of: {type: string, format: date-time}
+        periods:
+          type: array
+          description: 'Newest period first.'
+          items:
+            type: object
+            properties:
+              period_start: {type: string, format: date}
+              period_end: {type: string, format: date}
+              period_label: {type: string, example: 'Oct 1-15, 2026'}
+              charged_amount: {$ref: '#/components/schemas/Money'}
+              reversed_amount: {$ref: '#/components/schemas/Money'}
+              billed_amount: {$ref: '#/components/schemas/Money'}
+              received_amount: {$ref: '#/components/schemas/Money'}
+              returned_cheques_amount: {$ref: '#/components/schemas/Money'}
+              owed_amount: {type: string, description: 'billed - received; NEGATIVE when the period was paid more than it now owes.'}
+              status: {type: string, enum: [OPEN, PARTLY_PAID, PAID, OVERPAID, NO_CHARGES]}
+              cheques: {type: array, items: {type: object, properties: {cheque_id: {type: string, format: uuid}, cheque_number: {type: string}, bank: {type: string}, received_on: {type: string, format: date}, amount: {$ref: '#/components/schemas/Money'}, status: {type: string, enum: [RECEIVED, RETURNED]}}}}
+        totals:
+          type: object
+          properties:
+            billed_amount: {$ref: '#/components/schemas/Money'}
+            received_amount: {$ref: '#/components/schemas/Money'}
+            owed_amount: {$ref: '#/components/schemas/Money'}
+            credit_amount: {$ref: '#/components/schemas/Money'}
+            returned_cheques_amount: {$ref: '#/components/schemas/Money'}
+            period_count: {type: integer}
+            open_period_count: {type: integer}
     EmployeeCreditLookupResult:
       description: 'EmployeeLookupResult plus the credit status of the CURRENT cut-off (1st-15th, or 16th to the end of the month, in the store''s timezone).'
       allOf:

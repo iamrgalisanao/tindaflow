@@ -27,6 +27,27 @@ final class CutOff
             : new self($local->day(16), $local->endOfMonth()->startOfDay());
     }
 
+    /** The period that STARTS on $date ("YYYY-MM-DD", the 1st or the 16th), or null when $date is not the first day of a cut-off period. */
+    public static function startingOn(string $date, string $timezone): ?self
+    {
+        if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return null;
+        }
+        $parsed = CarbonImmutable::createFromFormat('!Y-m-d', $date, $timezone);
+        if ($parsed === false || $parsed->format('Y-m-d') !== $date) {
+            return null;
+        }
+        $period = self::containing($parsed, $timezone);
+
+        return $period->startDate() === $date ? $period : null;
+    }
+
+    /** "Oct 1-15, 2026" / "Oct 16-31, 2026". */
+    public function label(): string
+    {
+        return $this->start->format('M').' '.$this->start->day.'-'.$this->end->day.', '.$this->start->year;
+    }
+
     /** The first date of the period, "YYYY-MM-DD". */
     public function startDate(): string
     {

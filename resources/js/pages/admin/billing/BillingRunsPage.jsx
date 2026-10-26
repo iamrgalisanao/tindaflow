@@ -92,9 +92,14 @@ export default function BillingRunsPage() {
                         The statements that were saved, exactly as they were when saved. A run is never changed; saving the same period again makes a new run and shows what is different.
                     </p>
                 </div>
-                <Link to="/admin/billing" className="flex min-h-11 items-center self-start rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 lg:min-h-0">
-                    New statement
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                    <Link to="/admin/billing/cheques" className="flex min-h-11 items-center self-start rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 lg:min-h-0">
+                        Cheques and balance
+                    </Link>
+                    <Link to="/admin/billing" className="flex min-h-11 items-center self-start rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 lg:min-h-0">
+                        New statement
+                    </Link>
+                </div>
             </div>
 
             {failureText && <ErrorAlert message={failureText} onSignIn={failure.status === 401 ? signIn : undefined} onRetry={failure.status === 401 ? undefined : load} />}

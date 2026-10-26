@@ -41,6 +41,16 @@ final class BillingAuditor
         $this->write($actor, 'BILLING_EXPORTED', $run === null ? 'billing_statement' : 'billing_run', $run?->id, $after);
     }
 
+    /**
+     * The cheque list or the balance by period was exported (slice 4.2). `report` is `cheques` or `balance`.
+     *
+     * @param  array<string, mixed>  $details
+     */
+    public function chequeReportExported(User $actor, string $report, array $details): void
+    {
+        $this->write($actor, 'BILLING_EXPORTED', 'billing_'.$report, null, ['format' => 'csv', 'report' => $report] + $details);
+    }
+
     /** @return array<string, mixed> */
     private function summary(BillingRun $run): array
     {

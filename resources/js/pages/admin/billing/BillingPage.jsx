@@ -180,9 +180,14 @@ export default function BillingPage() {
                         at any date and it shows what changed. Nothing is saved until you press Save as billing run.
                     </p>
                 </div>
-                <Link to="/admin/billing/runs" className="flex min-h-11 items-center self-start rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 lg:min-h-0">
-                    Billing runs
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                    <Link to="/admin/billing/runs" className="flex min-h-11 items-center self-start rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 lg:min-h-0">
+                        Billing runs
+                    </Link>
+                    <Link to="/admin/billing/cheques" className="flex min-h-11 items-center self-start rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 lg:min-h-0">
+                        Cheques and balance
+                    </Link>
+                </div>
             </div>
 
             <form onSubmit={generate} noValidate className="mb-6 space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-4" aria-label="Billing statement options">

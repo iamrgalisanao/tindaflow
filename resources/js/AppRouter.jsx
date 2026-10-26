@@ -18,6 +18,7 @@ import ProductsPage from './pages/admin/catalog/ProductsPage';
 import CatalogNamesPage from './pages/admin/catalog/CatalogNamesPage';
 import MenuGroupsPage from './pages/admin/catalog/MenuGroupsPage';
 import BillingPage from './pages/admin/billing/BillingPage';
+import ChequesPage from './pages/admin/billing/ChequesPage';
 import BillingRunPage from './pages/admin/billing/BillingRunPage';
 import BillingRunsPage from './pages/admin/billing/BillingRunsPage';
 import EmployeeCardsPage from './pages/admin/employees/EmployeeCardsPage';
@@ -208,6 +209,14 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <BillingPage />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/billing/cheques"
+                    element={
+                        <RequireAuth>
+                            <ChequesPage />
                         </RequireAuth>
                     }
                 />

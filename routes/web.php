@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuditEventController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BillingChequeController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
@@ -337,6 +338,12 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         Route::get('/billing-runs', [BillingController::class, 'runList']);
         Route::post('/billing-runs', [BillingController::class, 'runCreate']);
         Route::get('/billing-runs/{runId}', [BillingController::class, 'runGet'])->whereUuid('runId');
+        // Slice 4.2: cheques against what is owed. No Idempotency-Key (the back office has no terminal); a repeated cheque is a 409.
+        Route::get('/billing/balance', [BillingChequeController::class, 'balance']);
+        Route::get('/billing-cheques', [BillingChequeController::class, 'index']);
+        Route::post('/billing-cheques', [BillingChequeController::class, 'store']);
+        Route::get('/billing-cheques/{chequeId}', [BillingChequeController::class, 'show'])->whereUuid('chequeId');
+        Route::post('/billing-cheques/{chequeId}/return', [BillingChequeController::class, 'markReturned'])->whereUuid('chequeId');
     });
 
     // Meal menu configuration (ADR-016, slice 1.2): dish categories, dishes, meals, option groups, options and prices. Every

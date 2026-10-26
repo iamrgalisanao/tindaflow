@@ -360,6 +360,13 @@ Tag `Billing`. **`BILLING_MANAGE` is held by MANAGER and ADMIN, never CASHIER** 
 | GET | /billing-runs | billingRunList | session | false | `BILLING_MANAGE` | no | `page`, `per_page` | 200 Paginated BillingRun (no statement) | 403 |
 | POST | /billing-runs | billingRunCreate | session | false | `BILLING_MANAGE` | no | as billingStatementGet, in the body | 201 `{data: BillingRunWithStatement}` | 403, 422, `BILLING_RECONCILIATION_FAILED` (500) |
 | GET | /billing-runs/{runId} | billingRunGet | session | false | `BILLING_MANAGE` | no | — | 200 `{data: BillingRunWithStatement}` (`statement_intact`) or CSV | 403, `BILLING_RUN_NOT_FOUND` (404, also another store's) |
+| GET | /billing/balance | billingBalanceGet | session | false | `BILLING_MANAGE` | no | `as_of?` | 200 `{data: BillingBalance}` (or CSV) | 403, 422 |
+| GET | /billing-cheques | billingChequeList | session | false | `BILLING_MANAGE` | no | `status?`, `page`, `per_page` | 200 Paginated BillingCheque (or CSV) | 403, 422 |
+| POST | /billing-cheques | billingChequeRecord | session | false | `BILLING_MANAGE` | no (see below) | `cheque_number`, `bank`, `cheque_date`, `amount`, `received_on`, `notes?`, `allocations[{period_start, amount}]` | 201 `{data: BillingCheque}` | 403, 422, `CHEQUE_DUPLICATE` (409), `CHEQUE_ALLOCATION_EXCEEDS_OWED` (409) |
+| GET | /billing-cheques/{chequeId} | billingChequeGet | session | false | `BILLING_MANAGE` | no | — | 200 `{data: BillingCheque}` | 403, `CHEQUE_NOT_FOUND` (404, also another store's) |
+| POST | /billing-cheques/{chequeId}/return | billingChequeReturn | session | false | `BILLING_MANAGE` | no (see below) | `returned_on`, `reason` | 200 `{data: BillingCheque}` | 403, 422, `CHEQUE_NOT_FOUND` (404), `CHEQUE_ALREADY_RETURNED` (409) |
+
+**Cheques against what is owed (slice 4.2, 2026-10-26).** The owed amount per cut-off period is DERIVED: billed (the credit ledger's CHARGE minus REVERSAL for the period, the figure the 4.1 statement reconciles with) minus the allocations of cheques that are not RETURNED. A cheque is allocated in full to one or more real cut-off periods (the 1st or the 16th is the `period_start`), each at most what the period currently owes, checked under a lock on the billing party; it is never a cash movement and never touches a shift. A period paid more than it now owes (a refund arrived after the cheque) is `OVERPAID` with a negative owed amount, shown as a credit. **No `Idempotency-Key` on the two cheque POSTs** (deviation from the plan's "two operation types added to `IdempotencyOperationType`"): the idempotency records are keyed by terminal and a back-office action has none; the unique RECEIVED bank + number (`CHEQUE_DUPLICATE`) and the one-way RECEIVED -> RETURNED (`CHEQUE_ALREADY_RETURNED`) refuse a repeat with a clear 409, which is a stronger guard than replaying a stored response. Audit events: `BILLING_CHEQUE_RECORDED`, `BILLING_CHEQUE_RETURNED`; the two CSV exports write `BILLING_EXPORTED` with `report` = `balance` | `cheques`.
 
 ## Shifts (8)
 
@@ -669,7 +676,7 @@ ran the reverse check too:
 | `FISCAL_CONFIGURATION_MANAGE` | 4 fiscal-configuration operations, plus `saleDocumentModeSet` (ADR-016) |
 | `EMPLOYEE_MANAGE` | 8 operations: `employeeList`, `employeeCreate`, `employeeIdCards`, `employeeGet`, `employeeUpdate`, `employeeActivate`, `employeeDeactivate`, `creditPolicyList` (ADR-016 slice 3.1; ADMIN and MANAGER from 2026-10-26). `employeeLookup` needs only the session |
 | `EMPLOYEE_POLICY_MANAGE` | 2 operations: `employeeImport`, `creditPolicySetLimit` (ADR-016 amendment 2026-10-26; ADMIN only) |
-| `BILLING_MANAGE` | 4 operations: `billingStatementGet`, `billingRunList`, `billingRunCreate`, `billingRunGet` (ADR-016 slice 4.1; MANAGER and ADMIN) |
+| `BILLING_MANAGE` | 9 operations: `billingStatementGet`, `billingRunList`, `billingRunCreate`, `billingRunGet` (ADR-016 slice 4.1), `billingBalanceGet`, `billingChequeList`, `billingChequeRecord`, `billingChequeGet`, `billingChequeReturn` (slice 4.2); MANAGER and ADMIN |
 
 Three capabilities show "(none directly)" for a documented reason, not an
 oversight — see api-design.md §4 for why a capability that only gates

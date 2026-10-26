@@ -72,6 +72,40 @@ final class CreditLedger
     }
 
     /**
+     * What a billing party was billed per cut-off period, as the ledger stood at $asOf: for each `period_start` the CHARGE total, the
+     * REVERSAL total (voids and refunds, which carry their ORIGINAL charge's period) and their `period_end`. This is the same figure
+     * usedIn() gives per employee, summed over the party; billing cheques (BILL-002) derive what is owed from it, and a statement for
+     * a named cut-off reconciles with it (BILL-001). Pass $only to read just those period starts.
+     *
+     * @param  list<string>|null  $only
+     * @return array<string, array{period_start: string, period_end: string, charges: string, reversals: string}> keyed by period start
+     */
+    public function totalsByPeriod(string $storeId, string $billingPartyId, CarbonInterface $asOf, ?array $only = null): array
+    {
+        $rows = DB::table('employee_credit_entries')
+            ->where('store_id', $storeId)
+            ->where('billing_party_id', $billingPartyId)
+            ->where('recorded_at', '<=', $asOf->toIso8601String())
+            ->when($only !== null, fn ($query) => $query->whereIn('period_start', $only))
+            ->groupBy('period_start')
+            ->orderBy('period_start')
+            ->selectRaw("period_start, MAX(period_end) AS period_end, COALESCE(SUM(CASE WHEN entry_type = 'CHARGE' THEN amount ELSE 0 END), 0) AS charges, COALESCE(SUM(CASE WHEN entry_type = 'REVERSAL' THEN amount ELSE 0 END), 0) AS reversals")
+            ->get();
+
+        $totals = [];
+        foreach ($rows as $row) {
+            $totals[(string) $row->period_start] = [
+                'period_start' => (string) $row->period_start,
+                'period_end' => (string) $row->period_end,
+                'charges' => bcadd((string) $row->charges, '0', 2),
+                'reversals' => bcadd((string) $row->reversals, '0', 2),
+            ];
+        }
+
+        return $totals;
+    }
+
+    /**
      * The limit, what is used and what remains for the cut-off containing $at (the figures the till shows). remaining can be negative if a
      * limit was lowered below what is already used.
      *

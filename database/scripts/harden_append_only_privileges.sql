@@ -94,8 +94,18 @@ REVOKE UPDATE ON
     user_override_codes,   -- ADR-016 slice 3.3: lifecycle -- UPDATE is revoked here and re-granted by column below (not user_id / store_id)
     credit_override_grants, -- ADR-016 slice 3.3, OVR-001: an approval of one over-limit sale; append-only except consumed_at (re-granted below)
     billing_runs,   -- ADR-016 slice 4.1, BILL-004: a saved billing run (a frozen statement); never changed, a re-run is a new row
-    billing_run_counters -- ADR-016 slice 4.1: lifecycle -- the run number counter; UPDATE is revoked here and re-granted by column below
+    billing_run_counters, -- ADR-016 slice 4.1: lifecycle -- the run number counter; UPDATE is revoked here and re-granted by column below
+    billing_cheques,      -- ADR-016 slice 4.2, BILL-002: lifecycle -- UPDATE is revoked here and re-granted by column below (the return columns only)
+    billing_cheque_allocations -- ADR-016 slice 4.2, BILL-002: which cut-off periods a cheque pays; append-only
 FROM tindaflow_app;
+
+-- billing_cheques (slice 4.2) is a lifecycle table whose ONLY change is RECEIVED -> RETURNED (a bounced cheque), never deleted (the
+-- store-wide REVOKE DELETE). The UPDATE is narrowed to exactly the five columns that change stamps, so the application role cannot alter
+-- the amount, number, bank, dates, party or receiver of a recorded cheque whatever a bug or a stray query tries. The row lock a return
+-- takes (SELECT ... FOR UPDATE) needs UPDATE on at least one column, which this grant provides. The reverse change, RETURNED back to
+-- RECEIVED, is refused by the service (a re-presented cheque is a new row); the database role could write it, so that rule is the
+-- service's and its test's, as with consumed_at on override grants.
+GRANT UPDATE (status, returned_on, returned_at, returned_by, return_reason) ON billing_cheques TO tindaflow_app;
 
 -- billing_run_counters is the last billing run number of each store. The transaction that saves a run bumps `last_number` (and stamps
 -- `updated_at`) and inserts a store's first row; nothing else about a counter changes. Never deleted (the store-wide REVOKE DELETE). A run
