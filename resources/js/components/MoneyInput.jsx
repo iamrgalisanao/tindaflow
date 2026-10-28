@@ -13,7 +13,8 @@ export default function MoneyInput({ value, onChange, onBlur, symbol = true, ...
     const [typed, setTyped] = useState(() => parseTyped(value));
 
     // The screen can set the amount itself (a quick-cash button, a reset): follow it, but not while it only echoes what was typed.
-    if (canonicalMoney(typed) !== String(value ?? '')) {
+    // A dangling dot ('5.', from the keypad) is part of what the cashier sees, though not of the amount.
+    if (canonicalMoney(typed) !== canonicalMoney(value) || (String(value ?? '').endsWith('.') && !typed.endsWith('.'))) {
         setTyped(parseTyped(value));
     }
 

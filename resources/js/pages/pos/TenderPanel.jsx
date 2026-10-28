@@ -5,6 +5,7 @@ import { mealDetailLines } from './mealMenu';
 
 const METHOD_LABELS = { CASH: 'Cash', GCASH: 'GCash', MAYA: 'Maya', CARD: 'Card', OTHER: 'Other' };
 const QUICK_CASH = [20, 50, 100, 200, 500, 1000];
+const MAX_CENTS = 10n ** 12n; // the keypad's limit of ten whole digits
 const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '00', '.'];
 
 /**
@@ -27,40 +28,65 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
     const enough = everyRowValid && tenderedCents >= totalCents;
     const difference = payments.some((row) => rowCents(row) === null) ? null : tenderedCents - totalCents;
 
-    function updateRow(index, patch) {
-        onPayments((prior) => prior.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    /**
+     * Each row also carries `source`, where its amount came from, so the keypad and the quick-cash chips know what a tap means:
+     *  - 'prefill' (also a row with no source): the amount was filled in for the cashier (the exact total, a remainder, or
+     *    Exact). It counts as "nothing entered yet", so the first chip or key REPLACES it instead of adding to it.
+     *  - 'chips': built by tapping quick-cash chips, which ADD up (50 then 20 is 70). A key starts a new typed amount.
+     *  - 'typed': keys, backspace, Clear or the box itself. Keys append; a chip adds to what was typed.
+     * It is never sent to the server, which only reads method and amount.
+     */
+    function updateActive(change) {
+        onPayments((prior) => prior.map((row, i) => (i === activeIndex ? { ...row, ...change(row) } : row)));
     }
 
-    function setActiveAmount(updater) {
-        updateRow(activeIndex, { amount: typeof updater === 'function' ? updater(active.amount) : updater });
+    function setActiveAmount(amount) {
+        updateActive(() => ({ amount, source: 'typed' }));
     }
 
     function setActiveMethod(method) {
         // A single-row sale keeps the old behaviour exactly: any non-cash method is charged the whole total, no
         // typing needed. Once there is more than one row, an amount must be entered -- the total is already split.
-        const amount = payments.length === 1 && method !== 'CASH' ? moneyText(totalCents) : active.amount;
-        updateRow(activeIndex, { method, amount });
+        if (payments.length === 1 && method !== 'CASH') {
+            updateActive(() => ({ method, amount: moneyText(totalCents), source: 'prefill' }));
+            return;
+        }
+        updateActive(() => ({ method }));
+    }
+
+    function applyExact() {
+        const others = tenderedCents - (rowCents(active) ?? 0n);
+        updateActive(() => ({ amount: moneyText(totalCents - others), source: 'prefill' }));
     }
 
     // Functional updates, so two quick taps each build on the one before rather than on a stale value.
+    function addChip(value) {
+        updateActive((row) => {
+            const base = row.source === 'chips' || row.source === 'typed' ? (toCents(row.amount) ?? 0n) : 0n;
+            const sum = base + BigInt(value) * 100n;
+            return sum >= MAX_CENTS ? {} : { amount: moneyText(sum), source: 'chips' };
+        });
+    }
+
     function press(key) {
-        setActiveAmount((current) => {
+        updateActive((row) => {
+            const current = row.source === 'typed' ? row.amount : '';
             if (key === '.') {
-                return current.includes('.') ? current : current === '' ? '0.' : `${current}.`;
+                return { amount: current.includes('.') ? current : current === '' ? '0.' : `${current}.`, source: 'typed' };
             }
             const next = `${current}${key}`;
-            return /^\d{0,10}(\.\d{0,2})?$/.test(next) ? next.replace(/^0+(?=\d)/, '') : current;
+            return /^\d{0,10}(\.\d{0,2})?$/.test(next) ? { amount: next.replace(/^0+(?=\d)/, ''), source: 'typed' } : { amount: current, source: 'typed' };
         });
     }
 
     function backspace() {
-        setActiveAmount((current) => current.slice(0, -1));
+        updateActive((row) => ({ amount: row.amount.slice(0, -1), source: 'typed' }));
     }
 
     function addPayment() {
         const remaining = totalCents - tenderedCents;
         const nextIndex = payments.length;
-        onPayments((prior) => [...prior, { method: 'CASH', amount: remaining > 0n ? moneyText(remaining) : '' }]);
+        onPayments((prior) => [...prior, { method: 'CASH', amount: remaining > 0n ? moneyText(remaining) : '', source: 'prefill' }]);
         setActiveIndex(nextIndex);
     }
 
@@ -196,7 +222,7 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
                     <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                         <button
                             type="button"
-                            onClick={() => setActiveAmount(moneyText(totalCents - (tenderedCents - (rowCents(active) ?? 0n))))}
+                            onClick={applyExact}
                             className="col-span-4 min-h-12 rounded border border-emerald-500 bg-emerald-500/10 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 sm:col-span-1"
                         >
                             Exact
@@ -205,7 +231,7 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
                             <button
                                 key={value}
                                 type="button"
-                                onClick={() => setActiveAmount(`${value}.00`)}
+                                onClick={() => addChip(value)}
                                 className="min-h-12 rounded border border-slate-700 bg-slate-800 font-mono text-sm font-bold tabular-nums hover:bg-slate-700"
                             >
                                 ₱{value.toLocaleString('en-US')}
