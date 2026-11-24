@@ -3318,6 +3318,7 @@ paths:
       operationId: saleFinalize
       tags: [Sales]
       summary: Finalize a Sale (checkout) — the single most important operation
+      x-license-note: 'ADR-018: the 409 may also be LICENSE_NOT_ACTIVE with details.reason SHIFT_TOO_LONG, only when the open shift is more than 18 hours old on trusted time and the license is EXPIRED, LOCKED or NOT_ACTIVATED, and only when the certificate enforces. A replay of a completed request is never refused.'
       x-stock-note: 'ADR-017 slice A: when the store blocks sales without stock the 409 may be INSUFFICIENT_STOCK (details.shortfalls[] of every short line and details.override_available; not transient, the till does not retry it; a refused checkout stores no idempotency result, so the same key may be sent again once stock is entered or a stock_override_token is added).'
       description: 'A Sale does not exist before this call succeeds (Stage 2 §2.7: no persisted DRAFT). Terminal, cashier, shift, fiscal_day are resolved server-side and can never be overridden by the request body (architecture.md §5/§11, Stage 2 invariant #3/#4). Server recomputes every monetary/tax/discount figure via the FinancialCalculator (ADR-012) regardless of any client-submitted preview values. Credit (ADR-016 slice 3.2): `payments` may be ONE `{method: CREDIT, amount}` plus `employee_id`. CREDIT mixed with any other payment: CREDIT_MIXED_TENDER (422); CREDIT without employee_id, or employee_id without CREDIT: CREDIT_EMPLOYEE_REQUIRED (422); unknown or other-store employee: EMPLOYEE_NOT_FOUND (404); deactivated: EMPLOYEE_INACTIVE (409); over the limit for the sale''s cut-off period: CREDIT_LIMIT_EXCEEDED (409, details carry limit, used, remaining and requested). The recorded CREDIT amount is always the server''s grand total (an amount below it is INSUFFICIENT_PAYMENT).'
       security:
@@ -3745,7 +3746,7 @@ paths:
       operationId: shiftOpen
       tags: [Shifts]
       summary: Open a Shift
-      description: 'Terminal comes from enrolled terminal context; cashier from the authenticated user. If the terminal has no currently OPEN FiscalDay, one is opened atomically as part of this same transaction before the Shift (V1 operating policy — see api-design.md §"FiscalDay opening policy"; not a BIR statutory requirement). Fails with SHIFT_ALREADY_OPEN if this cashier or this terminal already has an open shift (Stage 2 invariants #33/#34).'
+      description: 'Terminal comes from enrolled terminal context; cashier from the authenticated user. If the terminal has no currently OPEN FiscalDay, one is opened atomically as part of this same transaction before the Shift (V1 operating policy — see api-design.md §"FiscalDay opening policy"; not a BIR statutory requirement). Fails with SHIFT_ALREADY_OPEN if this cashier or this terminal already has an open shift (Stage 2 invariants #33/#34). ADR-018: when the installation''s license enforces and is not ACTIVE or WARNING the answer is 409 LICENSE_NOT_ACTIVE (details.reason NOT_ACTIVATED, EXPIRED, CLOCK_ROLLBACK, FINGERPRINT_MISMATCH, REVOKED or CHAIN_INVALID); a replay of a completed Idempotency-Key still returns the original result.'
       security:
       - cookieAuth: []
         terminalCookieAuth: []
