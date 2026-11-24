@@ -91,6 +91,37 @@ services:
       start_period: 90s
     restart: unless-stopped
 
+  # ADR-018 decision 11: runs Laravel's scheduler, which keeps the license's trusted-time mark moving every minute and asks the provider
+  # for the next certificate every hour (routes/console.php). It first tries one renewal at start-up. Both are inert (they touch and send
+  # nothing) in a build with no vendor key or an installation that is not activated. Same image as `app`, as the restricted application role:
+  # the owner's credentials are blanked exactly as in `app`. Outbound HTTPS to the provider is the only network it needs beyond the database.
+  scheduler:
+    image: tindaflow-app:${TINDAFLOW_TAG:-latest}
+    env_file: .env
+    environment:
+      DB_OWNER_USERNAME: ""
+      DB_OWNER_PASSWORD: ""
+    # The entrypoint waits for the database and caches the configuration, then hands over to this. `;` not `&&`: a renewal that fails (no
+    # network, not activated) must never stop the scheduler from starting.
+    command: ["runuser", "-u", "www-data", "--", "sh", "-c", "php artisan tindaflow:license-renew; exec php artisan schedule:work"]
+    volumes:
+      - app-storage:/var/www/html/storage
+      # The same folder `app` reads the host helper's hardware.json from, read-only.
+      - ${TINDAFLOW_HOST_DIR:-./host}:/var/tindaflow-host:ro
+    depends_on:
+      # After the app is healthy, which is after `migrate` has built the tables the license commands read.
+      app:
+        condition: service_healthy
+    networks: [backend]
+    healthcheck:
+      # routes/console.php touches this file every minute; a stuck or dead scheduler stops touching it. Unhealthy after three minutes.
+      test: ["CMD-SHELL", "find /var/www/html/storage/framework/scheduler-alive -mmin -3 | grep -q ."]
+      interval: 60s
+      timeout: 10s
+      retries: 2
+      start_period: 150s
+    restart: unless-stopped
+
   postgres:
     image: postgres:17
     environment:
