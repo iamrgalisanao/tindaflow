@@ -2,6 +2,7 @@
 
 namespace Tests\Database;
 
+use App\Models\AuditEvent;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
@@ -79,18 +80,19 @@ class UsersHttpTest extends PostgresSchemaTestCase
         $this->assertNotSame('', User::findOrFail($response->json('id'))->password_hash);
     }
 
-    public function test_only_admins_hold_user_manage(): void
+    public function test_admins_and_managers_hold_user_manage_and_a_cashier_does_not(): void
     {
         $manager = User::factory()->manager()->create();
         $cashier = User::factory()->create();
 
         $this->postJson('/api/v1/users', $this->validInput())->assertStatus(401);
-        foreach ([$manager, $cashier] as $user) {
-            $this->asUser($user)->postJson('/api/v1/users', $this->validInput())
-                ->assertStatus(403)
-                ->assertJson(['error' => ['code' => 'AUTHORIZATION_DENIED']]);
-            $this->asUser($user)->getJson('/api/v1/users')->assertStatus(403);
-        }
+
+        $this->asUser($cashier)->postJson('/api/v1/users', $this->validInput())
+            ->assertStatus(403)
+            ->assertJson(['error' => ['code' => 'AUTHORIZATION_DENIED']]);
+        $this->asUser($cashier)->getJson('/api/v1/users')->assertStatus(403);
+
+        $this->asUser($manager)->getJson('/api/v1/users')->assertOk();
     }
 
     public function test_required_fields_role_and_password_shape_are_validated(): void
@@ -360,5 +362,69 @@ class UsersHttpTest extends PostgresSchemaTestCase
         }
         $this->assertTrue($foreign->refresh()->active);
         $this->assertTrue($admin->refresh()->active);
+    }
+
+    // ------------------------------------------- a manager's limits (ADR-018 decision 10, UserRolePolicy)
+
+    public function test_a_manager_can_create_cashiers_and_managers_but_never_an_administrator(): void
+    {
+        $manager = User::factory()->manager()->create();
+
+        $this->asUser($manager)->postJson('/api/v1/users', $this->validInput(['email' => 'c@example.com', 'role' => 'CASHIER']))->assertStatus(201);
+        $this->asUser($manager)->postJson('/api/v1/users', $this->validInput(['email' => 'm@example.com', 'role' => 'MANAGER']))->assertStatus(201);
+
+        $this->asUser($manager)->postJson('/api/v1/users', $this->validInput(['email' => 'a@example.com', 'role' => 'ADMIN']))
+            ->assertStatus(403)
+            ->assertJson(['error' => ['code' => 'AUTHORIZATION_DENIED']]);
+        $this->assertNull(User::where('email', 'a@example.com')->first());
+    }
+
+    public function test_a_manager_cannot_make_anyone_an_administrator_not_even_themselves(): void
+    {
+        $manager = User::factory()->manager()->create();
+        $cashier = User::factory()->create(['store_id' => $manager->store_id]);
+
+        $this->asUser($manager)->patchJson("/api/v1/users/{$cashier->id}", [
+            'name' => $cashier->name, 'email' => $cashier->email, 'role' => 'ADMIN',
+        ])->assertStatus(403);
+        $this->asUser($manager)->patchJson("/api/v1/users/{$manager->id}", [
+            'name' => $manager->name, 'email' => $manager->email, 'role' => 'ADMIN',
+        ])->assertStatus(403);
+
+        $this->assertSame('CASHIER', $cashier->refresh()->role);
+        $this->assertSame('MANAGER', $manager->refresh()->role);
+        $this->assertSame(0, AuditEvent::where('event_type', 'USER_UPDATED')->count());
+    }
+
+    public function test_a_manager_cannot_edit_change_the_password_of_activate_or_deactivate_an_administrator(): void
+    {
+        $manager = User::factory()->manager()->create();
+        $admin = User::factory()->admin()->create(['store_id' => $manager->store_id]);
+        $spareAdmin = User::factory()->admin()->inactive()->create(['store_id' => $manager->store_id]);
+        $hash = $admin->password_hash;
+
+        $this->asUser($manager)->patchJson("/api/v1/users/{$admin->id}", ['name' => 'Renamed', 'email' => $admin->email, 'role' => 'ADMIN'])->assertStatus(403);
+        $this->asUser($manager)->patchJson("/api/v1/users/{$admin->id}", ['name' => $admin->name, 'email' => $admin->email, 'role' => 'ADMIN', 'password' => 'takeover-secret-1'])->assertStatus(403);
+        $this->asUser($manager)->patchJson("/api/v1/users/{$admin->id}", ['name' => $admin->name, 'email' => $admin->email, 'role' => 'CASHIER'])->assertStatus(403);
+        $this->asUser($manager)->postJson("/api/v1/users/{$admin->id}/deactivate")->assertStatus(403);
+        $this->asUser($manager)->postJson("/api/v1/users/{$spareAdmin->id}/activate")->assertStatus(403);
+
+        $admin->refresh();
+        $this->assertSame($hash, $admin->password_hash);
+        $this->assertSame(['ADMIN', true], [$admin->role, $admin->active]);
+        $this->assertFalse($spareAdmin->refresh()->active);
+        $this->assertSame(0, AuditEvent::whereIn('event_type', ['USER_UPDATED', 'USER_PASSWORD_CHANGED', 'USER_DEACTIVATED', 'USER_ACTIVATED'])->count());
+    }
+
+    public function test_a_manager_can_edit_reset_the_password_of_and_deactivate_cashiers_and_other_managers(): void
+    {
+        $manager = User::factory()->manager()->create();
+        $cashier = User::factory()->create(['store_id' => $manager->store_id]);
+        $peer = User::factory()->manager()->create(['store_id' => $manager->store_id]);
+
+        $this->asUser($manager)->patchJson("/api/v1/users/{$cashier->id}", ['name' => 'Renamed', 'email' => $cashier->email, 'role' => 'MANAGER', 'password' => 'brand-new-secret'])
+            ->assertOk()->assertJson(['name' => 'Renamed', 'role' => 'MANAGER']);
+        $this->asUser($manager)->postJson("/api/v1/users/{$peer->id}/deactivate")->assertOk();
+        $this->asUser($manager)->postJson("/api/v1/users/{$peer->id}/activate")->assertOk();
     }
 }

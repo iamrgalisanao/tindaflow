@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Auth;
 
 /**
  * openapi.yaml Users tag: userList/Create/Get/Update/Deactivate, plus userActivate (forward-committed
- * 2026-09-19 -- the contract had no way back from a deactivation). All USER_MANAGE (ADMIN only),
+ * 2026-09-19 -- the contract had no way back from a deactivation). All USER_MANAGE (ADMIN, and MANAGER within UserRolePolicy's limits: ADR-018),
  * session-only, scoped to the actor's own store; a user in another store is indistinguishable from
  * one that does not exist. The response is UserSummary, which never carries the password hash.
  */

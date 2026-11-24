@@ -25,11 +25,17 @@ class RoleCapabilityCatalogTest extends TestCase
 
         $this->assertContains('SALE_VOID_APPROVE', $capabilities);
         $this->assertContains('FISCAL_DAY_CLOSE', $capabilities);
-        $this->assertNotContains('USER_MANAGE', $capabilities);
         $this->assertNotContains('EMPLOYEE_POLICY_MANAGE', $capabilities);
         $this->assertNotContains('TERMINAL_MANAGE', $capabilities);
         $this->assertNotContains('STORE_SETTINGS_MANAGE', $capabilities);
         $this->assertNotContains('FISCAL_CONFIGURATION_MANAGE', $capabilities);
+    }
+
+    public function test_user_management_belongs_to_manager_and_admin_but_what_a_manager_may_do_with_it_is_decided_by_the_user_role_policy(): void
+    {
+        $this->assertContains('USER_MANAGE', RoleCapabilityCatalog::forRole('ADMIN'));
+        $this->assertContains('USER_MANAGE', RoleCapabilityCatalog::forRole('MANAGER'), 'ADR-018 decision 10; see UserRolePolicyTest');
+        $this->assertNotContains('USER_MANAGE', RoleCapabilityCatalog::forRole('CASHIER'));
     }
 
     public function test_employee_management_belongs_to_manager_and_admin_but_the_credit_limits_and_bulk_import_to_admin_only(): void

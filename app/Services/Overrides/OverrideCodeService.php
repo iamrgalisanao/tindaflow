@@ -6,6 +6,7 @@ use App\Domain\Exceptions\UserNotFoundException;
 use App\Models\User;
 use App\Models\UserOverrideCode;
 use App\Services\Auth\RoleCapabilityCatalog;
+use App\Services\Users\UserRolePolicy;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -21,7 +22,7 @@ final class OverrideCodeService
 {
     public const CAPABILITY = 'CREDIT_LIMIT_OVERRIDE';
 
-    public function __construct(private readonly OverrideAuditor $auditor) {}
+    public function __construct(private readonly OverrideAuditor $auditor, private readonly UserRolePolicy $roles) {}
 
     /** Roles whose fixed capability set includes the override ($capability defaults to the credit-limit override; a stock override passes its own). */
     public static function approverRoles(string $capability = self::CAPABILITY): array
@@ -113,6 +114,8 @@ final class OverrideCodeService
         $this->assertPassword($admin, $adminPassword);
 
         $target = User::where('store_id', $admin->store_id)->find($targetUserId) ?? throw UserNotFoundException::forId($targetUserId);
+
+        $this->roles->assertMayActOn($admin, $target->role);
 
         DB::transaction(function () use ($admin, $target): void {
             $row = UserOverrideCode::lockForUpdate()->find($target->id);

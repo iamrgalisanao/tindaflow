@@ -2,12 +2,26 @@ import { useState } from 'react';
 import SlideOver from '../SlideOver';
 import OverrideCodeReset from '../overrides/OverrideCodeReset';
 import { failureMessage, fieldErrors, request } from '../catalog/catalogApi';
+import { useAuth } from '../../../context/AuthContext';
 
 export const ROLES = [
     { id: 'ADMIN', label: 'ADMIN', hint: 'Everything, including managing users.' },
     { id: 'MANAGER', label: 'MANAGER', hint: 'Runs the store day to day: reports, catalog and approvals.' },
     { id: 'CASHIER', label: 'CASHIER', hint: 'Rings up sales at a terminal.' },
 ];
+
+/**
+ * Roles the signed-in user may give. A manager manages CASHIER and MANAGER accounts only (ADR-018); the server refuses the rest
+ * with 403, so this only keeps the screen from offering what would be refused.
+ */
+export function assignableRoles(actorRole) {
+    return actorRole === 'MANAGER' ? ROLES.filter((role) => role.id !== 'ADMIN') : ROLES;
+}
+
+/** Whether the signed-in user may open, change, deactivate or reactivate this account (a manager may not touch an administrator). */
+export function mayManageUser(actorRole, targetRole) {
+    return actorRole !== 'MANAGER' || targetRole !== 'ADMIN';
+}
 
 const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
 
@@ -76,6 +90,7 @@ export default function UserFormPanel({
     onClose,
     onUnauthorized,
 }) {
+    const { user: me } = useAuth();
     const editing = Boolean(user);
     const [values, setValues] = useState({ name: user?.name ?? '', email: user?.email ?? '', role: user?.role ?? 'CASHIER', password: '' });
     const [errors, setErrors] = useState({});
@@ -194,7 +209,7 @@ export default function UserFormPanel({
                         </p>
                     )}
                     <div className="grid grid-cols-1 gap-2">
-                        {ROLES.map((role) => (
+                        {assignableRoles(me?.role).map((role) => (
                             <label
                                 key={role.id}
                                 className={`flex items-start gap-2 rounded-md border p-2.5 ${roleLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${

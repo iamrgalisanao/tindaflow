@@ -3,7 +3,7 @@ import { useAuth } from '../../../context/AuthContext';
 import AdminLayout from '../AdminLayout';
 import { ActiveBadge, ConfirmDialog, ErrorAlert, Pager, Toast } from '../catalog/CatalogParts';
 import { RETURN_KEY, failureMessage, fetchAll, request } from '../catalog/catalogApi';
-import UserFormPanel from './UserFormPanel';
+import UserFormPanel, { mayManageUser } from './UserFormPanel';
 
 const PER_PAGE = 25;
 const ROLE_FILTERS = [
@@ -118,6 +118,10 @@ export default function UsersPage() {
     const users = result?.data ?? [];
 
     const rowActions = (target) => {
+        if (!mayManageUser(me.role, target.role)) {
+            return <span className="text-xs text-slate-500">Administrator account</span>;
+        }
+
         const protectedFromDeactivation = isSelf(target) || isLastAdmin(target);
         return (
             <div className="flex items-center justify-end gap-3 whitespace-nowrap text-xs">
