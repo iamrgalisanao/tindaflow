@@ -7,6 +7,8 @@ use App\Services\Auth\LoginRateLimiter;
 use App\Services\Auth\RoleCapabilityCatalog;
 use App\Services\Invoicing\HtmlInvoicePrinter;
 use App\Services\Invoicing\InvoicePrinter;
+use App\Services\License\Time\LinuxMonotonicSource;
+use App\Services\License\Time\MonotonicSource;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -22,6 +24,9 @@ class AppServiceProvider extends ServiceProvider
     {
         // ADR-007: one printing seam, one implementation (browser HTML) today.
         $this->app->bind(InvoicePrinter::class, HtmlInvoicePrinter::class);
+
+        // ADR-018 decision 3: the monotonic clock behind the licence's trusted-time heartbeat.
+        $this->app->bind(MonotonicSource::class, LinuxMonotonicSource::class);
     }
 
     /**
