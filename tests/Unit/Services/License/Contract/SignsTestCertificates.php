@@ -54,6 +54,33 @@ trait SignsTestCertificates
         ], $overrides);
     }
 
+    /**
+     * A valid v1 activation bundle (ADR-018 decision 9) around a valid certificate; `installation_key` is the all-`k` test key.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    protected static function bundlePayload(array $overrides = []): array
+    {
+        return array_replace([
+            'v' => 1,
+            'typ' => 'tindaflow.bundle',
+            'kid' => 'test-2026-01',
+            'store_id' => '0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11',
+            'deployment' => '6A5D4E11',
+            'installation' => '7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40',
+            'installation_key' => base64_encode(str_repeat('k', 32)),
+            'store_name' => 'TSC Canteen',
+            'sale_document_mode' => 'SLIP',
+            'slip_footer' => 'THIS DOCUMENT IS NOT A BIR-REGISTERED INVOICE AND IS NOT VALID FOR CLAIM OF INPUT TAX',
+            'default_location' => 'Main stockroom',
+            'till_code' => 'TILL-1',
+            'certificate' => self::sign(self::payload()),
+            'control_plane' => ['https://licensing.example.ph', 'https://licensing-standby.example.ph'],
+            'iat' => '2026-11-24T09:00:00+08:00',
+        ], $overrides);
+    }
+
     /** @param  array<string, mixed>  $payload */
     protected static function sign(array $payload, string $label = self::TEST_KEY_LABEL): string
     {
