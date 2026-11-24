@@ -153,8 +153,23 @@ class CreditOverrideHttpTest extends PostgresSchemaTestCase
 
         $this->asUser($w['cashier'])->putJson('/api/v1/credit-override-code', ['password' => 'password', 'code' => self::CODE])->assertStatus(403);
         $this->asUser($w['cashier'])->getJson('/api/v1/credit-override-code')->assertStatus(403);
-        $this->asUser($w['manager'])->getJson('/api/v1/credit-override-codes')->assertStatus(403);
+        // A manager holds USER_MANAGE since ADR-018 and may see the list; what they may do to an administrator's code is the next test.
+        $this->asUser($w['manager'])->getJson('/api/v1/credit-override-codes')->assertOk();
         $this->assertSame(0, UserOverrideCode::count());
+    }
+
+    public function test_a_manager_can_clear_another_managers_code_but_never_an_administrators(): void
+    {
+        $w = $this->world();
+        $peer = User::factory()->manager()->create(['store_id' => $w['storeId']]);
+        $this->setCode($peer);
+        $this->setCode($w['admin'], '739152');
+
+        $this->asUser($w['manager'])->postJson("/api/v1/users/{$w['admin']->id}/override-code/reset", ['password' => 'password'])->assertStatus(403);
+        $this->assertTrue(UserOverrideCode::find($w['admin']->id)->hasCode(), 'the administrator keeps the code');
+
+        $this->asUser($w['manager'])->postJson("/api/v1/users/{$peer->id}/override-code/reset", ['password' => 'password'])
+            ->assertOk()->assertJson(['has_code' => false]);
     }
 
     public function test_setting_a_code_is_throttled_per_user(): void

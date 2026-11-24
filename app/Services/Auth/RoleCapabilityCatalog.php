@@ -58,6 +58,7 @@ final class RoleCapabilityCatalog
             'PRICE_OVERRIDE', 'DISCOUNT_OVERRIDE', 'STOCK_ADJUST', 'CASH_OUT',
             'REPORT_VIEW', 'CATALOG_MANAGE', 'AUDIT_VIEW', 'JOURNAL_VIEW',
             'FISCAL_DAY_CLOSE', 'EMPLOYEE_MANAGE', 'CREDIT_LIMIT_OVERRIDE', 'BILLING_MANAGE', 'STOCK_SALE_OVERRIDE',
+            'USER_MANAGE', // ADR-018 decision 10: a manager manages CASHIER and MANAGER accounts only, enforced by UserRolePolicy.
         ],
         'CASHIER' => [
             'SALE_VOID', 'SALE_REFUND',

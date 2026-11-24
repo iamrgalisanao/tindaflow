@@ -19,8 +19,10 @@ All five `openapi.yaml` Users operations, plus one new one:
 | `userDeactivate` | `POST /users/{userId}/deactivate` | idempotent |
 | **`userActivate`** | `POST /users/{userId}/activate` | **new, forward-committed**; idempotent |
 
-All require `USER_MANAGE`, which only `ADMIN` holds (a `MANAGER` or `CASHIER` gets
-`403 AUTHORIZATION_DENIED`). Session-only, no terminal credential, scoped to the
+All require `USER_MANAGE`, which `ADMIN` holds and, since ADR-018 (amended 2026-11-24), `MANAGER` holds too, limited
+by `UserRolePolicy`: a manager may act only on `CASHIER` and `MANAGER` accounts, so making anyone an
+`ADMIN`, or editing, changing the password of, deactivating, activating or clearing the override code of
+an `ADMIN`, gets `403 AUTHORIZATION_DENIED`. A `CASHIER` gets `403 AUTHORIZATION_DENIED` throughout. Session-only, no terminal credential, scoped to the
 actor's own store. Responses are `UserSummary`, which never carries the password hash.
 
 ## 2. Contract changes and why

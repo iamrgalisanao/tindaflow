@@ -207,7 +207,7 @@ change, since call sites ask `can($user, CAPABILITY)`, never `if role ==
 | `JOURNAL_VIEW` | ✓ | ✓ | — |
 | `FISCAL_DAY_CLOSE` | ✓ | ✓ | — |
 | `STORE_SETTINGS_MANAGE` | ✓ | — | — |
-| `USER_MANAGE` | ✓ | — | — |
+| `USER_MANAGE` | ✓ | ✓ (cashier and manager accounts only; ADR-018, `UserRolePolicy`) | — |
 | `TERMINAL_MANAGE` | ✓ | — | — |
 | `FISCAL_CONFIGURATION_MANAGE` | only while unlocked (ADR-014) | — | — |
 | `EMPLOYEE_MANAGE` | ✓ | ✓ | — |

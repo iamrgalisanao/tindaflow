@@ -19,6 +19,8 @@ use Illuminate\Validation\ValidationException;
  * so retirement is `active = false`, and an inactive user's session ends on its next request
  * (EnsureUserIsActive).
  *
+ * Who may act on whom is decided by UserRolePolicy (a MANAGER may touch only CASHIER and MANAGER accounts; ADR-018).
+ *
  * Every change is audited in the same transaction as the change, with the signed-in administrator as the actor: who was
  * created, whose name, e-mail or role changed (before and after), whose password was changed (never the password itself, nor
  * its hash), who was deactivated or reactivated. A password change or a deactivation also ends that user's signed-in
@@ -27,7 +29,7 @@ use Illuminate\Validation\ValidationException;
  */
 final class UserService
 {
-    public function __construct(private readonly UserSessions $sessions) {}
+    public function __construct(private readonly UserSessions $sessions, private readonly UserRolePolicy $roles) {}
 
     /**
      * `password` is optional in openapi.yaml's UserInput. Without one the account gets an unguessable
@@ -37,6 +39,8 @@ final class UserService
      */
     public function create(string $storeId, array $data, ?User $actor = null): User
     {
+        $this->roles->assertMayCreate($actor, $data['role']);
+
         try {
             return DB::transaction(function () use ($storeId, $data, $actor) {
                 $user = User::create([
@@ -89,6 +93,9 @@ final class UserService
                 $activeAdmins = $this->lockActiveAdmins($storeId);
                 $user = $this->lock($storeId, $userId);
 
+                // Against the locked row's CURRENT role, so a concurrent promotion cannot slip past the check.
+                $this->roles->assertMayChange($actor, $user->role, $data['role']);
+
                 if ($user->role === 'ADMIN' && $user->active && $data['role'] !== 'ADMIN' && $this->isLastAdmin($activeAdmins, $user)) {
                     throw ValidationException::withMessages(['role' => 'The last active administrator cannot be changed to another role.']);
                 }
@@ -137,6 +144,8 @@ final class UserService
         return DB::transaction(function () use ($storeId, $userId, $active, $actor) {
             $activeAdmins = $active ? collect() : $this->lockActiveAdmins($storeId);
             $user = $this->lock($storeId, $userId);
+
+            $this->roles->assertMayActOn($actor, $user->role);
 
             if (! $active && $user->active && $user->role === 'ADMIN' && $this->isLastAdmin($activeAdmins, $user)) {
                 throw ValidationException::withMessages(['active' => 'The last active administrator cannot be deactivated.']);
