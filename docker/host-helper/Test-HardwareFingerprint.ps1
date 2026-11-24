@@ -31,9 +31,11 @@ foreach ($real in @('4C4C4544-0042-4410-8051-C7C04F4E4D32', 'PF2ABC12', 'L1HF7AB
 }
 
 $raw = @{ smbios_uuid = ' test-uuid '; board_serial = 'Test-Board'; bios_serial = 'TEST-BIOS' }
-$document = New-HardwareDocument -Raw $raw -GeneratedAt '2026-11-28T09:00:00+08:00' | ConvertFrom-Json
+$json = New-HardwareDocument -Raw $raw -GeneratedAt '2026-11-28T09:00:00+08:00'
+$document = $json | ConvertFrom-Json
 Assert-Equal 1 $document.v 'document version'
-Assert-Equal '2026-11-28T09:00:00+08:00' $document.generated_at 'document records the host clock'
+# Checked in the text itself: PowerShell 7 turns an ISO date string into a DateTime when it parses JSON, Windows PowerShell 5.1 does not.
+Assert-Equal $true ($json.Contains('"generated_at":"2026-11-28T09:00:00+08:00"')) 'document records the host clock exactly as given'
 Assert-Equal '2f61ec04ef9d7e620fbf01b1bb71d332fea413a410ef413a9c401108550d31f7' $document.fp.smbios_uuid 'normalised before hashing (case and spaces do not change the hash)'
 Assert-Equal '9895e89fdcf5e3ee7a31f5339b6cec532598ff20622a428f09785e8d5a6b3e1e' $document.fp.board_serial 'board hash'
 Assert-Equal 'smbios_uuid,board_serial,bios_serial' (($document.fp.PSObject.Properties.Name) -join ',') 'components are listed in the documented order'
