@@ -46,6 +46,7 @@ use App\Http\Controllers\TillMenuController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VoidController;
 use App\Http\Middleware\ComposeAuthoritativeContext;
+use App\Http\Middleware\EnsureLicenseActive;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\ResolveTerminalContext;
 use Illuminate\Support\Facades\Route;
@@ -112,8 +113,9 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // is declared for saleFinalize, so any authenticated user on an
     // enrolled, store-coherent terminal may check out; CheckoutService's
     // own OPEN-shift/cashier-match check is the remaining gate.
+    // ADR-018: the license caps an open shift once it is EXPIRED, LOCKED or NOT_ACTIVATED (18 hours); no-op without a vendor key.
     Route::post('/sales', [SaleController::class, 'finalize'])
-        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, EnsureLicenseActive::class.':sale']);
 
     // Sales history and the Void/Refund workflow (Stage 15). Reads need only the session, scoped to the
     // actor's store. saleVoid/saleRefund and the two approve operations are terminal-scoped like
@@ -192,12 +194,14 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     // any authenticated user on an enrolled, store-coherent terminal may
     // open/query a shift. shiftOpen atomically resolves-or-opens the
     // terminal's FiscalDay too (api-design.md SS10, V1 operating policy).
+    // ADR-018: opening a shift needs an ACTIVE or WARNING license (409 LICENSE_NOT_ACTIVE); no-op without a vendor key.
     Route::post('/shifts/open', [ShiftController::class, 'open'])
-        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, EnsureLicenseActive::class.':open']);
     Route::get('/shifts/current', [ShiftController::class, 'current'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+    // ADR-018: closing a shift is never gated; it only moves the trusted-time mark.
     Route::post('/shifts/{shiftId}/close', [ShiftController::class, 'close'])
-        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class, EnsureLicenseActive::class.':observe']);
     Route::post('/shifts/{shiftId}/cash-movements', [ShiftController::class, 'createCashMovement'])
         ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
     // History reads (shiftList/shiftGet/shiftXReadingList) are session-only and store-scoped, like saleList.

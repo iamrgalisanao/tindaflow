@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\License\Time\TrustedClock;
-use DateTimeImmutable;
+use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 
 /**
@@ -24,7 +24,7 @@ class LicenseHeartbeat extends Command
             return self::SUCCESS;
         }
 
-        $mark = $clock->heartbeat(new DateTimeImmutable);
+        $mark = $clock->heartbeat(CarbonImmutable::now());
         $this->line('Trusted time mark: '.$mark->format('Y-m-d H:i:sP'), verbosity: 'v');
 
         return self::SUCCESS;
