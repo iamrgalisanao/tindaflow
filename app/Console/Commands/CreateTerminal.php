@@ -4,12 +4,10 @@ namespace App\Console\Commands;
 
 use App\Console\Commands\Concerns\ResolvesStore;
 use App\Domain\Exceptions\TerminalLimitReachedException;
-use App\Models\AuditEvent;
 use App\Models\Store;
 use App\Models\Terminal;
-use App\Services\Terminal\TerminalSeats;
+use App\Services\Terminal\TerminalProvisioner;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Creates a till (a terminal) for a store from the server console. The Terminals screen's "Add terminal" button
@@ -64,25 +62,7 @@ class CreateTerminal extends Command
     /** @throws TerminalLimitReachedException */
     private function createTerminal(Store $store, string $code): Terminal
     {
-        return DB::transaction(function () use ($store, $code) {
-            // ADR-014: the licensed till count is checked under a lock on the store row.
-            Store::whereKey($store->id)->lockForUpdate()->first();
-            app(TerminalSeats::class)->assertRoomForOneMore();
-
-            // ACTIVE and never enrolled: activated_at and the credential are set when a browser enrolls (TerminalEnrollmentService).
-            $terminal = Terminal::create(['store_id' => $store->id, 'terminal_code' => $code, 'status' => 'ACTIVE']);
-
-            AuditEvent::create([
-                'store_id' => $store->id,
-                'event_type' => 'TERMINAL_CREATED',
-                'actor_user_id' => null, // run from the server console, not by a signed-in user
-                'terminal_id' => $terminal->id,
-                'entity_type' => 'terminal',
-                'entity_id' => $terminal->id,
-                'after_metadata' => ['terminal_code' => $code, 'store' => $store->name, 'via' => 'console'],
-            ]);
-
-            return $terminal;
-        });
+        // No actor: run from the server console, not by a signed-in user. ACTIVE and never enrolled (see TerminalProvisioner).
+        return app(TerminalProvisioner::class)->create($store, $code, null, 'console', ['store' => $store->name]);
     }
 }

@@ -8,13 +8,13 @@ use App\Http\Requests\CreateTerminalRequest;
 use App\Http\Requests\EnrollTerminalRequest;
 use App\Http\Resources\TerminalEnrollmentTokenResource;
 use App\Http\Resources\TerminalSummaryResource;
-use App\Models\AuditEvent;
 use App\Models\Store;
 use App\Models\Terminal;
 use App\Services\Audit\AuditTrail;
 use App\Services\Terminal\TerminalCredentialCookie;
 use App\Services\Terminal\TerminalEnrollmentService;
 use App\Services\Terminal\TerminalEnrollmentTokenService;
+use App\Services\Terminal\TerminalProvisioner;
 use App\Services\Terminal\TerminalSeats;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,31 +35,11 @@ class TerminalController extends Controller
      * terminalCreate: ACTIVE and never enrolled -- activated_at and the credential are set when a browser enrolls
      * (TerminalEnrollmentService). Mirrors `tindaflow:create-terminal`, which stays for the first till on a fresh server.
      */
-    public function create(CreateTerminalRequest $request, TerminalSeats $seats): JsonResponse
+    public function create(CreateTerminalRequest $request, TerminalProvisioner $provisioner): JsonResponse
     {
         $actor = Auth::guard('web')->user();
-        $code = $request->validated('terminal_code');
 
-        $terminal = DB::transaction(function () use ($actor, $code, $seats) {
-            // ADR-014: the licensed till count is checked under a lock on the store row, so two simultaneous
-            // requests cannot both take the last seat.
-            Store::whereKey($actor->store_id)->lockForUpdate()->first();
-            $seats->assertRoomForOneMore();
-
-            $terminal = Terminal::create(['store_id' => $actor->store_id, 'terminal_code' => $code, 'status' => 'ACTIVE']);
-
-            AuditEvent::create([
-                'store_id' => $actor->store_id,
-                'event_type' => 'TERMINAL_CREATED',
-                'actor_user_id' => $actor->id,
-                'terminal_id' => $terminal->id,
-                'entity_type' => 'terminal',
-                'entity_id' => $terminal->id,
-                'after_metadata' => ['terminal_code' => $code, 'via' => 'api'],
-            ]);
-
-            return $terminal;
-        });
+        $terminal = $provisioner->create($actor->store_id, $request->validated('terminal_code'), $actor, 'api');
 
         return (new TerminalSummaryResource($terminal->refresh()))->response()->setStatusCode(201);
     }

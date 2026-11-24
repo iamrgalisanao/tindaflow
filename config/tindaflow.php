@@ -80,6 +80,9 @@ return [
         // distrusts (a compromised key). Both empty = this build enforces nothing (state LEGACY): existing installs do not change.
         'vendor_keys' => [],
         'revoked_kids' => [],
+
+        // ADR-018: this PC's own identity (a UUID and an Ed25519 key pair made by `tindaflow:activate --request`), on the persistent app volume.
+        'installation_file' => storage_path('app/license/installation.json'),
     ],
 
 ];
