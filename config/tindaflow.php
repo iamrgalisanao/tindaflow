@@ -83,6 +83,9 @@ return [
 
         // ADR-018: this PC's own identity (a UUID and an Ed25519 key pair made by `tindaflow:activate --request`), on the persistent app volume.
         'installation_file' => storage_path('app/license/installation.json'),
+
+        // ADR-018 decision 4: the file the Windows host helper writes (the hardware fingerprint hashes), mounted read-only into the container.
+        'hardware_file' => env('TINDAFLOW_HARDWARE_FILE', '/var/tindaflow-host/hardware.json'),
     ],
 
 ];

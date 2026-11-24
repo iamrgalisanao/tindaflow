@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Log;
  */
 final class LicenseGate
 {
-    public function __construct(private readonly Entitlement $entitlement, private readonly LicenseEvaluator $evaluator) {}
+    public function __construct(private readonly Entitlement $entitlement, private readonly LicenseEvaluator $evaluator, private readonly HostHardware $hardware) {}
 
     public function keyRing(): KeyRing
     {
@@ -43,7 +43,8 @@ final class LicenseGate
         $facts = new LocalFacts(
             wallNow: $wallNow,
             trustedTimeHwm: ($row->trusted_time_hwm ?? null) === null ? null : new DateTimeImmutable($row->trusted_time_hwm),
-            observedFingerprint: null,
+            // From the host helper's file when it is fresh; a missing or stale file is null, which changes no state (ADR-018 decision 4).
+            observedFingerprint: $this->hardware->read($wallNow)->fingerprint,
             revoked: (bool) ($row->revoked ?? false),
             chainInvalid: (bool) ($row->chain_invalid ?? false),
         );

@@ -8,6 +8,7 @@ use App\Services\License\Contract\CertificateRejected;
 use App\Services\License\Contract\CertificateVerifier;
 use App\Services\License\Contract\Revocation;
 use App\Services\License\Contract\SignedEnvelope;
+use App\Services\License\HostHardware;
 use App\Services\License\InstallationIdentity;
 use App\Services\License\LicenseGate;
 use App\Services\License\Time\TrustedClock;
@@ -35,6 +36,7 @@ final class RenewalService
         private readonly InstallationIdentity $identity,
         private readonly ControlPlane $controlPlane,
         private readonly TrustedClock $clock,
+        private readonly HostHardware $hardware,
     ) {}
 
     public function renew(?DateTimeImmutable $now = null): RenewalResult
@@ -85,6 +87,12 @@ final class RenewalService
             return $this->failed('No control plane address is stored for this installation.', $now);
         }
 
+        // ADR-018 decision 4: with no fresh hardware file the renewal is refused here, before anything is sent (the provider would refuse it too).
+        $hardware = $this->hardware->read($now);
+        if (! $hardware->isFresh()) {
+            return $this->failed('HOST_HELPER_STALE: the hardware file is '.strtolower($hardware->status).' (it must be under 26 hours old). Nothing was sent; check the host helper task.', $now);
+        }
+
         $requestId = $row->pending_request_id ?? (string) Str::uuid();
         DB::table('license_state')->where('id', 1)->update(['pending_request_id' => $requestId, 'last_renewal_attempt_at' => $this->stamp($now)]);
 
@@ -93,7 +101,7 @@ final class RenewalService
             'request_id' => $requestId,
             'installation' => $current->installation,
             'certificate' => $row->certificate,
-            'fingerprint' => null,
+            'fingerprint' => $hardware->fingerprint,
         ], $current->installation, $identity['secret_key']);
 
         if ($reply->status === 0) {
