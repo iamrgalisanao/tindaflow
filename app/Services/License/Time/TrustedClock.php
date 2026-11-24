@@ -37,6 +37,21 @@ final class TrustedClock
             ->update(['trusted_time_hwm' => self::stamp($observed), 'updated_at' => self::stamp($observed)]);
     }
 
+    /**
+     * Sets the mark to the control plane's time, which may be EARLIER than the mark (a clock once set into the future has pushed it
+     * ahead). Only an online renewal's signed `iat` may call this (ADR-018 decision 3), and the caller audits it. Returns the mark
+     * it replaced, or null if there was none.
+     */
+    public function rebaseline(DateTimeImmutable $controlPlaneTime): ?DateTimeImmutable
+    {
+        $previous = $this->highWaterMark();
+        $this->ensureRow($controlPlaneTime);
+
+        DB::table('license_state')->where('id', 1)->update(['trusted_time_hwm' => self::stamp($controlPlaneTime), 'updated_at' => self::stamp($controlPlaneTime)]);
+
+        return $previous;
+    }
+
     /** One heartbeat. Returns the mark after it. */
     public function heartbeat(DateTimeImmutable $wallNow): DateTimeImmutable
     {
