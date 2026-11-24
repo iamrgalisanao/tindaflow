@@ -4,6 +4,7 @@
 Accepted — 2026-09-27, as a decision the owner **delegated to the architect** ("let the software architect decide on the checklist").
 Not part of the frozen Stage 1–6C corpus (this is a new file); `deployment.md` (Stage 3, frozen) gains a one-line pointer to it, an
 exception recorded in `docs/PROJECT-MANIFEST.md`.
+An exception for the TSC pilot (a hard disk) is recorded at the end of this file.
 
 ## Context
 `docs/01-research/hardware-requirements-and-pricing.md` (research, 2026-09-25) proposed a minimum and a recommended specification
@@ -67,3 +68,10 @@ design, PostgreSQL's fsync-bound commit path) were read from the repository; the
   cheap, sufficient control, and a wrong refusal to open a day would stop a working shop.
 - **Put the matrix in `deployment.md`.** Rejected: that file is frozen and describes the topology; a supported-hardware decision
   that will be revised after measurement belongs in its own decision record.
+
+## Recorded exception: the TSC pilot runs on a hard disk
+On 2026-11-24 the client confirmed that the TSC canteen PC (Intel Core i5-6500, 8 GB RAM, Windows 10 Pro 22H2 build 19045, Docker Desktop) has a 231 GB **hard disk drive**. Decision 2 lists a spinning disk as the database disk as explicitly not supported, because PostgreSQL's commit path waits on the disk. The owner accepted a written exception for the TSC pilot (ADR-018) instead of replacing the disk first.
+- **Scope:** this one machine and its pilot only. The supported floor above is unchanged for every other installation.
+- **Risk accepted:** slower checkout and shift close, more disk wear, and a higher chance of a failed or corrupt database after a power cut. The 23 ms checkout cost in "First measurements" came from an SSD laptop and does not apply to this machine.
+- **Conditions:** hourly dumps to a second disk stay mandatory (the off-machine copy of decision 6); sale finalisation and shift-close times are measured on this PC during the pilot and accepted by the owner (a pilot exit criterion); the UPS requirement of decision 1 applies; the disk is replaced with an SSD if the pilot shows slow checkout or any disk fault.
+- **Ends:** at the end of the pilot, when the owner decides in writing whether to keep the exception or replace the disk.
