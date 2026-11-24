@@ -142,6 +142,7 @@ class ActivateCommandTest extends PostgresSchemaTestCase
         $this->assertNotNull($state->certificate);
         $this->assertSame(1, (int) $state->certificate_seq);
         $this->assertNotNull($state->trusted_time_hwm);
+        $this->assertSame(['https://licensing.example.ph', 'https://licensing-standby.example.ph'], json_decode($state->control_plane, true), 'the renewal client needs the provider addresses the bundle named');
 
         $event = AuditEvent::where('event_type', 'LICENSE_ACTIVATED')->sole();
         $this->assertSame($admin->id, $event->actor_user_id);

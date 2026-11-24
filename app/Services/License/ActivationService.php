@@ -86,6 +86,7 @@ final class ActivationService
                 'certificate_seq' => $certificate->seq,
                 'revoked' => false,
                 'chain_invalid' => false,
+                'control_plane' => json_encode($bundle->controlPlane, JSON_THROW_ON_ERROR),
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
