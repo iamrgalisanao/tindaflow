@@ -74,6 +74,12 @@ return [
         'public_key' => '',
         'path' => env('TINDAFLOW_LICENSE_FILE', storage_path('app/license.key')),
         'token' => env('TINDAFLOW_LICENSE'),
+
+        // ADR-018: the activation certificate's trust anchors, constants in code like `public_key` above and never read from
+        // the environment. `vendor_keys` maps a kid to the base64 of a 32-byte Ed25519 public key; `revoked_kids` lists kids this build
+        // distrusts (a compromised key). Both empty = this build enforces nothing (state LEGACY): existing installs do not change.
+        'vendor_keys' => [],
+        'revoked_kids' => [],
     ],
 
 ];

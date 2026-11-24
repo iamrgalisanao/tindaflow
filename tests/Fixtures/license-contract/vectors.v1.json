@@ -1,0 +1,202 @@
+{
+    "contract_version": 1,
+    "test_only": "The signing key is derived from a PUBLIC seed (sha256 of the string below). Never trust it in a real build. Tokens are rebuilt by the tests, not stored.",
+    "seed_label": "tindaflow-license-test-only",
+    "kid": "test-2026-01",
+    "public_key_base64": "ra3LPvxZUFJssZkb75R1Q0QwmQdIz7JiKsa3wLN7v9E=",
+    "canonicalization": [
+        {
+            "input": {
+                "b": 1,
+                "a": 2
+            },
+            "canonical": "{\"a\":2,\"b\":1}"
+        },
+        {
+            "input": {
+                "z": [
+                    3,
+                    1,
+                    2
+                ],
+                "a": {
+                    "y": null,
+                    "x": true
+                }
+            },
+            "canonical": "{\"a\":{\"x\":true,\"y\":null},\"z\":[3,1,2]}"
+        },
+        {
+            "input": [],
+            "canonical": "[]"
+        },
+        {
+            "input": "a\"b\\c\n\t\u0001/é€😀 ",
+            "canonical": "\"a\\\"b\\\\c\\n\\t\\u0001/é€😀 \""
+        },
+        {
+            "input": [
+                0,
+                -5,
+                9007199254740991,
+                -9007199254740991
+            ],
+            "canonical": "[0,-5,9007199254740991,-9007199254740991]"
+        },
+        {
+            "input": {
+                "seats": 1,
+                "mode": "enforce",
+                "fp": {
+                    "bios_serial": "b",
+                    "board_serial": "a"
+                }
+            },
+            "canonical": "{\"fp\":{\"bios_serial\":\"b\",\"board_serial\":\"a\"},\"mode\":\"enforce\",\"seats\":1}"
+        }
+    ],
+    "accepted": [
+        {
+            "name": "valid enforce certificate",
+            "payload": {
+                "v": 2,
+                "typ": "tindaflow.activation",
+                "kid": "test-2026-01",
+                "deployment": "A1B2C3D4",
+                "store": "0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11",
+                "installation": "7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40",
+                "fp": {
+                    "smbios_uuid": "2f61ec04ef9d7e620fbf01b1bb71d332fea413a410ef413a9c401108550d31f7",
+                    "board_serial": "9895e89fdcf5e3ee7a31f5339b6cec532598ff20622a428f09785e8d5a6b3e1e",
+                    "bios_serial": "e43dce3bd9f3f55841fc246aeca2fa8ea8fc3332b58750d7b6f73d4d985dd761"
+                },
+                "seats": 1,
+                "mode": "enforce",
+                "seq": 42,
+                "prev": "30bfd747d0d21861663ddd52d9e57d99ea6662ce360d8d79bf9c0f13a3086d0e",
+                "iat": "2026-11-24T09:00:00+08:00",
+                "exp": "2026-12-25T05:00:00+08:00",
+                "jti": "0123456789abcdef0123456789abcdef"
+            },
+            "canonical": "{\"deployment\":\"A1B2C3D4\",\"exp\":\"2026-12-25T05:00:00+08:00\",\"fp\":{\"bios_serial\":\"e43dce3bd9f3f55841fc246aeca2fa8ea8fc3332b58750d7b6f73d4d985dd761\",\"board_serial\":\"9895e89fdcf5e3ee7a31f5339b6cec532598ff20622a428f09785e8d5a6b3e1e\",\"smbios_uuid\":\"2f61ec04ef9d7e620fbf01b1bb71d332fea413a410ef413a9c401108550d31f7\"},\"iat\":\"2026-11-24T09:00:00+08:00\",\"installation\":\"7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40\",\"jti\":\"0123456789abcdef0123456789abcdef\",\"kid\":\"test-2026-01\",\"mode\":\"enforce\",\"prev\":\"30bfd747d0d21861663ddd52d9e57d99ea6662ce360d8d79bf9c0f13a3086d0e\",\"seats\":1,\"seq\":42,\"store\":\"0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11\",\"typ\":\"tindaflow.activation\",\"v\":2}",
+            "token_sha256": "b28eda0c22a3bef79b7ee40994d0d5518a3e0910c5018585b025b9ae7c6cf496"
+        },
+        {
+            "name": "valid report-mode certificate",
+            "payload": {
+                "mode": "report",
+                "v": 2,
+                "typ": "tindaflow.activation",
+                "kid": "test-2026-01",
+                "deployment": "A1B2C3D4",
+                "store": "0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11",
+                "installation": "7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40",
+                "fp": {
+                    "smbios_uuid": "2f61ec04ef9d7e620fbf01b1bb71d332fea413a410ef413a9c401108550d31f7",
+                    "board_serial": "9895e89fdcf5e3ee7a31f5339b6cec532598ff20622a428f09785e8d5a6b3e1e",
+                    "bios_serial": "e43dce3bd9f3f55841fc246aeca2fa8ea8fc3332b58750d7b6f73d4d985dd761"
+                },
+                "seats": 1,
+                "seq": 42,
+                "prev": "30bfd747d0d21861663ddd52d9e57d99ea6662ce360d8d79bf9c0f13a3086d0e",
+                "iat": "2026-11-24T09:00:00+08:00",
+                "exp": "2026-12-25T05:00:00+08:00",
+                "jti": "0123456789abcdef0123456789abcdef"
+            },
+            "canonical": "{\"deployment\":\"A1B2C3D4\",\"exp\":\"2026-12-25T05:00:00+08:00\",\"fp\":{\"bios_serial\":\"e43dce3bd9f3f55841fc246aeca2fa8ea8fc3332b58750d7b6f73d4d985dd761\",\"board_serial\":\"9895e89fdcf5e3ee7a31f5339b6cec532598ff20622a428f09785e8d5a6b3e1e\",\"smbios_uuid\":\"2f61ec04ef9d7e620fbf01b1bb71d332fea413a410ef413a9c401108550d31f7\"},\"iat\":\"2026-11-24T09:00:00+08:00\",\"installation\":\"7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40\",\"jti\":\"0123456789abcdef0123456789abcdef\",\"kid\":\"test-2026-01\",\"mode\":\"report\",\"prev\":\"30bfd747d0d21861663ddd52d9e57d99ea6662ce360d8d79bf9c0f13a3086d0e\",\"seats\":1,\"seq\":42,\"store\":\"0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11\",\"typ\":\"tindaflow.activation\",\"v\":2}",
+            "token_sha256": "b61e8a2325d41e238bc59e3f8181ae458eeaa5c7a4530d5f9417451220ffb60d"
+        },
+        {
+            "name": "first link of a chain has a null prev",
+            "payload": {
+                "seq": 1,
+                "prev": null,
+                "v": 2,
+                "typ": "tindaflow.activation",
+                "kid": "test-2026-01",
+                "deployment": "A1B2C3D4",
+                "store": "0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11",
+                "installation": "7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40",
+                "fp": {
+                    "smbios_uuid": "2f61ec04ef9d7e620fbf01b1bb71d332fea413a410ef413a9c401108550d31f7",
+                    "board_serial": "9895e89fdcf5e3ee7a31f5339b6cec532598ff20622a428f09785e8d5a6b3e1e",
+                    "bios_serial": "e43dce3bd9f3f55841fc246aeca2fa8ea8fc3332b58750d7b6f73d4d985dd761"
+                },
+                "seats": 1,
+                "mode": "enforce",
+                "iat": "2026-11-24T09:00:00+08:00",
+                "exp": "2026-12-25T05:00:00+08:00",
+                "jti": "0123456789abcdef0123456789abcdef"
+            },
+            "canonical": "{\"deployment\":\"A1B2C3D4\",\"exp\":\"2026-12-25T05:00:00+08:00\",\"fp\":{\"bios_serial\":\"e43dce3bd9f3f55841fc246aeca2fa8ea8fc3332b58750d7b6f73d4d985dd761\",\"board_serial\":\"9895e89fdcf5e3ee7a31f5339b6cec532598ff20622a428f09785e8d5a6b3e1e\",\"smbios_uuid\":\"2f61ec04ef9d7e620fbf01b1bb71d332fea413a410ef413a9c401108550d31f7\"},\"iat\":\"2026-11-24T09:00:00+08:00\",\"installation\":\"7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40\",\"jti\":\"0123456789abcdef0123456789abcdef\",\"kid\":\"test-2026-01\",\"mode\":\"enforce\",\"prev\":null,\"seats\":1,\"seq\":1,\"store\":\"0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11\",\"typ\":\"tindaflow.activation\",\"v\":2}",
+            "token_sha256": "1dc8154116ebe8a10732c20ad9d5f3f2f6cd501630a3d563015748271c7d2a3c"
+        }
+    ],
+    "rejected": [
+        {
+            "name": "payload changed under the same signature",
+            "reason": "BAD_SIGNATURE",
+            "recipe": {
+                "build": "swap_payload",
+                "overrides": {
+                    "seats": 50
+                }
+            }
+        },
+        {
+            "name": "truncated signature",
+            "reason": "MALFORMED",
+            "recipe": {
+                "build": "truncate_signature",
+                "keep": 40
+            }
+        },
+        {
+            "name": "unknown kid",
+            "reason": "UNKNOWN_KID",
+            "recipe": {
+                "build": "sign",
+                "overrides": {
+                    "kid": "unknown-kid"
+                }
+            }
+        },
+        {
+            "name": "validly signed but not canonical",
+            "reason": "NOT_CANONICAL",
+            "recipe": {
+                "build": "sign_spaced"
+            }
+        },
+        {
+            "name": "validly signed but with an unknown extra field",
+            "reason": "BAD_FIELD",
+            "recipe": {
+                "build": "sign",
+                "overrides": {
+                    "extra": "x"
+                }
+            }
+        }
+    ],
+    "base_payload": {
+        "v": 2,
+        "typ": "tindaflow.activation",
+        "kid": "test-2026-01",
+        "deployment": "A1B2C3D4",
+        "store": "0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11",
+        "installation": "7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40",
+        "fp": {
+            "smbios_uuid": "2f61ec04ef9d7e620fbf01b1bb71d332fea413a410ef413a9c401108550d31f7",
+            "board_serial": "9895e89fdcf5e3ee7a31f5339b6cec532598ff20622a428f09785e8d5a6b3e1e",
+            "bios_serial": "e43dce3bd9f3f55841fc246aeca2fa8ea8fc3332b58750d7b6f73d4d985dd761"
+        },
+        "seats": 1,
+        "mode": "enforce",
+        "seq": 42,
+        "prev": "30bfd747d0d21861663ddd52d9e57d99ea6662ce360d8d79bf9c0f13a3086d0e",
+        "iat": "2026-11-24T09:00:00+08:00",
+        "exp": "2026-12-25T05:00:00+08:00",
+        "jti": "0123456789abcdef0123456789abcdef"
+    }
+}
