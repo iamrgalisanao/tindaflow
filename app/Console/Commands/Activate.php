@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Domain\Exceptions\DomainException;
 use App\Services\License\ActivationRefused;
 use App\Services\License\ActivationService;
+use App\Services\License\HostHardware;
 use App\Services\License\InstallationIdentity;
 use Illuminate\Console\Command;
 use Illuminate\Validation\ValidationException;
@@ -36,12 +37,20 @@ class Activate extends Command
             return self::FAILURE;
         }
 
-        return $this->option('request') ? $this->request($identity) : $this->applyBundle($activation);
+        return $this->option('request') ? $this->request($identity, app(HostHardware::class)) : $this->applyBundle($activation);
     }
 
-    private function request(InstallationIdentity $identity): int
+    private function request(InstallationIdentity $identity, HostHardware $hardware): int
     {
-        $json = json_encode($identity->request(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        // A certificate binds the three hardware hashes, so a request without them cannot be answered. Say so here, not after a round trip.
+        $reading = $hardware->read();
+        if (! $reading->isFresh()) {
+            $this->error('The host helper has not written a current hardware file ('.$reading->status.' at '.$hardware->path().'). Install it (docker/host-helper/Install-HostHelper.ps1), or run its -Check to see whether this computer can supply the three values. No request was made.');
+
+            return self::FAILURE;
+        }
+
+        $json = json_encode($identity->request($reading->fingerprint), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
         if ($this->option('out') !== null) {
             file_put_contents((string) $this->option('out'), $json."\n");

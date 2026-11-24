@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Tests\Concerns\FakesHostHardware;
 use Tests\Unit\Services\License\Contract\SignsTestCertificates;
 
 /**
@@ -22,6 +23,7 @@ use Tests\Unit\Services\License\Contract\SignsTestCertificates;
  */
 class LicenseRenewalTest extends PostgresSchemaTestCase
 {
+    use FakesHostHardware;
     use SignsTestCertificates;
 
     private const STORE = '0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11';
@@ -49,6 +51,7 @@ class LicenseRenewalTest extends PostgresSchemaTestCase
         $this->identityFile = sys_get_temp_dir().'/tindaflow-test-identity-'.uniqid().'.json';
         config(['tindaflow.license.installation_file' => $this->identityFile, 'tindaflow.license.vendor_keys' => ['test-2026-01' => self::testPublicKeyBase64()]]);
         $this->identity = app(InstallationIdentity::class)->ensure();
+        $this->fakeHostHardware();
 
         (new Store)->forceFill(['id' => self::STORE, 'name' => 'TSC Canteen'])->save();
         $this->storeCertificate(5);
@@ -178,6 +181,31 @@ class LicenseRenewalTest extends PostgresSchemaTestCase
                 && $request->header('Signature-Input')[0] === 'sig1='.$params
                 && sodium_crypto_sign_verify_detached(base64_decode($match[1], true), $base, base64_decode($this->identity['public_key'], true));
         });
+    }
+
+    public function test_the_request_carries_the_hardware_hashes_from_the_host_helper_file(): void
+    {
+        $this->fakeControlPlane(['v' => 1, 'status' => 'UNCHANGED', 'certificate' => $this->currentToken]);
+
+        $this->renew();
+
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/v1/renewals') && json_decode($request->body(), true)['fingerprint'] === self::testFingerprint());
+    }
+
+    public function test_a_missing_stale_or_invalid_hardware_file_stops_the_renewal_before_anything_is_sent(): void
+    {
+        Http::fake();
+
+        config(['tindaflow.license.hardware_file' => sys_get_temp_dir().'/tindaflow-no-such-hardware-file.json']);
+        $this->assertSame(1, Artisan::call('tindaflow:license-renew'));
+        $this->assertStringContainsString('HOST_HELPER_STALE: the hardware file is missing', (string) $this->state()->last_renewal_error);
+
+        $this->fakeHostHardware(generatedAt: CarbonImmutable::now()->subHours(27)->format('Y-m-d\TH:i:sP'));
+        $this->assertSame(1, Artisan::call('tindaflow:license-renew'));
+        $this->assertStringContainsString('stale', (string) $this->state()->last_renewal_error);
+
+        Http::assertNothingSent();
+        $this->assertNull($this->state()->pending_request_id, 'no request was made, so none was saved');
     }
 
     public function test_the_same_certificate_back_is_reported_unchanged(): void

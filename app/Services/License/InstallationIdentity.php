@@ -62,11 +62,13 @@ final class InstallationIdentity
     }
 
     /**
-     * What the provider needs to register this PC. `fingerprint` is null until the host helper writes its hardware file (ADR-018 decision 4).
+     * What the provider needs to register this PC. `fingerprint` is the host helper's three hashes (ADR-018 decision 4), or null when
+     * there is no fresh hardware file, in which case the provider will refuse the request.
      *
+     * @param  array<string, string>|null  $fingerprint
      * @return array<string, mixed>
      */
-    public function request(): array
+    public function request(?array $fingerprint = null): array
     {
         $identity = $this->ensure();
 
@@ -75,7 +77,7 @@ final class InstallationIdentity
             'typ' => 'tindaflow.activation-request',
             'installation' => $identity['installation'],
             'installation_key' => $identity['public_key'],
-            'fingerprint' => null,
+            'fingerprint' => $fingerprint,
         ];
     }
 

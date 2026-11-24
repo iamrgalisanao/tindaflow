@@ -16,6 +16,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Tests\Concerns\FakesHostHardware;
 use Tests\Unit\Services\License\Contract\SignsTestCertificates;
 
 /**
@@ -25,6 +26,7 @@ use Tests\Unit\Services\License\Contract\SignsTestCertificates;
  */
 class ActivateCommandTest extends PostgresSchemaTestCase
 {
+    use FakesHostHardware;
     use SignsTestCertificates;
 
     private const STORE_ID = '0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11';
@@ -45,6 +47,7 @@ class ActivateCommandTest extends PostgresSchemaTestCase
             'tindaflow.license.installation_file' => $this->identityFile,
             'tindaflow.license.vendor_keys' => ['test-2026-01' => self::testPublicKeyBase64()],
         ]);
+        $this->fakeHostHardware();
     }
 
     protected function tearDown(): void
@@ -102,6 +105,21 @@ class ActivateCommandTest extends PostgresSchemaTestCase
         $this->assertMatchesRegularExpression('/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/', $first['installation']);
         $this->assertSame(SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES, strlen(base64_decode($first['installation_key'], true)));
         $this->assertArrayNotHasKey('secret_key', $first, 'the private half never leaves this PC');
+    }
+
+    public function test_the_request_carries_the_host_helpers_hardware_hashes(): void
+    {
+        $this->assertSame(self::testFingerprint(), $this->makeRequest()['fingerprint']);
+    }
+
+    public function test_a_request_cannot_be_made_without_a_current_hardware_file(): void
+    {
+        config(['tindaflow.license.hardware_file' => sys_get_temp_dir().'/tindaflow-no-such-hardware-file.json']);
+
+        $this->assertSame(1, Artisan::call('tindaflow:activate', ['--request' => true, '--out' => $this->bundleFile]));
+        $this->assertStringContainsString('host helper has not written a current hardware file', Artisan::output());
+        $this->assertFileDoesNotExist($this->bundleFile);
+        $this->assertFileDoesNotExist($this->identityFile, 'a refused request leaves no identity behind');
     }
 
     public function test_it_needs_exactly_one_of_request_and_bundle(): void

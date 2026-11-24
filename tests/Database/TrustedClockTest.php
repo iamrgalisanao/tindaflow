@@ -10,11 +10,13 @@ use App\Services\License\RefusalReason;
 use App\Services\License\Time\MonotonicReading;
 use App\Services\License\Time\MonotonicSource;
 use App\Services\License\Time\TrustedClock;
+use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Tests\Concerns\FakesHostHardware;
 
 /**
  * ADR-018 decision 3: the trusted-time high-water mark. It only moves forward, advances on a rolled-back clock through the
@@ -22,6 +24,8 @@ use Illuminate\Support\Facades\DB;
  */
 class TrustedClockTest extends PostgresSchemaTestCase
 {
+    use FakesHostHardware;
+
     private ?MonotonicReading $reading = null;
 
     protected function setUp(): void
@@ -240,5 +244,25 @@ class TrustedClockTest extends PostgresSchemaTestCase
 
         $this->assertStringContainsString('Activation: NOT_ACTIVATED.', $output);
         $this->assertStringContainsString('Trusted time mark: 2026-11-25 09:00:00', $output);
+        $this->assertStringContainsString('Hardware file: missing', $output);
+    }
+
+    public function test_the_host_helpers_clock_is_a_second_clock_that_can_only_move_the_mark_forward(): void
+    {
+        config(['tindaflow.license.vendor_keys' => ['test-2026-01' => base64_encode(str_repeat('k', 32))]]);
+        $this->boot('boot-1', 1000);
+        $twoHoursAhead = CarbonImmutable::now()->addHours(2);
+        $this->fakeHostHardware(generatedAt: $twoHoursAhead->format('Y-m-d\TH:i:sP'));
+
+        Artisan::call('tindaflow:license-heartbeat');
+
+        $this->assertEquals($twoHoursAhead->setMicrosecond(0), CarbonImmutable::instance($this->clock()->highWaterMark())->setTimezone($twoHoursAhead->getTimezone()));
+
+        // A file stamped earlier than the mark moves nothing.
+        $this->fakeHostHardware(generatedAt: CarbonImmutable::now()->subHour()->format('Y-m-d\TH:i:sP'));
+        $this->boot('boot-1', 1060);
+        Artisan::call('tindaflow:license-heartbeat');
+
+        $this->assertGreaterThanOrEqual($twoHoursAhead->getTimestamp(), $this->clock()->highWaterMark()->getTimestamp());
     }
 }

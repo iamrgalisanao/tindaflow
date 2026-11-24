@@ -69,6 +69,9 @@ jobs:
       - name: Certificate renewal script tests
         run: bash scripts/test-tls.sh
 
+      - name: Host helper self-test (PowerShell)
+        run: pwsh -NoProfile -File docker/host-helper/Test-HardwareFingerprint.ps1
+
       - name: Code style
         run: vendor/bin/pint --test
 

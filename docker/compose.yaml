@@ -73,6 +73,9 @@ services:
       DB_OWNER_PASSWORD: ""
     volumes:
       - app-storage:/var/www/html/storage
+      # ADR-018 decision 4: the folder the Windows host helper writes hardware.json into, read-only here. On the client PC set
+      # TINDAFLOW_HOST_DIR=C:/ProgramData/TindaFlow/host in .env (the helper's Install-HostHelper.ps1 creates it).
+      - ${TINDAFLOW_HOST_DIR:-./host}:/var/tindaflow-host:ro
     depends_on:
       postgres:
         condition: service_healthy

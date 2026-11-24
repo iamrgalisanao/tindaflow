@@ -7,10 +7,12 @@ use App\Models\Store;
 use App\Models\Terminal;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use Tests\Concerns\FakesHostHardware;
 use Tests\Unit\Services\License\Contract\SignsTestCertificates;
 
 /**
@@ -20,6 +22,7 @@ use Tests\Unit\Services\License\Contract\SignsTestCertificates;
  */
 class LicenseGateHttpTest extends PostgresSchemaTestCase
 {
+    use FakesHostHardware;
     use SignsTestCertificates;
 
     private function login(User $user): TestResponse
@@ -122,6 +125,55 @@ class LicenseGateHttpTest extends PostgresSchemaTestCase
     {
         $this->trustTestVendorKey();
         $this->storeCertificate(3);
+
+        $this->openShift($this->enrolledCashier())->assertStatus(201);
+    }
+
+    public function test_the_status_command_reports_the_real_state_and_the_hardware_file_once_activated(): void
+    {
+        $this->trustTestVendorKey();
+        $this->storeCertificate(20);
+        $this->fakeHostHardware();
+
+        Artisan::call('tindaflow:license-status');
+        $output = Artisan::output();
+
+        $this->assertStringContainsString('Activation: ACTIVE.', $output);
+        $this->assertStringContainsString('Hardware file: fresh, written', $output);
+    }
+
+    public function test_hardware_that_matches_the_certificate_opens_a_shift(): void
+    {
+        $this->trustTestVendorKey();
+        $this->storeCertificate(20);
+        $this->fakeHostHardware();
+
+        $this->openShift($this->enrolledCashier())->assertStatus(201);
+    }
+
+    public function test_one_matching_component_is_a_different_computer_and_is_refused(): void
+    {
+        $this->trustTestVendorKey();
+        $this->storeCertificate(20);
+        $this->fakeHostHardware(['board_serial' => str_repeat('0', 64), 'bios_serial' => str_repeat('1', 64)] + self::testFingerprint());
+
+        $this->openShift($this->enrolledCashier())->assertStatus(409)->assertJsonPath('error.details.reason', 'FINGERPRINT_MISMATCH');
+    }
+
+    public function test_one_changed_component_is_tolerated(): void
+    {
+        $this->trustTestVendorKey();
+        $this->storeCertificate(20);
+        $this->fakeHostHardware(['bios_serial' => str_repeat('1', 64)] + self::testFingerprint());
+
+        $this->openShift($this->enrolledCashier())->assertStatus(201);
+    }
+
+    public function test_a_missing_or_stale_hardware_file_changes_no_state(): void
+    {
+        $this->trustTestVendorKey();
+        $this->storeCertificate(20);
+        $this->fakeHostHardware(['smbios_uuid' => str_repeat('0', 64), 'board_serial' => str_repeat('1', 64), 'bios_serial' => str_repeat('2', 64)], CarbonImmutable::now()->subDays(3)->format('Y-m-d\TH:i:sP'));
 
         $this->openShift($this->enrolledCashier())->assertStatus(201);
     }
