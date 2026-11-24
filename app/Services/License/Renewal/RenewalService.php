@@ -201,7 +201,7 @@ final class RenewalService
             ]);
         });
 
-        return new RenewalResult(RenewalResult::REVOKED, 'The provider has revoked this installation. Selling is locked until the provider reinstates it.');
+        return new RenewalResult(RenewalResult::REVOKED, 'The provider has revoked this installation. Selling is locked, and it cannot be unlocked from here. Contact your TindaFlow provider.');
     }
 
     private function failed(string $message, DateTimeImmutable $now): RenewalResult
