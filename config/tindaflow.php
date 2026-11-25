@@ -77,7 +77,8 @@ return [
 
         // ADR-018: the activation certificate's trust anchors, constants in code like `public_key` above and never read from
         // the environment. `vendor_keys` maps a kid to the base64 of a 32-byte Ed25519 public key; `revoked_kids` lists kids this build
-        // distrusts (a compromised key). Both empty = this build enforces nothing (state LEGACY): existing installs do not change.
+        // distrusts (a compromised key). To distrust a key, list it in `revoked_kids` and KEEP its public key: a shop holding a
+        // certificate under it needs that key here to ask for a new one (ADR-019 slice 3). Both empty = this build enforces nothing (state LEGACY): existing installs do not change.
         'vendor_keys' => [],
         'revoked_kids' => [],
 
