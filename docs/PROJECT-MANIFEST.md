@@ -2,17 +2,62 @@
 
 ## Purpose
 
-This is the single tracking document for TindaFlow's progress against the
-governing project brief's 10-stage delivery process (brief §18). It answers
-three questions at a glance: **where is each stage**, **where is each V1
-module**, and **what's still open**. Update this file at the end of every
-stage/remediation pass — it is the source of truth the HTML dashboard
-(`docs/dashboard.html`, or the published Artifact) is generated from, not
-the other way around.
+This is the repository's record of **what has been built, on what decisions, and what is not yet proven**. It also keeps
+the frozen-baseline history and rules that `scripts/validate-baselines.sh` enforces.
 
-**Last updated:** 2026-09-18 — **Module A (A0–A6) is complete.** `POST /sales` now has a real HTTP layer: `SaleController`/`SaleFinalizeRequest`, registered under `routes/web.php`'s `web` group, wires A4's `PosRequestContext` into the already-VERIFIED `CheckoutService::finalize()` exactly as `stage-6c-sale-finalization.md`'s "Authentication boundary" section specified — `terminal_id`/`cashier_id` are never read from the request body, proven directly. All nine of `module-a-auth-terminal-initialization.md` §16's Stage 6C unblock criteria are now met and demonstrated by passing tests; Stage 6C's own freeze as `stage-6c-baseline` remains an explicit owner decision, not self-sealed. Full detail in §22.
+**It no longer tracks day-to-day status** (changed 2026-11-25). Priorities, sprint work, what is in progress and the
+owner's open actions are held in the development tracker, which is kept outside the repository. For status, the tracker
+wins; for what the software does, the code and its tests win. Update this file when a decision record or a body of work
+lands: a line in the revision log, and "Where things stand" if the change makes it untrue.
+
+**Last updated:** 2026-11-25. Everything under "Where things stand" was checked against `main` at `3ea0fe4`. The dated
+sections after it, up to "At the 2026-09-27 snapshot", are the build record as written at the time: their test counts,
+"in progress" labels and next actions describe that day, not today.
 
 **How Module A got here**: A0 (baseline reconstruction) → A1 (login/logout/me, governance-sealed after two reconstructions for `VALIDATION_FAILED`) → A2 (Gate-based RBAC, no reconstruction needed) → A3 (terminal enrollment, ADR-011, governance-sealed after two further reconstructions for `ENROLLMENT_TOKEN_INVALID` and `TERMINAL_NOT_FOUND` — see "A3 baseline reconstruction" and "A3 second baseline reconstruction" below) → A4 (`PosRequestContext`/`ComposeAuthoritativeContext`, reusing `TERMINAL_NOT_ENROLLED` rather than a new code) → A5 (audited the full §13 test matrix, closed two real gaps) → A6 (this pass). Four baseline reconstructions total, all following the same reconstruct-don't-forward-edit discipline; a real project-wide PostgreSQL session-timezone bug was found and fixed along the way (A3). Full narrative detail in `docs/06-backend/module-a-auth-terminal-initialization.md` §17–§22.
+
+## Where things stand (2026-11-25, `main` at `3ea0fe4`)
+
+### Built since the 2026-09-27 snapshot
+
+| Work | State on `main` | Record |
+|---|---|---|
+| Locked fiscal configuration and a till cap from a signed license | Built. The cap is not enforced: no build carries the vendor's public key | [ADR-014](03-architecture/decisions/ADR-014-locked-fiscal-configuration-and-licensed-tills.md) |
+| Remote till approval, a shared-credential tripwire, Z-reading printing | Built | [ADR-015](03-architecture/decisions/ADR-015-remote-till-approval.md), revision log |
+| Canteen: menu and meals, slip mode, employee credit, billing, bank transfer | Phases 1 to 4 (slices 1.1 to 4.4) are recorded as built. Phase 5 (go-live loading and acceptance) has no built record | [ADR-016](03-architecture/decisions/ADR-016-configurable-meal-menu-employee-credit-and-slip-mode.md) (its status line still reads "Proposed"), [canteen build plan](06-backend/canteen-build-plan.md) |
+| Stock that blocks sales, daily stock for cooked dishes, shelf-life flag | Slices A, B and C built | [ADR-017](03-architecture/decisions/ADR-017-stock-blocking-daily-dish-stock-and-shelf-life.md), [inventory build plan](06-backend/inventory-build-plan.md) |
+| Cloud activation and licensing: certificates, trusted time, activation, renewal, offline codes, hardware check, scheduler, Manager area, recovery drills, till limit and till warning | Built and **dormant**: `vendor_keys` is empty in `config/tindaflow.php`, so every install runs unchanged. The provider's service is a separate private repository | [ADR-018](03-architecture/decisions/ADR-018-cloud-activation-hardware-binding-and-bounded-offline-operation.md), [ADR-019](03-architecture/decisions/ADR-019-native-device-agent-and-the-path-to-enforcement.md) |
+
+### Size and tests
+
+- 19 decision records, 85 migrations, 62 PHP files under `app/Models`, 33 factories, 211 API operations in
+  `openapi.yaml`, 22 of them reports.
+- Frontend (Vitest): 446 tests in 57 files. Unit and Feature: 439 passed, 2 skipped. PostgreSQL (`tests/Database`):
+  1,494 tests; on a Windows development PC 1,492 pass and 2 in `ResetUserPasswordCommandTest` fail on a line-ending
+  difference. The same suite passes in CI on Linux.
+- CI also runs code style, the backup and certificate-renewal script tests, the host-helper self-test, the
+  frozen-baseline check, a build of the production images and a whole-shop restore drill.
+- `tests/CrossRepo` needs a checkout of the provider's repository and is not run by this repository's CI.
+
+### Not yet proven or not built
+
+- **Licensing is not in effect anywhere.** ADR-019 sets what has to pass before any shop is enforced, including recovery
+  drills, a period on real hardware, and an activated report-only install with no false refusal. Its five owner
+  confirmations are open.
+- The native device agent has not been built. ADR-019 requires a hardware spike with a written go or no-go first.
+- Image-only delivery from a private registry (ADR-018 decision 11) is not in place: `docker/compose.yaml` still builds the
+  web, app and backup images from source.
+- The scheduler and the Windows host helper have not been rehearsed on the pilot PC, and the upgrade-and-adopt steps in
+  `docker/README.md` have not been run on a shop computer.
+- Slip mode: the audit and journal screens cannot filter by slip number, and some settings wording and help guides still
+  speak only of invoices (canteen build plan, 2.2b).
+- The go-live restore drill on the real server and an off-machine backup destination (Stage 9) are not recorded as done.
+- A sale refused because the store's tax registration, default stock location or the till's fiscal installation cannot be
+  resolved has no catalogued error: those three exceptions are plain `RuntimeException`s with no renderer in
+  `bootstrap/app.php`. Setup readiness checks exist to catch these cases first.
+- BIR accreditation work stays parked (owner decision, 2026-09-25).
+
+---
 
 ### Stage 6C progress (2026-09-17, in progress — not frozen)
 
@@ -790,7 +835,9 @@ responses (8 requests down to 1). No API, contract or frozen file change. Detail
 
 ---
 
-## At a glance
+## At the 2026-09-27 snapshot (historical)
+
+*Kept as written. Its "current stage", "next action", counts and ADR total are out of date; see "Where things stand".*
 
 | | |
 |---|---|
@@ -837,7 +884,9 @@ idempotency, or global lock ordering (Stage 6A).
 ## Stage tracker
 
 Stages follow the governing brief §18. Status legend: ✅ Approved & frozen
-(tagged) · 🚧 In progress · ⬜ Not started.
+(tagged) · 🚧 In progress · ⬜ Not started. The Baseline column names each tag's commit as it is now (checked
+2026-11-25). The Notes column was written at each freeze, so commit names and counts there are of that time; later
+reconstructions are under "Git baseline history" and the reconstruction sections above.
 
 | # | Stage | Status | Baseline | Key deliverables | Notes |
 |---|---|---|---|---|---|
@@ -845,13 +894,13 @@ Stages follow the governing brief §18. Status legend: ✅ Approved & frozen
 | 1 | Product Baseline | ✅ | `stage-1-baseline` @ `d93a813` | product-vision.md, scope.md, personas.md, market-comparison.md, bir-reference-register.md, sitemap.md | **Reconstructed during the full linearization** to include BIR-012/013/014 (added later, during Stage 2's discount-allocation pass, but Stage-1-owned content) — the original `ac907e1` tag was a point-in-time snapshot, not Stage 1's final approved state. Content-equivalence verified via empty diff against the previously accepted tip. |
 | 2 | Domain Model | ✅ | `stage-2-baseline` @ `5a7382a` (substantive `6289588`) | domain-model.md, invariants.md (81 invariants), state-machines.md, erd.md | Final content includes every approved amendment: the original domain model, Void/Refund processing context, capability-catalog sync, Void wording fix, NON_VAT tax-summary model, and InvoiceSeries counter-bootstrap/FiscalInstallation-binding. Now a genuine ancestor of Stage 3, containing nothing from Stage 3 onward — verified by direct tree inspection, not assumed. |
 | 3 | Architecture | ✅ | `stage-3-baseline` @ `78a190c` (substantive `680ac1b`) | architecture.md, deployment.md, offline-strategy.md, erd.md (Stage 2 content, retained here), 12 ADRs | **Semantically unchanged** — content-equivalence to the original `c8a8bbe` verified via empty diff. Hash changed only because it now correctly descends from the amended Stage 2, instead of Stage 2 being amended on top of it. No new Stage 3 design decision introduced. |
-| 4 | API Contract | ✅ | `stage-4-baseline` @ `2313a16` (substantive `9adc30b`) | openapi.yaml (86 ops, 67 schemas), api-design.md, error-catalog.md, operation-inventory.md, csv-export-contract.md, 13 example files | **Semantically unchanged** — content-equivalence to the previously approved, NON_VAT-amended `515e2db` verified via empty diff. InvoiceSeries's amendment never touched Stage 4 at all. |
-| 5 | Database Schema | ✅ | `stage-5-baseline` @ `4c16ee0` (substantive `9de98ce`) | 41 migrations, 34 models, database-schema.md, constraint-register.md, context-integrity-matrix.md, index-strategy.md, migration-plan.md, schema-validation.md, stage-5-report.md, 14 factories, 3 seeders, Stage 5's 9 test files | Content-equivalence to the previously accepted reconciled `f036da9` verified via empty diff. Migration round-trip (`fresh`/`reset`/`migrate`) re-verified clean at this exact boundary before advancing. |
-| 6A | Backend — Transaction Foundation | ✅ | `stage-6a-baseline` @ `47fa84d` (substantive `823c032`) | Money/Quantity, FinancialCalculator, CanonicalRequestHasher/IdempotencyService, GlobalLockOrder, domain exception hierarchy | Content-equivalence to `570dd75` verified via empty diff. Full regression re-verified clean at this boundary before advancing. |
-| 6B | Backend — Invoice Series Allocation | ✅ | `stage-6b-baseline` @ `a667edc` (substantive `2f5e6e8`; boundary-owned doc fix `a64111e`) | InvoiceSeriesAllocator (row-lock allocation per ADR-004), AllocatedInvoiceNumber DTO, InvoiceSeriesExhaustedException/InvoiceSeriesResolutionException | Content-equivalence to the previously accepted `228e033` verified via empty diff. |
-| 6C | Backend — Sale Finalization | ✅ | `stage-6c-baseline` @ `de2a84c` | `CheckoutService` (ADR-003 orchestration), `FiscalInstallationResolver`/`InventoryLocationResolver`/`TaxRegistrationResolver`, 9 domain exceptions, `inventory_locations` default-uniqueness migration, plus (A6) `SaleController`/`SaleFinalizeRequest`/`SaleDetailResource` and friends | **Checkout domain/service layer VERIFIED** (34 tests) — see `docs/06-backend/stage-6c-sale-finalization.md`. **HTTP layer built (A6)**: `POST /sales` resolves `terminal_id`/`cashier_id` exclusively from Module A's `PosRequestContext`, proven never readable from the request body. All nine of `module-a-auth-terminal-initialization.md` §16's unblock criteria met. **FROZEN on explicit owner instruction (2026-09-18).** |
-| 7 | Frontend | 🚧 | — | React SPA (React Router, same-origin, no Inertia) on a dark back-office shell (sidebar / icon rail / drawer): login, dashboard, POS (register, payment, lookup, shift, X-reading, receipt, printing), terminal enrollment and revocation, store setup, catalog, inventory (stock, movements, counts, transfers), sales history with void/refund approvals, records (audit log, electronic journal, shifts, fiscal days), reports (20, one schema-driven viewer), users, and the in-app Help knowledge base. See `docs/06-ui/` and the forward-stage table below | Built screen by screen as each backend module landed, every one verified in a real browser except where a stage note says otherwise. Every V1 module has its screens; what remains is per-stage polish and the deferred items listed under *Next action*. **There are no automated frontend tests.** |
-| 8 | Testing | 🚧 | — | 174 Unit + Feature tests (`php artisan test`) and 753 PostgreSQL-backed Database tests (`PGSQL_TEST_USERNAME=<role> php artisan test tests/Database`, needs a local PostgreSQL and a disposable `tindaflow_schema_test` database), all passing as of 2026-09-26; the Database suite includes real multi-process concurrency proofs | Backend is covered module by module (see the Tests column below). **Not done:** any automated frontend test, and closing the gaps found by the 2026-09-27 mapping of `invariants.md`'s 81 invariants to tests ([invariant-test-coverage.md](02-domain/invariant-test-coverage.md): 33 covered, 35 partial, 12 with no test that would fail if the rule broke, plus the drifts between the invariants and the code that the report lists). |
+| 4 | API Contract | ✅ | `stage-4-baseline` @ `9fdc2ca` (substantive `9adc30b`) | openapi.yaml (86 ops, 67 schemas), api-design.md, error-catalog.md, operation-inventory.md, csv-export-contract.md, 13 example files | **Semantically unchanged** — content-equivalence to the previously approved, NON_VAT-amended `515e2db` verified via empty diff. InvoiceSeries's amendment never touched Stage 4 at all. |
+| 5 | Database Schema | ✅ | `stage-5-baseline` @ `71693bc` (substantive `9de98ce`) | 41 migrations, 34 models, database-schema.md, constraint-register.md, context-integrity-matrix.md, index-strategy.md, migration-plan.md, schema-validation.md, stage-5-report.md, 14 factories, 3 seeders, Stage 5's 9 test files | Content-equivalence to the previously accepted reconciled `f036da9` verified via empty diff. Migration round-trip (`fresh`/`reset`/`migrate`) re-verified clean at this exact boundary before advancing. |
+| 6A | Backend — Transaction Foundation | ✅ | `stage-6a-baseline` @ `6591168` (substantive `823c032`) | Money/Quantity, FinancialCalculator, CanonicalRequestHasher/IdempotencyService, GlobalLockOrder, domain exception hierarchy | Content-equivalence to `570dd75` verified via empty diff. Full regression re-verified clean at this boundary before advancing. |
+| 6B | Backend — Invoice Series Allocation | ✅ | `stage-6b-baseline` @ `48fbbb6` (substantive `2f5e6e8`; boundary-owned doc fix `a64111e`) | InvoiceSeriesAllocator (row-lock allocation per ADR-004), AllocatedInvoiceNumber DTO, InvoiceSeriesExhaustedException/InvoiceSeriesResolutionException | Content-equivalence to the previously accepted `228e033` verified via empty diff. |
+| 6C | Backend — Sale Finalization | ✅ | `stage-6c-baseline` @ `822455a` | `CheckoutService` (ADR-003 orchestration), `FiscalInstallationResolver`/`InventoryLocationResolver`/`TaxRegistrationResolver`, 9 domain exceptions, `inventory_locations` default-uniqueness migration, plus (A6) `SaleController`/`SaleFinalizeRequest`/`SaleDetailResource` and friends | **Checkout domain/service layer VERIFIED** (34 tests) — see `docs/06-backend/stage-6c-sale-finalization.md`. **HTTP layer built (A6)**: `POST /sales` resolves `terminal_id`/`cashier_id` exclusively from Module A's `PosRequestContext`, proven never readable from the request body. All nine of `module-a-auth-terminal-initialization.md` §16's unblock criteria met. **FROZEN on explicit owner instruction (2026-09-18).** |
+| 7 | Frontend | 🚧 | — | React SPA (React Router, same-origin, no Inertia) on a dark back-office shell (sidebar / icon rail / drawer): login, dashboard, POS (register, payment, lookup, shift, X-reading, receipt, printing), terminal enrollment and revocation, store setup, catalog, inventory (stock, movements, counts, transfers), sales history with void/refund approvals, records (audit log, electronic journal, shifts, fiscal days), reports (20, one schema-driven viewer), users, and the in-app Help knowledge base. See `docs/06-ui/` and the forward-stage table below | Built screen by screen as each backend module landed, every one verified in a real browser except where a stage note says otherwise. Every V1 module has its screens; what remains is per-stage polish and the deferred items listed under *Next action*. Frontend tests (Vitest) were added on 2026-09-27; current counts are under "Where things stand" |
+| 8 | Testing | 🚧 | — | PHPUnit Unit, Feature and PostgreSQL Database suites (the last includes multi-process concurrency proofs) and Vitest frontend tests, all run in CI; current counts are under "Where things stand" | The 2026-09-27 audit mapped the 81 invariants then in `invariants.md` to tests ([invariant-test-coverage.md](02-domain/invariant-test-coverage.md)); its headline findings were fixed or pinned that day. **Not recorded as done:** closing every remaining partial or uncovered invariant, and extending the map to the canteen invariants (82 to 96, canteen build plan Phase 5). |
 | 9 | Deployment | 🚧 | — | Production stack in `docker/` (nginx `web`, PHP-FPM `app`, PostgreSQL 17, hourly verified `backup`), CI workflow, business-timezone, security-header and rate-limit hardening, a drilled backup restore (Stage 23; `docker/README.md`) | `deployment.md` was produced ahead of schedule in Stage 3. **Open:** the go-live restore drill on the real deployment and an off-machine backup destination. |
 
 ### Forward stages (10 onward)
@@ -895,6 +944,7 @@ folder did so under a recorded owner-approved exception (named in the row). Each
 | — | Back-office Terminals screen with revocation; semantic colour tokens (`06-ui/design-tokens.md`) | merged PRs #2 and #11 |
 | — | In-app Help knowledge base (`/help`, 27 guides, animated screenshots; regenerated by `scripts/help-shots`) | `06-ui/sitemap.md`, "Help (knowledge base)" |
 | — | Net-of-change cash collections: expected drawer cash, Z-reading and payment-method report no longer count change given back | `06-backend/stage-9-shift-close-fiscal-day-close.md` §8 |
+| — | Work after 2026-09-27 that has no stage number: ADR-014 to ADR-019 | "Where things stand" and the revision log |
 
 ---
 
@@ -917,7 +967,7 @@ Legend: ✅ Covered · 🚧 Partial/implicit · ⬜ Not started.
 | K — Void and Refund | ✅ | ✅ | ✅ | ✅ | ✅ (Stage 15: request, approve, reject and list/get for both, dispositions, settlements, stock reversal) | ✅ (refund and void panels, `/admin/sales/approvals`) | ✅ |
 | L — Reports | 🚧 | ✅ | ✅ | ✅ | ✅ (Stage 10: all 15 operations, JSON + CSV) | ✅ (Stage 11: `/admin/reports`, one schema-driven viewer) | ✅ |
 
-Tests column: ✅ means the module's backend behaviour is covered by service and HTTP tests in `tests/Database`, `tests/Feature` or `tests/Unit`; 🚧 means covered only through another module's tests (D and E through checkout and sale finalization). No module has automated frontend tests.
+Tests column: ✅ means the module's backend behaviour is covered by service and HTTP tests in `tests/Database`, `tests/Feature` or `tests/Unit`; 🚧 means covered only through another module's tests (D and E through checkout and sale finalization). This table was last assessed before the frontend tests existed and before the canteen, stock-rule and licensing work.
 
 ---
 
@@ -1006,6 +1056,8 @@ rather than by convention alone.
 
 ## Development direction (architect review, 2026-09-27)
 
+*Historical. Current priorities are in the development tracker.*
+
 **Optimise for making the till safe to put in a real shop**: money and fiscal integrity first, then operability, then one
 supervised pilot store. Stages 10-39 were almost all features; the invariant audit
 ([invariant-test-coverage.md](02-domain/invariant-test-coverage.md)) found 12 invariants with no failing test, and the
@@ -1044,8 +1096,8 @@ exhaustively closing every PARTIAL invariant.
 - **No known gaps remain from Stage 13.** The last-admin lock-out gaps (the API deactivating the last active ADMIN, and `AdminUserSeeder` skipping on an inactive ADMIN) were closed 2026-09-26; see `06-backend/stage-13-users.md`.
 - The 14-operation idempotency contract needs consistent Stage 6C implementation, not just per-operation ad hoc handling.
 - Void-eligibility policy and the FiscalDay auto-open policy are TindaFlow product decisions, not BIR mandates.
-- **Disclosed Stage 6C contract gaps**: the frozen Stage 4 error catalog has no code for "no default inventory location configured," "no/ambiguous active tax registration," or the terminal/fiscal-installation setup-defect cases — `InventoryLocationResolutionException`/`TaxRegistrationResolutionException`/`FiscalInstallationResolutionException` currently surface as unhandled `RuntimeException`s rather than stable HTTP error envelopes. Deliberate (no new code invented unilaterally per the Stage 6C rulings) but a real gap a future Stage 4 amendment or the eventual HTTP layer must close before production use. See `docs/06-backend/stage-6c-sale-finalization.md` §5.
-- **`POST /sales` cannot go to production until Module A exists**: `CheckoutService` accepts `$terminalId`/`$cashierId` as plain parameters by design; the future controller must resolve these from an authenticated/authorized terminal context, never from caller-controlled request fields. This is documented as a binding constraint on that not-yet-built controller, not merely a suggestion.
+- **Disclosed Stage 6C contract gaps, still open (checked 2026-11-25):** see "Not yet proven or not built" under "Where things stand" (the refused-sale point), and `docs/06-backend/stage-6c-sale-finalization.md` §5.
+- *Closed:* `POST /sales` now takes the till and the cashier from Module A's authenticated context, never from the request (A6, 2026-09-18).
 
 ---
 
@@ -1155,3 +1207,9 @@ exhaustively closing every PARTIAL invariant.
 - **2026-10-23** — **Two security recommendations built: a shared-credential tripwire and a server-owned Z-reading original; the rest parked.** (a) `TerminalUsageTracker` records where and when each till was last used (`last_seen_at/ip/user_agent`, written at most once a minute) and flags a till when its credential is used from two different computers **in turn** (A, B, A within 30 minutes; a single move of address or browser is not alternation): `terminals.shared_use_suspected_at`, one `TERMINAL_SHARED_USE_SUSPECTED` audit event an hour at most, a **TWO COMPUTERS?** badge and a plain-words note on the Terminals screen; enrolling the till again clears it (the old credential, and every copy, stops working). It never blocks a sale and never throws. **Known blind spot, stated:** two machines on the same shop network running the same browser version look identical and are not caught; it is a tripwire, not a lock. (b) The Z-reading's **original is now claimed by the server**: the two print operations added on 2026-10-20 (not yet deployed) became one, `fiscalDayZReadingPrint`; the first print of a reading is the plain original (insert-only `z_reading_prints`, unique per reading, because `z_readings` is append-only), every later print a marked, recorded copy, so a direct API call can no longer fetch unmarked duplicates; `original_printed_at/by` shown on the reading. Two new migrations (`terminals` last-seen columns, `z_reading_prints`). 9 new tests, the Z-reading tests rewritten; full suite 1,036. **Parked for another session (decisions and larger work, in this order):** (1) a credential bound to the device (a non-extractable key signs each till request, so a copied cookie is useless; the only real fix for copying, and the largest piece); (2) an optional network allow-list for approving tills (`TINDAFLOW_PAIRING_ALLOWED_CIDRS`); (3) a Telegram alert when a till is approved, revoked or flagged as shared (reuse the backup container's alert script; needs a way for the app to reach it); (4) a status check (ACTIVE only) in the credential resolver and at approval, since `INACTIVE`/`DECOMMISSIONED` can only be set in the database today; (5) a trusted-proxy setting so recorded addresses are real behind a front proxy or tunnel (needs the live site's network path from the owner).
 
 - **2026-10-26** — **ADR-017 proposed (design only): stock that blocks sales, daily stock for cooked dishes, rough shelf-life flag.** Client's final stock requirements recorded; date-keyed daily balances (no midnight job), per-dish pools with portions (Combo side 0.5), per-store block setting (off by default), manager-code stock override (open question for the client), derived freshness flag (no batches or expiry). Invariants 100 to 105 planned; plan and estimate (15 to 20 days) in [inventory-build-plan.md](06-backend/inventory-build-plan.md). No code, migration or database change.
+- **2026-10-26** — **ADR-017 slices A, B and C and canteen slices 4.3 and 4.4 committed.** Sales blocked at zero running stock with a "last 3" warning and a manager's override; daily dish stock with portions; a rough shelf-life flag; write-off of unpaid billing amounts; sales by meal type and dish in the end-of-day report. The plans date slices B and C 2026-10-27 and 2026-10-28; their commits are dated 2026-10-26.
+- **2026-10-28** — Till fix: quick-cash amounts add up, a keypad digit works on a pre-filled amount, and the decimal point no longer breaks the amount box.
+- **2026-11-24** — **ADR-018 accepted and its first slices merged** (pull requests 13 to 21): the certificate verifier, license state and trusted time, the license gate, activation and renewal, and the shared contract with the provider's service. Also a written ADR-013 exception for the pilot PC's hard disk (14) and Manager rules for users (15).
+- **2026-11-25** — **The rest of ADR-018's application slices, and ADR-019 slices 1 to 4** (pull requests 22 to 39): host helper, scheduler, offline codes, Manager area, the cross-repository contract test; then the enforcement defects, the provider's tests on PostgreSQL, the whole-shop restore drill, the ways back to trading (unblock, adopt, replace computer, reconnect chain, key rotation and rebuild, approve hardware), the till limit from the certificate and the till warning. All of it dormant until a build carries a vendor key. The hardware agent (ADR-019 slices 5 and later) is not built.
+- **2026-11-25** — Bank transfer as a payment method, with an optional reference for GCash, Maya and bank transfer (40); slip numbers in four reports for stores that use slips (41); one red in the interface, and documents no longer feed the CSS build (43); a sale's items returned in line order (42).
+- **2026-11-25** — **This manifest brought up to date**, and its role narrowed: it records what is built and why; live status moved to the development tracker.
