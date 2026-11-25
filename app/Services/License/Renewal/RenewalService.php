@@ -213,7 +213,8 @@ final class RenewalService
         }
 
         if ($reply->status === 409) {
-            return $this->failed('The provider reports a forked certificate chain. Nothing was changed; contact your TindaFlow provider.', $now);
+            // Kept short enough to be stored whole. The provider approves a reconnection by this number (ADR-019 slice 3).
+            return $this->failed("The provider reports a forked certificate chain. Nothing was changed. If a backup was restored, ask your TindaFlow provider to reconnect it: this computer holds certificate {$current->seq}.", $now);
         }
 
         if ($reply->status === 200 && $status === 'REVOKED') {

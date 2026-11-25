@@ -307,6 +307,8 @@ class LicenseRenewalTest extends PostgresSchemaTestCase
         $this->assertFalse((bool) $state->chain_invalid);
         $this->assertSame($this->currentToken, $state->certificate);
         $this->assertStringContainsString('forked', (string) $state->last_renewal_error);
+        $this->assertStringContainsString('certificate 5.', (string) $state->last_renewal_error, 'the whole message fits, with the number the provider will ask for');
+        $this->assertStringContainsString('reconnect', (string) $state->last_renewal_error);
     }
 
     public function test_a_signed_revocation_locks_the_installation(): void

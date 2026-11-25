@@ -123,7 +123,8 @@ Every way a shop can be refused a new shift, and its way back. "Drilled" means t
 | Clock behind the recorded time, no internet | Correct the clock; time-reset code | worked already, drilled |
 | Revoked | **None. It needs the owner's decision.** A revocation can now also arrive by file | unchanged |
 | Hardware changed (2 of 3 or more) | Replacing the computer (part 4) | built in part 4, drilled |
-| Chain forked (copy, or an old backup restored) | None yet: "re-chaining" | not built |
+| Chain forked: an old backup restored, or an answer lost for good | The provider approves a reconnection (part 5) | built in part 5, drilled |
+| Chain forked: a copy of the installation | None, and that is the point: only the copy the provider does not approve is refused | as designed |
 | The identity file is lost | Replacing the computer (part 4) | built in part 4 |
 | The build no longer accepts the stored certificate | None yet: "rotating keys" | not built |
 
@@ -157,6 +158,18 @@ An existing store could not be licensed: activation refused its sales, and the c
 - **Proven:** the cross-repository drill restores an adopted shop with a sale onto other hardware, replaces it changing nothing outside licensing, renews, takes a new offline code, and then switches the old computer back on and sees it refused. Two-process tests cover two replacements at once, the old computer renewing during one, and an offline code requested during one.
 
 **Not built:** approving a changed baseline for a computer that is otherwise the same (one changed value is tolerated but never becomes the baseline; two need a replacement); a limit on how often a computer may be replaced (each is the provider's decision, with a reason); anything for a hosted or multi-computer shop. Nothing has run on real hardware, and the README steps have not been run.
+
+## Slice 3, part 5, built 2026-11-25: reconnecting a certificate chain
+
+ADR-018 decision 5 names a provider "Re-chain" action for a restore older than the latest certificate. It was not built, so such a shop was refused for good, as was one whose answer was lost longer than the replay time.
+
+- **`license:rechain CODE --seq=N --reason=`** approves ONE certificate number of the current computer, for **7 days** (`licensing.rechain_days`; an engineering choice) and one use. It is spent only by a renewal, online or by file, presenting **exactly** the certificate the registry issued under that number. The successor is numbered above every certificate issued, so the client accepts it and the audit shows the gap. Every other rule still applies (suspension, revocation, replacement, hardware), and a refusal does not spend the approval. `--cancel` withdraws it.
+- **After it, the chain has one holder:** whoever presents any other certificate, including the one that was latest before, is a fork.
+- **The command shows the recorded fork alerts** (number presented, address, or "by file"), to compare with the owner's account. The client's message now asks the shop to give the certificate number it holds.
+- **Registry:** a restored backup brings its pending request id back, which the registry may already have answered. So a certificate from a reconnection may share a request id with an earlier one; ordinary renewals still allow one certificate per request, and a retry gets the newest. Rolling this migration back is refused once a chain has been reconnected.
+- **Proven:** drills restore an older license on a shop with a sale, online and by file, reconnect it changing nothing outside licensing, and see the other holder refused. Two processes presenting the approved certificate together get one reconnection. Removing the exact-certificate, expiry or one-use limit makes tests fail.
+
+**Limits:** **nothing here can tell the real shop from a copy.** The approval goes to whoever presents that certificate first, so the protection is the provider's check with the owner, as ADR-018 decision 5 says ("owner-verified"). How that check is made is not defined yet. **ADR-018 also requires, before a third client, an owner-held re-sync code with a yearly cap and an audit counter. That is not built.** A restore also brings back the count of offline codes used, so a code for the restored certificate could be typed again until the shop renews; ADR-018 already accepts that a copy can do this once.
 
 ## Order of work
 
