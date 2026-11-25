@@ -153,6 +153,12 @@ const ICONS = {
             <path d="M17 21V3c-2.5 1.5-3.5 4.5-3.5 8H17" />
         </Icon>
     ),
+    license: (
+        <Icon>
+            <path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z" />
+            <path d="M9 12l2 2 4-4" />
+        </Icon>
+    ),
     close: (
         <Icon>
             <path d="M6 6l12 12M18 6L6 18" />
@@ -284,6 +290,15 @@ const SECTIONS = [
         icon: 'users',
         capability: 'USER_MANAGE',
         matches: (path) => path.startsWith('/admin/users'),
+    },
+    {
+        // ADR-018 decision 10: license status, "check now" and offline code entry (LICENSE_MANAGE: MANAGER and ADMIN).
+        id: 'license',
+        label: 'License',
+        to: '/admin/license',
+        icon: 'license',
+        capability: 'LICENSE_MANAGE',
+        matches: (path) => path.startsWith('/admin/license'),
     },
     {
         id: 'terminals',

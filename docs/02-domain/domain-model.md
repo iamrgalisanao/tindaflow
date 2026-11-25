@@ -134,6 +134,7 @@ FISCAL_CONFIGURATION_MANAGE  -- edit tax_registration / fiscal_installation reco
 EMPLOYEE_MANAGE        -- (ADR-016 slice 3.1; MANAGER added 2026-10-26) employees, their ID cards, read of the credit limits; ADMIN and MANAGER
 EMPLOYEE_POLICY_MANAGE -- (ADR-016 amendment 2026-10-26) change the credit limit per type, CSV bulk import of employees; ADMIN only
 BILLING_MANAGE         -- (ADR-016 slice 4.1, 2026-10-26) generate, view, save, print and export the billing statement and billing runs; ADMIN and MANAGER
+LICENSE_MANAGE         -- (ADR-018 decision 10, 2026-11-25) license status, ask the provider for a renewal now, enter an offline code; ADMIN and MANAGER
 ```
 
 **Amendment (Stage 4 remediation, 2026-09-16):** the six capabilities

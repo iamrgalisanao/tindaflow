@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import AdminLayout from './admin/AdminLayout';
+import LicenseNotice from './admin/license/LicenseNotice';
 import { ErrorAlert } from './admin/catalog/CatalogParts';
 import { failureMessage } from './admin/catalog/catalogApi';
 import { useLoad, useSignIn } from './admin/records/historyParts';
@@ -77,6 +78,7 @@ export default function Dashboard() {
         { to: '/admin/audit', label: 'Audit log', note: 'Who did what, and when', capability: 'AUDIT_VIEW' },
         { to: '/admin/employees', label: 'Employees', note: 'Credit employees, ID cards, credit limits', capability: 'EMPLOYEE_MANAGE' },
         { to: '/admin/users', label: 'Users', note: 'Cashiers, managers, admins', capability: 'USER_MANAGE' },
+        { to: '/admin/license', label: 'License', note: 'Status, check now, enter a code', capability: 'LICENSE_MANAGE' },
         { to: '/admin/terminals', label: 'Terminals', note: 'Enrol a till, review enrolled terminals', capability: 'TERMINAL_MANAGE' },
         { to: '/admin/store-setup', label: 'Store setup', note: 'Business details, stock locations, fiscal setup and readiness', capability: 'STORE_SETTINGS_MANAGE' },
         { to: '/help', label: 'Help & guides', note: 'Step-by-step guides with pictures', capability: null },
@@ -102,6 +104,8 @@ export default function Dashboard() {
                     </Link>
                 </div>
             </div>
+
+            <LicenseNotice allowed={holds('LICENSE_MANAGE')} />
 
             {canReport && (
                 <section className="mb-2" aria-label="Today's sales">

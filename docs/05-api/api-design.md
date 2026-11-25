@@ -213,6 +213,7 @@ change, since call sites ask `can($user, CAPABILITY)`, never `if role ==
 | `EMPLOYEE_MANAGE` | ✓ | ✓ | — |
 | `EMPLOYEE_POLICY_MANAGE` | ✓ | — | — |
 | `BILLING_MANAGE` | ✓ | ✓ | — |
+| `LICENSE_MANAGE` | ✓ | ✓ | — |
 
 This matches the governing brief's own role sketch (Manager: "POS,
 products, inventory, reports, shifts, approve void/refund, limited
