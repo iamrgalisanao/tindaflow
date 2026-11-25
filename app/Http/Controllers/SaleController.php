@@ -103,7 +103,7 @@ class SaleController extends Controller
         }
         if ($request->filled('payment_method')) {
             $method = (string) $request->query('payment_method');
-            in_array($method, ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER', 'CREDIT'], true)
+            in_array($method, ['CASH', 'GCASH', 'MAYA', 'BANK_TRANSFER', 'CARD', 'OTHER', 'CREDIT'], true)
                 ? $query->whereHas('payments', fn (Builder $payments) => $payments->where('method', $method))
                 : $query->whereRaw('1 = 0');
         }

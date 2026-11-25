@@ -13,6 +13,7 @@ import RefundPanel from './RefundPanel';
 import { fromCents, toCents } from './refundMath';
 import VoidSalePanel from './VoidSalePanel';
 import { StatusBadge, useTerminalState } from './salesParts';
+import { methodText } from '../../../lib/paymentMethods';
 
 function Section({ title, children, aside }) {
     return (
@@ -257,7 +258,7 @@ export default function SaleDetailPage() {
 
                         <Section title="Payment">
                             {sale.payments.map((payment) => (
-                                <Row key={payment.id} label={`${payment.method}${payment.reference_note ? ` · ${payment.reference_note}` : ''}`} value={formatMoney(payment.amount)} />
+                                <Row key={payment.id} label={`${methodText(payment.method)}${payment.reference_note ? ` · ${payment.reference_note}` : ''}`} value={formatMoney(payment.amount)} />
                             ))}
                             {sale.employee ? (
                                 <div className="mt-1 border-t border-slate-800 pt-1">

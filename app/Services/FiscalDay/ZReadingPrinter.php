@@ -97,7 +97,7 @@ final class ZReadingPrinter
             $html[] = '<div>No payments were taken.</div>';
         }
         foreach ($payments as $method => $amount) {
-            $html[] = $this->row((string) $method, $this->money((string) $amount));
+            $html[] = $this->row(str_replace('_', ' ', (string) $method), $this->money((string) $amount));
         }
 
         if ($endOfDay && is_array($totals['sales_by_meal_type'] ?? null)) {

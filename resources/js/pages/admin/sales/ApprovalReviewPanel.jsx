@@ -7,6 +7,7 @@ import { formatDateTime, formatMoney, shortId } from '../reports/formatters';
 import { trimQuantity } from './refundMath';
 import { DISPOSITIONS, StatusBadge, reversalMessage } from './salesParts';
 import { documentTitle } from '../../../lib/saleDocument';
+import { methodText } from '../../../lib/paymentMethods';
 
 const DISPOSITION_LABEL = Object.fromEntries(DISPOSITIONS.map((disposition) => [disposition.id, disposition.label]));
 
@@ -223,7 +224,7 @@ export default function ApprovalReviewPanel({ kind, summary, terminalState, onDo
                                         {detail.settlements.map((settlement, index) => (
                                             <li key={settlement.id ?? index} className="flex justify-between text-sm">
                                                 <span className="text-slate-300">
-                                                    {settlement.payment_method}
+                                                    {methodText(settlement.payment_method)}
                                                     {settlement.external_reference ? ` · ${settlement.external_reference}` : ''}
                                                 </span>
                                                 <span className="font-mono tabular-nums text-slate-100">{formatMoney(settlement.amount)}</span>

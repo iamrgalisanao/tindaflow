@@ -200,3 +200,66 @@ describe('TenderPanel amount entry', () => {
         expect(box().value).toBe('9');
     });
 });
+
+describe('TenderPanel reference number', () => {
+    const WITH_TRANSFER = ['CASH', 'GCASH', 'MAYA', 'BANK_TRANSFER', 'CARD', 'OTHER'];
+
+    function Recorder({ onChange }) {
+        const [payments, setPayments] = useState([{ method: 'CASH', amount: '68.00' }]);
+        onChange(payments);
+
+        return (
+            <TenderPanel cart={[]} totalCents={6800n} methods={WITH_TRANSFER} payments={payments} onPayments={setPayments} busy={false} onBack={() => {}} onComplete={(event) => event.preventDefault()} />
+        );
+    }
+    const choose = (name) => fireEvent.click(screen.getByRole('radio', { name }));
+    const reference = () => screen.queryByLabelText('Reference number (optional)');
+
+    it('offers Bank transfer and charges it the whole total like any non-cash method', () => {
+        let latest;
+        render(<Recorder onChange={(payments) => (latest = payments)} />);
+
+        choose('Bank transfer');
+
+        expect(latest).toEqual([expect.objectContaining({ method: 'BANK_TRANSFER', amount: '68.00' })]);
+        expect(completeButton().disabled).toBe(false);
+    });
+
+    it('asks for a reference only for GCash, Maya and bank transfer, and never requires one', () => {
+        render(<Recorder onChange={() => {}} />);
+
+        for (const name of ['GCash', 'Maya', 'Bank transfer']) {
+            choose(name);
+            expect(reference()).toBeTruthy();
+            expect(reference().required).toBe(false);
+            expect(reference().maxLength).toBe(255);
+        }
+        for (const name of ['Cash', 'Card', 'Other']) {
+            choose(name);
+            expect(reference()).toBeNull();
+        }
+    });
+
+    it('keeps what is typed with its payment, and drops it when the method changes', () => {
+        let latest;
+        render(<Recorder onChange={(payments) => (latest = payments)} />);
+        choose('Bank transfer');
+
+        fireEvent.change(reference(), { target: { value: 'IBFT 0045' } });
+        choose('Bank transfer');
+        expect(latest[0].reference).toBe('IBFT 0045');
+
+        choose('GCash');
+        expect(latest[0].reference).toBe('');
+        expect(reference().value).toBe('');
+    });
+
+    it('does not complete the sale when Enter is pressed in the reference box', () => {
+        render(<Recorder onChange={() => {}} />);
+        choose('Bank transfer');
+
+        // false: the key press was cancelled, so the form is not submitted.
+        expect(fireEvent.keyDown(reference(), { key: 'Enter' })).toBe(false);
+        expect(fireEvent.keyDown(reference(), { key: 'a' })).toBe(true);
+    });
+});

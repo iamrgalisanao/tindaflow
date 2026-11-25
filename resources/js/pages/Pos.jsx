@@ -25,11 +25,12 @@ import { creditSaleParts, isOverrideRefusal, limitRefusal, lookupFailureText, pa
 import { NO_STOCK_RULES, checkAdd, checkAddMeal, isStockOverrideRefusal, linesDrawingFromDish, stockFromResponse, stockRefusal as parseStockRefusal } from './pos/stock';
 import TodaysStockPanel from './pos/TodaysStockPanel';
 import { mealPlates, requestItems } from './pos/mealMenu';
+import { salePayments } from './pos/salePayments';
 import { apiMoney, clampedDiscountCents, fromThousandths, lineCents, moneyText, toCents, toThousandths } from './pos/posMoney';
 import MoneyInput from '../components/MoneyInput';
 import PairingRequestPanel from './pos/PairingRequestPanel';
 
-const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER'];
+const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'BANK_TRANSFER', 'CARD', 'OTHER'];
 
 const READINESS_LABELS = {
     fiscal_installation: 'This terminal has no fiscal installation assigned.',
@@ -542,10 +543,7 @@ export default function Pos() {
                 ? // A credit sale is one CREDIT payment for the whole total plus the employee; the server records the real total.
                   { ...creditSaleParts(creditPayer.employee.id, totalCents), ...(overrideToken ? { credit_override_token: overrideToken } : {}) }
                 : {
-                      // A blank/zero row (shown while a split payment is still being entered) is never sent.
-                      payments: payments
-                          .filter((payment) => (toCents(payment.amount) ?? 0n) > 0n)
-                          .map((payment) => ({ method: payment.method, amount: moneyText(toCents(payment.amount) ?? 0n) })),
+                      payments: salePayments(payments),
                   }),
             ...(stockToken ? { stock_override_token: stockToken } : {}),
             ...(orderDiscountCents > 0n ? { order_level_discount_amount: moneyText(orderDiscountCents) } : {}),

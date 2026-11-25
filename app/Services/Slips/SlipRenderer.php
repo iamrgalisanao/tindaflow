@@ -16,7 +16,7 @@ use Carbon\CarbonInterface;
  */
 final class SlipRenderer
 {
-    private const METHODS = ['CASH' => 'Cash', 'GCASH' => 'GCash', 'MAYA' => 'Maya', 'CARD' => 'Card', 'OTHER' => 'Other', 'CREDIT' => 'CREDIT'];
+    private const METHODS = ['CASH' => 'Cash', 'GCASH' => 'GCash', 'MAYA' => 'Maya', 'BANK_TRANSFER' => 'Bank transfer', 'CARD' => 'Card', 'OTHER' => 'Other', 'CREDIT' => 'CREDIT'];
 
     /** @param  array<string, mixed>  $snapshot */
     public function render(array $snapshot, ?CarbonInterface $reprintedAt = null): string

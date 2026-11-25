@@ -7,6 +7,7 @@ import { RETURN_KEY, failureMessage, request } from '../catalog/catalogApi';
 import { formatDateTime, formatMoney, shortId } from '../reports/formatters';
 import { PAYMENT_METHODS, StatusBadge } from './salesParts';
 import { documentReference, documentTitle } from '../../../lib/saleDocument';
+import { methodText } from '../../../lib/paymentMethods';
 
 const PER_PAGE = 25;
 const STATUSES = ['COMPLETED', 'VOIDED', 'PARTIALLY_REFUNDED', 'REFUNDED'];
@@ -159,7 +160,7 @@ export default function SalesPage() {
                         <option value="">Any method</option>
                         {PAYMENT_METHODS.map((method) => (
                             <option key={method} value={method}>
-                                {method}
+                                {methodText(method)}
                             </option>
                         ))}
                     </select>

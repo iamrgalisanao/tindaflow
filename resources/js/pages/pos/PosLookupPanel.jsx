@@ -7,6 +7,7 @@ import RefundPanel from '../admin/sales/RefundPanel';
 import VoidSalePanel from '../admin/sales/VoidSalePanel';
 import { failureMessage, request } from '../admin/catalog/catalogApi';
 import { formatMoney } from '../admin/reports/formatters';
+import { methodText } from '../../lib/paymentMethods';
 
 /**
  * Transaction lookup inside POS mode (docs/06-ui/sitemap.md /pos/lookup).
@@ -336,7 +337,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                             </div>
                             {detail.payments.map((payment) => (
                                 <div key={payment.id} className="flex justify-between text-slate-400">
-                                    <dt>{payment.method}</dt>
+                                    <dt>{methodText(payment.method)}</dt>
                                     <dd className="font-mono tabular-nums text-slate-200">{formatMoney(payment.amount)}</dd>
                                 </div>
                             ))}
