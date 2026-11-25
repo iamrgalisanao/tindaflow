@@ -338,7 +338,7 @@ paths:
       tags: [Terminal]
       x-capability: TERMINAL_MANAGE
       summary: Create a terminal (a till) for the store
-      description: 'Requires TERMINAL_MANAGE. Creates an ACTIVE terminal that is not yet enrolled; enroll a browser as it with terminalCreateEnrollmentToken then terminalEnroll. terminal_code is unique per store, compared case-insensitively; a duplicate is a 422 VALIDATION_FAILED field error. When the installation carries a signed license (ADR-014) and every licensed till is in use, the answer is 409 TERMINAL_LIMIT_REACHED.'
+      description: 'Requires TERMINAL_MANAGE. Creates an ACTIVE terminal that is not yet enrolled; enroll a browser as it with terminalCreateEnrollmentToken then terminalEnroll. terminal_code is unique per store, compared case-insensitively; a duplicate is a 422 VALIDATION_FAILED field error. When a till limit applies and every allowed till is in use, the answer is 409 TERMINAL_LIMIT_REACHED. The limit is the activation certificate''s seats in a licensed shop, and 0 while that license is not ACTIVE or WARNING (ADR-019 slice 4); before activation, or in a build with no vendor key, it is the ADR-014 license if one applies.'
       security:
       - cookieAuth: []
       requestBody:
@@ -369,7 +369,7 @@ paths:
       tags: [Terminal]
       x-capability: TERMINAL_MANAGE
       summary: List terminals for the store
-      description: 'meta.license is null when no till limit is enforced on this installation, otherwise {max_terminals, in_use} (ADR-014).'
+      description: 'meta.license is null when no till limit is enforced on this installation (including a certificate in report mode), otherwise {max_terminals, in_use} (ADR-014, ADR-019 slice 4). max_terminals 0 means no till can be added right now.'
       security:
       - cookieAuth: []
       parameters:

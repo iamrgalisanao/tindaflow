@@ -212,6 +212,27 @@ Part 4 left a repaired computer with one way back, being "replaced" by itself, w
 
 **Limits:** as with reconnecting a chain, **nothing here can tell the shop's computer from a copy**. A copy on other hardware is reported and listed like a repair, and would be licensed if its reference were approved, so the protection is that the provider takes the reference from the owner; how the owner is verified is not defined. Approving three changed values is allowed, with a warning, because a new main board can change all three; the limit on what counts as "the same computer" is the provider's judgement. If the hardware changes again after a renewal whose answer was lost, the retry is a fork and needs a reconnection as well. No concurrency test of its own: the approval is spent under the same installation lock as every renewal. Nothing has run on real hardware.
 
+## Slice 4, built 2026-11-25: the till limit comes from the certificate
+
+Built as ADR-018's amendment of ADR-015 states it.
+
+| License state | Tills that may be added |
+|---|---|
+| LEGACY: no vendor key, or not yet activated with an ADR-014 license | as ADR-014 said |
+| ACTIVE, WARNING | up to the certificate's `seats` |
+| NOT_ACTIVATED, EXPIRED, LOCKED | none |
+| any state of a certificate in report mode | no limit; `license.would_refuse` is logged |
+
+Only adding a till, or putting a revoked one back, is limited (`TerminalSeats`, the one place). A till already set up is never blocked by this, including when the number is lowered below what is in use.
+
+- **A defect fixed:** an installation whose stored certificate stopped counting (another computer's identity, a revoked key) went back to LEGACY, where nothing is enforced, if a valid ADR-014 license was still present. An ADR-014 license now counts only before the first certificate is stored.
+- **Activation's own first till** is checked against the bundle certificate's seats, since the certificate is not yet stored when the till is made; asking the license gate then would have refused every new activation.
+- **ADR-018 decision 11:** `--adopt` records what the ADR-014 license allowed in the audit entry and renames its file to `.migrated`. Nothing depends on the rename.
+- **Provider:** `license:set-seats CODE N --reason=` changes the number (it could only be set at registration). A renewal hands back the latest certificate unchanged only while it carries the deployment's current seats and mode, so a change arrives the same day. No wire format changes.
+- **Proven:** a cross-repository drill raises and lowers the limit on a shop with a sale, with tills over the new number untouched, and sees no till added once expired. Removing any of the rules above makes a test fail.
+
+**Limits:** as ADR-014 said, whoever controls the server can add a till row in the database; the limit guards the application's own ways of adding one. There is no command to change a deployment's mode from report to enforce. The Terminals screen's new wording is tested by a component test, not seen in a browser. Nothing has run on a real shop computer.
+
 ## Order of work
 
 Each slice is a small change that can be merged alone and has an exit test.

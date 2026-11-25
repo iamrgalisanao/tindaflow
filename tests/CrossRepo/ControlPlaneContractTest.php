@@ -10,6 +10,7 @@ use App\Services\License\InstallationIdentity;
 use App\Services\License\LicenseGate;
 use App\Services\License\LicenseState;
 use App\Services\License\RefusalReason;
+use App\Services\Terminal\TerminalSeats;
 use App\Support\DeploymentId;
 use Carbon\CarbonImmutable;
 use Closure;
@@ -641,6 +642,40 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         $this->assertSame(1, preg_match('/Hardware reference: ([0-9a-f]{16})/', $output, $found), $output);
 
         return $found[1];
+    }
+
+    // ADR-019 slice 4: the till limit is the one in the certificate, and the provider changes it.
+
+    public function test_the_provider_changes_the_till_limit_and_the_shop_gets_it_the_same_day_with_its_tills_untouched(): void
+    {
+        // Registered with two tills: the one activation creates, and the one the recorded sale was made on.
+        $this->activateAndTrade();
+        $this->assertSame(2, app(TerminalSeats::class)->inUse());
+        $this->addTill('TILL-3', 1, 'licensed for 2 tills');
+
+        $this->artisanThere(['license:set-seats', $this->deploymentCode, '3', '--reason=Bought a third till']);
+        $this->assertOnlyLicensingChanges(fn () => $this->assertRenewal(0, 'Renewed: certificate 2'));
+        $this->addTill('TILL-3', 0, "Created till 'TILL-3'");
+        $this->addTill('TILL-4', 1, 'licensed for 3 tills');
+
+        // Lowered below what is set up: nothing is taken away, and nothing more can be added.
+        $this->artisanThere(['license:set-seats', $this->deploymentCode, '1', '--reason=Gave two back']);
+        $this->assertOnlyLicensingChanges(fn () => $this->assertRenewal(0, 'Renewed: certificate 3'));
+        $this->assertSame(3, app(TerminalSeats::class)->inUse());
+        $this->addTill('TILL-4', 1, 'licensed for 1 till');
+        $this->assertTradingAgain();
+
+        $this->letTheLicenseRunOut();
+        $this->addTill('TILL-4', 1, 'while the license is EXPIRED');
+    }
+
+    private function addTill(string $code, int $expectedExit, string $expectedText): void
+    {
+        $exit = Artisan::call('tindaflow:create-terminal', ['code' => $code, '--store' => $this->storeId]);
+        $output = Artisan::output();
+
+        $this->assertSame($expectedExit, $exit, $output);
+        $this->assertStringContainsString($expectedText, $output);
     }
 
     /** The provider signs with a new key from now on, and lists the old one as an earlier one, or as stolen too. */

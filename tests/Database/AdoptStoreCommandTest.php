@@ -6,8 +6,10 @@ use App\Models\AuditEvent;
 use App\Models\Sale;
 use App\Models\Store;
 use App\Models\Terminal;
+use App\Services\License\Entitlement;
 use App\Services\License\LicenseGate;
 use App\Services\License\LicenseState;
+use App\Services\Terminal\TerminalSeats;
 use App\Support\DeploymentId;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
@@ -146,6 +148,28 @@ class AdoptStoreCommandTest extends PostgresSchemaTestCase
         $this->assertStringContainsString("already has a shop ('{$store->name}')", $output);
         $this->assertStringContainsString('--adopt', $output);
         $this->assertFileDoesNotExist($this->workFile);
+    }
+
+    public function test_adopting_takes_over_from_an_old_till_license_which_is_set_aside_and_named_in_the_audit(): void
+    {
+        $store = $this->tradingShop();
+        $bundle = $this->bundle($this->adoptionRequest(), $store->id, ['seats' => 3]);
+        $pair = sodium_crypto_sign_keypair();
+        $payload = (string) json_encode(['deployment' => DeploymentId::current(), 'max_terminals' => 2, 'expires_at' => null]);
+        $file = $this->workFile.'.license.key';
+        file_put_contents($file, Entitlement::encode($payload).'.'.Entitlement::encode(sodium_crypto_sign_detached($payload, sodium_crypto_sign_secretkey($pair))));
+        config(['tindaflow.license.public_key' => base64_encode(sodium_crypto_sign_publickey($pair)), 'tindaflow.license.path' => $file, 'tindaflow.license.token' => '']);
+        $this->assertSame(2, app(TerminalSeats::class)->maximum(), 'the old license applies until then');
+
+        $exit = $this->apply($bundle);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exit, $output);
+        $this->assertSame(3, app(TerminalSeats::class)->maximum());
+        $this->assertFileDoesNotExist($file);
+        $this->assertFileExists($file.'.migrated');
+        $this->assertEquals(['max_terminals' => 2, 'expires_at' => null], AuditEvent::where('event_type', 'LICENSE_ACTIVATED')->sole()->after_metadata['till_license_replaced']);
+        @unlink($file.'.migrated');
     }
 
     public function test_adopting_licenses_the_shop_and_changes_nothing_else(): void

@@ -6,6 +6,7 @@ use App\Services\License\Entitlement;
 use App\Services\License\FingerprintMatcher;
 use App\Services\License\HostHardware;
 use App\Services\License\LicenseGate;
+use App\Services\License\LicenseState;
 use App\Services\License\OfflineCodeService;
 use App\Services\License\Time\TrustedClock;
 use App\Services\Terminal\TerminalSeats;
@@ -25,6 +26,19 @@ class LicenseStatus extends Command
     public function handle(TerminalSeats $seats, Entitlement $entitlement, TrustedClock $clock, LicenseGate $gate, HostHardware $hardware): int
     {
         $this->line('Deployment code: '.(DeploymentId::current() ?? '(no store yet)'));
+
+        // Once the shop is licensed by activation, the certificate sets the till limit and any ADR-014 license is no longer read.
+        $check = $gate->keyRing()->isEmpty() ? null : $gate->check();
+        if ($check !== null && $check->verdict->state !== LicenseState::Legacy) {
+            $maximum = $seats->maximum();
+            $this->line('Till limit: '.($maximum === null
+                ? 'not enforced (report mode; the license covers '.($check->seats ?? 0).').'
+                : "{$maximum}, from the activation license."));
+            $this->line('Tills in use: '.$seats->inUse());
+            $this->reportActivation($clock, $gate, $hardware);
+
+            return self::SUCCESS;
+        }
 
         $publicKey = (string) config('tindaflow.license.public_key');
         if ($publicKey === '') {

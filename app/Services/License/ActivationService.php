@@ -21,6 +21,7 @@ use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -56,6 +57,7 @@ final class ActivationService
         private readonly TrustedClock $clock,
         private readonly HostHardware $hardware,
         private readonly FingerprintMatcher $matcher,
+        private readonly Entitlement $entitlement,
     ) {}
 
     /** The installation the stored license names. Read without checking the signature, so only for matching and for the record. */
@@ -99,7 +101,7 @@ final class ActivationService
             $this->documents->changeMode($adminUser, SaleDocumentMode::from($bundle->saleDocumentMode));
             $this->documents->setSlipFooter($adminUser, $bundle->slipFooter);
             $this->locations->create($store->id, $bundle->defaultLocation, true, $adminUser);
-            $terminal = $this->terminals->create($store, $bundle->tillCode, $adminUser, 'activation');
+            $terminal = $this->terminals->create($store, $bundle->tillCode, $adminUser, 'activation', activationSeats: $certificate->seats);
 
             $this->recordLicense($bundle, $certificate, $adminUser->id);
 
@@ -129,16 +131,39 @@ final class ActivationService
 
         $this->assertThisHardware($certificate, $now);
 
-        $result = DB::transaction(function () use ($bundle, $certificate) {
+        // ADR-018 decision 11: the certificate takes over from an ADR-014 till license, and the audit entry says what it replaced.
+        $publicKey = (string) config('tindaflow.license.public_key');
+        $old = $publicKey === '' ? null : $this->entitlement->verifiedPayload($publicKey);
+        $replaced = $old === null ? [] : ['till_license_replaced' => ['max_terminals' => $old['max_terminals'], 'expires_at' => $old['expires_at'] ?? null]];
+
+        $result = DB::transaction(function () use ($bundle, $certificate, $replaced) {
             $store = $this->onlyShop($bundle, 'For a new installation leave out --adopt.', 'Make a new request with --adopt, for the provider to register this shop with its own id.');
-            $this->recordLicense($bundle, $certificate, null, ['adopted' => true]);
+            $this->recordLicense($bundle, $certificate, null, ['adopted' => true] + $replaced);
 
             return new ActivationResult($store, null, null, null, false, $certificate);
         });
 
         Cache::forget('deployment_id');
+        $this->setAsideTillLicense();
 
         return $result;
+    }
+
+    /**
+     * Renames the ADR-014 license file to `.migrated`, keeping it. Nothing depends on this succeeding: once a certificate is stored,
+     * no old license is read again ({@see LicenseGate}), including one given in TINDAFLOW_LICENSE.
+     */
+    private function setAsideTillLicense(): void
+    {
+        $path = (string) config('tindaflow.license.path');
+        if ($path === '' || ! is_file($path)) {
+            return;
+        }
+
+        $target = $path.'.migrated';
+        if (! is_file($target) && ! @rename($path, $target)) {
+            Log::warning('license.till_license_not_renamed', ['path' => $path]);
+        }
     }
 
     /**
