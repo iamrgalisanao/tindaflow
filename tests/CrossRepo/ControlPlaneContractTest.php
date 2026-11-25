@@ -61,6 +61,8 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
 
     private string $storeId = '';
 
+    private bool $loseRenewalAnswers = false;
+
     protected function setUp(): void
     {
         $path = (string) getenv('TINDAFLOW_CONTROL_PLANE_PATH');
@@ -125,11 +127,47 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         $this->assertSame(2, $this->heldSeq());
         $this->assertFalse($this->lastRenewalAudit()['chain_gap'], 'the successor links to the token the client held: seq + 1 and prev = its SHA-256');
 
-        // One changed component is tolerated: renewed at once, and the new certificate carries the new hash.
+        // One changed component is tolerated: the chain goes on, the certificate keeps the approved hardware, and the provider is told.
         $this->fakeHostHardware(['bios_serial' => hash('sha256', 'a replaced board firmware')] + self::testFingerprint());
+        $this->ageLatestCertificate();
         $this->assertRenewal(0, 'Renewed: certificate 3');
         $this->assertFalse($this->lastRenewalAudit()['chain_gap']);
-        $this->assertSame(LicenseState::Active, $this->licenseState(), 'the client accepts the certificate that follows its new hardware');
+        $this->assertEquals(self::testFingerprint(), $this->heldFingerprint(), 'the approved hardware is never replaced');
+        $this->assertSame(LicenseState::Active, $this->licenseState(), 'two of three still match the certificate');
+        $this->assertSame(1, $this->registryEvents('FINGERPRINT_CHANGED'));
+    }
+
+    public function test_hardware_cannot_be_walked_away_one_component_at_a_time(): void
+    {
+        $this->activate();
+        $first = ['bios_serial' => hash('sha256', 'another bios')] + self::testFingerprint();
+        $this->fakeHostHardware($first);
+        $this->ageLatestCertificate();
+        $this->assertRenewal(0, 'Renewed: certificate 2');
+
+        $this->fakeHostHardware(['board_serial' => hash('sha256', 'another board')] + $first);
+        $this->ageLatestCertificate();
+
+        $this->assertRenewal(1, 'HTTP 403');
+        $this->assertSame(2, $this->heldSeq());
+    }
+
+    public function test_a_renewal_whose_answer_was_lost_gets_the_same_certificate_again(): void
+    {
+        $this->activate();
+        $this->ageLatestCertificate();
+
+        // The control plane issues certificate 2, and neither address's answer arrives.
+        $this->loseRenewalAnswers = true;
+        $this->assertRenewal(1, 'could not be reached');
+        $this->assertSame(1, $this->heldSeq());
+
+        $this->loseRenewalAnswers = false;
+        $this->assertRenewal(0, 'Renewed: certificate 2');
+
+        $this->assertSame(2, (int) $this->registry()->query('select count(*) from issued_certificates')->fetchColumn(), 'no second certificate was issued');
+        $this->assertGreaterThanOrEqual(1, $this->registryEvents('RENEWAL_REPLAYED'));
+        $this->assertSame(0, $this->registryEvents('CHAIN_FORKED'));
     }
 
     public function test_a_computer_with_two_changed_components_is_refused(): void
@@ -285,6 +323,14 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         return (int) DB::table('license_state')->where('id', 1)->value('certificate_seq');
     }
 
+    /** @return array<string, string> the approved hardware inside the certificate held */
+    private function heldFingerprint(): array
+    {
+        $token = (string) DB::table('license_state')->where('id', 1)->value('certificate');
+
+        return json_decode((string) Base64Url::decode(explode('.', $token)[0]), true)['fp'];
+    }
+
     /** @return array<string, mixed> */
     private function lastRenewalAudit(): array
     {
@@ -433,6 +479,10 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
                 'headers' => array_map(fn (array $values) => implode(', ', $values), array_diff_key($request->headers(), ['Host' => true])),
                 'body' => $request->body(),
             ]);
+
+            if ($this->loseRenewalAnswers && str_ends_with($url, '/v1/renewals')) {
+                return Http::response('', 503);
+            }
 
             return Http::response((string) $response->getBody(), $response->getStatusCode(), ['Content-Type' => $response->getHeaderLine('Content-Type')]);
         });

@@ -126,6 +126,13 @@ Decisions 3 and 6, with the points they left open.
 ### Pointer, 2026-11-25: see ADR-019
 ADR-019 records the direction for a native device agent, the defects to fix and the order of work before any install is enforced. It changes the direction of decision 4 (hardware binding) and of the rollout. Two of two PCs checked cannot supply all three hardware values.
 
+### Amendment, 2026-11-25: stricter replay, hardware and certificate checks (ADR-019 slice 1)
+These change what is written above. ADR-019, "Slice 1", has the detail and the limits.
+- **Decision 5 and the renewal wire format (retries):** the same `request_id` gets the stored successor only with the same certificate and hardware hashes, while it is still the latest, for 72 hours; otherwise it is `409 FORKED`.
+- **Decision 4:** two of three is still accepted and recorded, but the approved hashes are never replaced by the reported ones.
+- **Decision 9 and the gate:** a stored certificate counts only for this computer's identity and a store the database holds, and a first activation compares this computer's hardware with the certificate.
+- **The host helper's file:** a stamp more than 1 hour ahead is invalid.
+
 ## What this does and does not guarantee
 - **Guarantees:** a copy of the images and volumes moved to another PC **without** the host helper's output fails the fingerprint check at activation and renewal. If a determined copier also copies `hardware.json` (it is unsigned and can be copied with the stack), only fork detection and certificate expiry limit the copy: two copies of one chain that both renew expose a fork, and the first to renew wins, but a fork is undetected if the original stops renewing. An unattended copy stops opening shifts within 30 to under 31 days. The provider holds evidence (a signed check-in log, fork records, the deployment watermark of stage-23 addendum 10, the audit trail) for a license dispute.
 - **Does not guarantee:** it cannot stop a determined host administrator. TindaFlow is self-hosted, offline-capable PHP; any client-side check can be patched by someone who edits the code, rebuilds the image or mounts replacement files. The strength is Medium on purpose (D5): deter and detect. The 30-day life weakens the deterrent compared with the original 7 days: an unattended copy can trade for up to about 31 days, and a revocation or suspension reaches an offline client only after its certificate runs out. The enforceable protection remains the license agreement and copyright law. A copy started later with its clock set to the copy date still trades for the rest of its certificate plus one 18-hour shift, and can apply the same extension as the original.

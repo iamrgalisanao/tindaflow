@@ -48,17 +48,63 @@ final class InstallationIdentity
             'secret_key' => base64_encode(sodium_crypto_sign_secretkey($pair)),
         ];
 
-        $directory = dirname($this->path());
-        if (! is_dir($directory) && ! mkdir($directory, 0700, true) && ! is_dir($directory)) {
-            throw new RuntimeException("Cannot create {$directory}.");
-        }
-
-        $temporary = $this->path().'.tmp';
-        file_put_contents($temporary, json_encode($identity, JSON_THROW_ON_ERROR), LOCK_EX);
-        @chmod($temporary, 0600);
-        rename($temporary, $this->path());
+        $this->write(json_encode($identity, JSON_THROW_ON_ERROR));
 
         return $identity;
+    }
+
+    /**
+     * Writes the file so that it is readable by its owner only from the moment it exists (ADR-019 defect 7): the umask restricts what
+     * is created, and `x` refuses to reuse a file already there, which would keep its old permissions. It is then swapped into place.
+     */
+    private function write(string $contents): void
+    {
+        $directory = dirname($this->path());
+        $temporary = $this->path().'.tmp';
+        $umask = umask(0077);
+
+        try {
+            if (! is_dir($directory) && ! mkdir($directory, 0700, true) && ! is_dir($directory)) {
+                throw new RuntimeException("Cannot create {$directory}.");
+            }
+
+            @unlink($temporary);
+            $handle = @fopen($temporary, 'x');
+            if ($handle === false || fwrite($handle, $contents) !== strlen($contents) || ! fclose($handle)) {
+                throw new RuntimeException("Cannot write {$temporary}.");
+            }
+        } finally {
+            umask($umask);
+        }
+
+        $this->handToStorageOwner([$directory, $temporary]);
+
+        if (! rename($temporary, $this->path())) {
+            throw new RuntimeException("Cannot write {$this->path()}.");
+        }
+    }
+
+    /**
+     * `docker compose exec app php artisan ...` runs as root, while the web workers and the scheduler run as www-data. A file only
+     * root can read would leave them with no identity, so when root writes it, it is given to whoever owns the folder above.
+     *
+     * @param  list<string>  $paths
+     */
+    private function handToStorageOwner(array $paths): void
+    {
+        if (! function_exists('posix_geteuid') || posix_geteuid() !== 0) {
+            return;
+        }
+
+        $above = dirname($this->path(), 2);
+        $owner = fileowner($above);
+        $group = filegroup($above);
+
+        foreach ($paths as $path) {
+            if ($owner === false || $group === false || ! chown($path, $owner) || ! chgrp($path, $group)) {
+                throw new RuntimeException("Cannot give {$path} to the application's user.");
+            }
+        }
     }
 
     /**

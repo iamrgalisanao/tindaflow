@@ -5,12 +5,12 @@ namespace Tests\Database;
 use App\Models\AuditEvent;
 use App\Models\Store;
 use App\Models\User;
-use App\Services\License\InstallationIdentity;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Tests\Concerns\FakesHostHardware;
+use Tests\Concerns\FakesLicensedInstallation;
 use Tests\Unit\Services\License\Contract\SignsTestCertificates;
 
 /**
@@ -20,13 +20,12 @@ use Tests\Unit\Services\License\Contract\SignsTestCertificates;
 class LicenseHttpTest extends PostgresSchemaTestCase
 {
     use FakesHostHardware;
+    use FakesLicensedInstallation;
     use SignsTestCertificates;
 
     private const STORE = '0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11';
 
     private Store $store;
-
-    private string $identityFile = '';
 
     protected function setUp(): void
     {
@@ -35,14 +34,6 @@ class LicenseHttpTest extends PostgresSchemaTestCase
         config(['app.timezone' => 'Asia/Manila']);
         $this->store = (new Store)->forceFill(['id' => self::STORE, 'name' => 'TSC Canteen']);
         $this->store->save();
-    }
-
-    protected function tearDown(): void
-    {
-        if ($this->identityFile !== '') {
-            @unlink($this->identityFile);
-        }
-        parent::tearDown();
     }
 
     private function user(string $role): User
@@ -71,6 +62,7 @@ class LicenseHttpTest extends PostgresSchemaTestCase
             'tindaflow.license.vendor_keys' => ['test-2026-01' => self::testPublicKeyBase64()],
             'tindaflow.license.code_keys' => [1 => self::testCodePublicKeyBase64()],
         ]);
+        $this->fakeLicensedInstallation();
         $now = CarbonImmutable::now()->setTimezone('Asia/Manila');
         $token = self::sign(self::payload(['iat' => $now->subDays(10)->format('Y-m-d\TH:i:sP'), 'exp' => $now->addDays($daysToExpiry)->format('Y-m-d\TH:i:sP')]));
         DB::table('license_state')->updateOrInsert(['id' => 1], [
@@ -121,6 +113,16 @@ class LicenseHttpTest extends PostgresSchemaTestCase
         foreach (self::testFingerprint() as $hash) {
             $this->assertStringNotContainsString($hash, $body, 'never the hardware hashes');
         }
+    }
+
+    public function test_a_certificate_for_another_installation_is_not_reported_as_a_license(): void
+    {
+        $this->activated(20);
+        $this->fakeIdentityFile('11111111-2222-4333-8444-555555555555');
+
+        $this->licenseStatus($this->user('MANAGER'))->assertOk()->assertJson([
+            'state' => 'NOT_ACTIVATED', 'certificate_number' => null, 'seats' => null, 'valid_until' => null, 'accepts_offline_codes' => false,
+        ]);
     }
 
     public function test_an_expired_license_says_why_a_new_shift_is_refused_and_the_screen_still_works(): void
@@ -182,10 +184,6 @@ class LicenseHttpTest extends PostgresSchemaTestCase
     public function test_check_now_reports_a_provider_that_cannot_be_reached_as_a_normal_answer_and_records_who_asked(): void
     {
         $this->activated();
-        $this->identityFile = sys_get_temp_dir().'/tindaflow-test-identity-'.uniqid().'.json';
-        config(['tindaflow.license.installation_file' => $this->identityFile]);
-        $identity = app(InstallationIdentity::class)->ensure();
-        file_put_contents($this->identityFile, json_encode(['installation' => '7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40'] + $identity));
         Http::fake(['*' => Http::response('', 503)]);
         $manager = $this->user('MANAGER');
 

@@ -3,7 +3,6 @@
 namespace Tests\Database;
 
 use App\Models\AuditEvent;
-use App\Models\Store;
 use App\Services\License\LicenseGate;
 use App\Services\License\LicenseState;
 use App\Services\License\OfflineCodeRefused;
@@ -14,6 +13,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Tests\Concerns\FakesHostHardware;
+use Tests\Concerns\FakesLicensedInstallation;
 use Tests\Unit\Services\License\Contract\SignsTestCertificates;
 
 /**
@@ -23,9 +23,8 @@ use Tests\Unit\Services\License\Contract\SignsTestCertificates;
 class OfflineCodeCommandTest extends PostgresSchemaTestCase
 {
     use FakesHostHardware;
+    use FakesLicensedInstallation;
     use SignsTestCertificates;
-
-    private const STORE = '0b8f6f0e-2f0a-4d27-9a3e-0c1b6a5d4e11';
 
     protected function setUp(): void
     {
@@ -36,7 +35,7 @@ class OfflineCodeCommandTest extends PostgresSchemaTestCase
             'tindaflow.license.vendor_keys' => ['test-2026-01' => self::testPublicKeyBase64()],
             'tindaflow.license.code_keys' => [1 => self::testCodePublicKeyBase64()],
         ]);
-        (new Store)->forceFill(['id' => self::STORE, 'name' => 'TSC Canteen'])->save();
+        $this->fakeLicensedInstallation();
         DB::table('license_state')->updateOrInsert(['id' => 1], ['certificate' => self::sign(self::payload()), 'certificate_seq' => 42, 'created_at' => now(), 'updated_at' => now()]);
         $this->at('2026-12-26T09:00:00+08:00'); // a day after the certificate expired
     }
@@ -179,6 +178,13 @@ class OfflineCodeCommandTest extends PostgresSchemaTestCase
     public function test_a_clock_behind_the_provider_is_refused(): void
     {
         $this->assertRefused('clock is more than an hour behind', ['iat' => '2026-12-26T11:00:00+08:00']);
+    }
+
+    public function test_a_code_is_refused_when_the_stored_certificate_belongs_to_another_installation(): void
+    {
+        $this->fakeIdentityFile('11111111-2222-4333-8444-555555555555');
+
+        $this->assertRefused('not accepted by this installation');
     }
 
     public function test_a_build_without_a_code_key_accepts_no_code(): void

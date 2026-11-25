@@ -3,9 +3,6 @@
 namespace App\Services\License;
 
 use App\Domain\Exceptions\LicenseNotActiveException;
-use App\Services\License\Contract\Certificate;
-use App\Services\License\Contract\CertificateRejected;
-use App\Services\License\Contract\CertificateVerifier;
 use App\Services\License\Time\TrustedClock;
 use App\Support\DeploymentId;
 use DateTimeImmutable;
@@ -42,7 +39,7 @@ final class LicenseStatusReport
         $check = $this->gate->check();
         $refusal = $check->verdict->shiftOpenRefusal();
         $row = DB::table('license_state')->where('id', 1)->first();
-        $certificate = $this->certificate($row->certificate ?? null);
+        $certificate = $this->gate->certificate($row->certificate ?? null);
         $extendedUntil = $certificate !== null && $row->extended_until !== null && (int) $row->extension_base_seq === $certificate->seq
             ? new DateTimeImmutable($row->extended_until)
             : null;
@@ -66,19 +63,6 @@ final class LicenseStatusReport
             'hardware_file' => ['status' => $reading->status, 'generated_at' => $this->time($reading->generatedAt)],
             'accepts_offline_codes' => $certificate !== null && (array) config('tindaflow.license.code_keys') !== [],
         ] + $empty;
-    }
-
-    private function certificate(?string $token): ?Certificate
-    {
-        if ($token === null || $token === '') {
-            return null;
-        }
-
-        try {
-            return (new CertificateVerifier($this->gate->keyRing()))->verify($token);
-        } catch (CertificateRejected) {
-            return null;
-        }
     }
 
     private function parse(?string $value): ?DateTimeImmutable

@@ -21,6 +21,12 @@ class LicenseConfigTest extends TestCase
         $this->assertSame([], config('tindaflow.license.revoked_kids'));
     }
 
+    public function test_the_shipped_build_trusts_no_offline_code_key_and_revokes_none(): void
+    {
+        $this->assertSame([], config('tindaflow.license.code_keys'));
+        $this->assertSame([], config('tindaflow.license.revoked_code_keys'));
+    }
+
     public function test_an_empty_key_ring_means_the_evaluator_reports_legacy_and_refuses_nothing(): void
     {
         $ring = new KeyRing(config('tindaflow.license.vendor_keys'), config('tindaflow.license.revoked_kids'));

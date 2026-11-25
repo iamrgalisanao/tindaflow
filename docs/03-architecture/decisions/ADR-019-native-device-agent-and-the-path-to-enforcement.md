@@ -2,7 +2,7 @@
 
 ## Status
 
-**Decided by the engineering team** on 2026-11-25, under the owner's delegation of that date, after separate architecture, security and operations reviews. The items under "Owner confirmations" are business decisions and are **still open**. Nothing here has been built.
+**Decided by the engineering team** on 2026-11-25, under the owner's delegation of that date, after separate architecture, security and operations reviews. The items under "Owner confirmations" are business decisions and are **still open**. When decided, nothing here had been built; see "Slice 1" for what has been since.
 
 This record extends ADR-018, which stays in force as the licensing design. It changes ADR-018's direction for hardware binding (decision 4) and the order of work before enforcement (rollout).
 
@@ -59,6 +59,28 @@ Activation, renewal and re-binding require valid proof. A wrong key or bad signa
 
 ### 7. The signed-off periods stand
 30 days of offline life and a warning 7 days before expiry (ADR-018). The 7 and 3 days in the new plan are not adopted unless the owner changes the decision.
+
+## Slice 1, built 2026-11-25: the defects and the key guard
+
+Written test first: each defect had a test that failed before its fix, except where stated. The client and `tindaflow-control-plane` changes belong together.
+
+| # | Fix |
+|---|---|
+| 1 | A stored successor is handed out again only for the same certificate and the same hardware hashes, while it is still the latest, and for **72 hours** (`licensing.replay_hours`; the length is an engineering choice, long enough for a weekend offline). Each replay is recorded (`RENEWAL_REPLAYED`). Anything else is `409 FORKED` with `CHAIN_FORKED`. A certificate issued before this has no record of its request and is never replayed. |
+| 2 | A renewal never changes the approved hashes; the registry and every certificate keep them. Two of three is accepted and recorded once per distinct set reported (`FINGERPRINT_CHANGED`: component names and a digest, no values). A changed component no longer forces an early certificate. |
+| 3 | One method decides which stored certificate counts, for the gate, the License screen and offline codes: signature accepted, installation equal to this computer's identity file, and a store in the database with the certificate's store id. No identity file counts as none. |
+| 4 | A first activation needs a fresh hardware file matching at least two of the certificate's three hashes. Running it again on an activated install does not. |
+| 5 | A nonce is read and deleted under a lock that does not wait. The test shows only that a held lock refuses a second consumer; real concurrency is proven in slice 2. |
+| 6 | A hardware file stamped more than 1 hour ahead is `INVALID`: no fingerprint, and the heartbeat ignores it. |
+| 7 | The identity file is created under `umask 0077`, never into an existing file. This also exposed and fixes a second fault: `docker compose exec app php artisan tindaflow:activate` runs as root, so the file was readable by root only and the web workers and scheduler (`www-data`) could not use it. When root writes it, it is now given to the owner of `storage/app`. The earlier code already ended with the same file mode, so the test guards the new method (nothing sets the mode afterwards) and does not fail on the old one. File-mode tests run on Linux only, and the change of owner has **not been run as root in a container**. |
+
+The key guard test now also fails on a committed `code_keys` or `revoked_code_keys` entry, and `docker/.env.example` documents `TINDAFLOW_HOST_DIR`.
+
+**What these fixes do not do, and what they cost:**
+- A copy that replays inside the 72 hours, before either side renews again, still receives the same certificate (as decision 2 already notes).
+- A shop that loses an answer and then stays offline more than 72 hours, or has one hardware value change in between, is reported as forked and needs the provider. **There is no re-chain tool until slice 3.**
+- A PC with one replaced part keeps working on two of three, but a second change refuses renewal. **Approving a new baseline is not built until slice 3.**
+- The check of defect 3 does not stop a copy of the whole installation, identity file included, and asks only that the licensed store exists, not that no other store does.
 
 ## Order of work
 

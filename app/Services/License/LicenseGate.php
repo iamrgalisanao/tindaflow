@@ -10,6 +10,7 @@ use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 /**
  * Gathers what this installation knows (the build's key ring, the stored certificate and its verdicts, the trusted-time mark)
@@ -21,7 +22,12 @@ use Illuminate\Support\Facades\Log;
  */
 final class LicenseGate
 {
-    public function __construct(private readonly Entitlement $entitlement, private readonly LicenseEvaluator $evaluator, private readonly HostHardware $hardware) {}
+    public function __construct(
+        private readonly Entitlement $entitlement,
+        private readonly LicenseEvaluator $evaluator,
+        private readonly HostHardware $hardware,
+        private readonly InstallationIdentity $identity,
+    ) {}
 
     public function keyRing(): KeyRing
     {
@@ -40,7 +46,7 @@ final class LicenseGate
         }
 
         $row = DB::table('license_state')->where('id', 1)->first();
-        $certificate = $this->certificate($ring, $row->certificate ?? null);
+        $certificate = $this->certificate($row->certificate ?? null);
         // An extension belongs to the one certificate it was made for; a renewal replaces that certificate and so drops it.
         $extendedUntil = $certificate !== null && ($row->extended_until ?? null) !== null && (int) $row->extension_base_seq === $certificate->seq
             ? new DateTimeImmutable($row->extended_until)
@@ -61,19 +67,42 @@ final class LicenseGate
         return new LicenseCheck($this->evaluator->evaluate($certificate, $facts, true, $legacyLicensePresent), $facts->trustedNow());
     }
 
-    private function certificate(KeyRing $ring, ?string $token): ?Certificate
+    /**
+     * The stored certificate, if it counts: this build accepts its signature, it was issued for this computer's identity, and this
+     * database holds the store it names (ADR-019 defect 3). Otherwise it is the same as having none. The copied license state of
+     * another installation or shop is therefore worth nothing here. It is not protection against someone who copies the whole
+     * installation, identity file included.
+     */
+    public function certificate(?string $token): ?Certificate
     {
         if ($token === null || $token === '') {
             return null;
         }
 
         try {
-            return (new CertificateVerifier($ring))->verify($token);
+            $certificate = (new CertificateVerifier($this->keyRing()))->verify($token);
         } catch (CertificateRejected $e) {
             // A stored certificate this build no longer accepts (for example its key was revoked) is the same as having none.
-            Log::warning('license.stored_certificate_rejected', ['reason' => $e->reason]);
-
-            return null;
+            return $this->rejected($e->reason);
         }
+
+        try {
+            $installation = $this->identity->load()['installation'];
+        } catch (RuntimeException) {
+            return $this->rejected('NO_IDENTITY');
+        }
+
+        if ($certificate->installation !== $installation) {
+            return $this->rejected('OTHER_INSTALLATION');
+        }
+
+        return DB::table('stores')->where('id', $certificate->store)->exists() ? $certificate : $this->rejected('OTHER_STORE');
+    }
+
+    private function rejected(string $reason): null
+    {
+        Log::warning('license.stored_certificate_rejected', ['reason' => $reason]);
+
+        return null;
     }
 }

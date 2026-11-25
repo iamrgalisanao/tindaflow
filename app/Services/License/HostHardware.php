@@ -10,7 +10,8 @@ use DateTimeImmutable;
  * with the three SHA-256 hashes. The file is unsigned and can be copied with the stack (a recorded residual risk), so this only decides
  * whether to trust it as FRESH: well formed and generated within the last 26 hours. A missing, invalid or older file yields no fingerprint,
  * which changes no license state but stops activation and renewal (HOST_HELPER_STALE). `generated_at` is the host's own clock, a second
- * clock beside the container's.
+ * clock beside the container's, so a stamp more than an hour AHEAD is not trusted either (ADR-019 defect 6): one such file would
+ * otherwise stay "fresh" until that date and carry the trusted-time mark with it.
  */
 final class HostHardware
 {
@@ -23,6 +24,9 @@ final class HostHardware
     public const INVALID = 'INVALID';
 
     public const MAX_AGE_SECONDS = 26 * 3600;
+
+    /** The same one hour a clock may differ elsewhere (rollback, activation, offline codes). */
+    public const MAX_AHEAD_SECONDS = 3600;
 
     private const COMPONENTS = ['smbios_uuid', 'board_serial', 'bios_serial'];
 
@@ -52,6 +56,11 @@ final class HostHardware
 
         if (! $valid) {
             return new HostHardwareReading(self::INVALID);
+        }
+
+        if ($generatedAt->getTimestamp() - $now->getTimestamp() > self::MAX_AHEAD_SECONDS) {
+            // The stamp is still returned: a time reset reads it to set this file aside.
+            return new HostHardwareReading(self::INVALID, null, $generatedAt);
         }
 
         if ($now->getTimestamp() - $generatedAt->getTimestamp() > self::MAX_AGE_SECONDS) {
