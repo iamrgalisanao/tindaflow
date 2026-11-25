@@ -84,6 +84,25 @@ docker compose exec app php artisan tindaflow:reset-password owner@example.com
 
 It sets a new strong password, **prints it once** (copy it now; it is stored nowhere in plain text), ends every session that user has, and records a `PASSWORD_RESET` entry in the audit log. Sign in with it and change it under Users. If the user was deactivated, add `--activate`. It refuses an unknown e-mail, and an e-mail used in more than one store, without changing anything.
 
+## A license that has run out, or a clock lock
+
+This applies only to a build that carries a vendor key. Today no build does, so nothing here can happen yet. `docker compose exec app php artisan tindaflow:license-status` shows the state. Selling resumes only when a new shift is allowed again; closing a shift, reports, reprints, voids and refunds are never blocked.
+
+- **With internet:** choose **Check license now** on the License screen, or run `docker compose exec app php artisan tindaflow:license-renew`. If the provider had suspended the shop, it must resume it first.
+- **No internet: renew by file.** The files travel any way you like (USB stick, e-mail from a phone). Run these from the `docker/` folder; they work in PowerShell and bash. (Let the command write the file, as shown: redirecting its output in Windows PowerShell changes the file's encoding.)
+  ```bash
+  docker compose exec app php artisan tindaflow:license-renew --request --out=/tmp/renewal-request.txt
+  docker compose cp app:/tmp/renewal-request.txt .
+  ```
+  Send `renewal-request.txt` to your TindaFlow provider. Put the reply, `renewal-reply.json`, in this folder, then:
+  ```bash
+  docker compose cp renewal-reply.json app:/tmp/renewal-reply.json
+  docker compose exec app php artisan tindaflow:license-renew --apply=/tmp/renewal-reply.json
+  ```
+  The request holds no secret key, but it does hold the license and the hardware hashes. It needs the host helper's file to be current. If the reply is lost, send the same request again. **Apply the reply before it runs out** (it is good for about 30 days from when the provider made it).
+- **Locked because of the clock** (`CLOCK_ROLLBACK`): first set the computer's date and time correctly. If it is still locked, the computer's clock was once ahead. Online, renew as above; if the last renewal was under an hour ago, wait and try again. Offline, ask your provider for a time-reset code and type it on the License screen. A reply file never unlocks a clock lock, on purpose.
+- **Locked because the hardware changed, a forked chain, or a revocation:** there is no way back from this computer. Contact your TindaFlow provider.
+
 ## Backups
 
 The `backup` container writes a dump to `./backups` (`BACKUP_DIR`) every `BACKUP_INTERVAL_MINUTES` (default 60): **the most sales you can lose in a crash is one interval.** Each dump is checked readable before it is kept. Retention is every dump for 24 hours, then the first of each day for 30 days, then the first of each month for 12 months (all set in `.env`); pruning removes old copies only, never database rows.
