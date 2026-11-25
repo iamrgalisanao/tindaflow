@@ -9,6 +9,9 @@ use RuntimeException;
  * pair made on the PC, kept in one file on the persistent app volume. The provider registers the public half; the control
  * plane stores no shared secret. The file is written once and never silently replaced, because replacing it would orphan
  * the activation the provider already bound to the old key. A host administrator can copy it (accepted, ADR-018 residual risks).
+ *
+ * The one exception is replacing the computer (ADR-019 slice 3): a second, PENDING identity is made beside the one in use, and takes
+ * its place only when the provider's license for it is applied ({@see promotePending()}).
  */
 final class InstallationIdentity
 {
@@ -22,25 +25,58 @@ final class InstallationIdentity
         return is_file($this->path());
     }
 
+    public function pendingPath(): string
+    {
+        return $this->path().'.pending';
+    }
+
     /** @return array{installation: string, public_key: string, secret_key: string} */
     public function load(): array
     {
-        $data = is_file($this->path()) ? json_decode((string) file_get_contents($this->path()), true) : null;
+        return $this->read($this->path()) ?? throw new RuntimeException('This installation has no identity yet. Run tindaflow:activate --request first.');
+    }
 
-        if (! is_array($data) || ! is_string($data['installation'] ?? null) || ! is_string($data['public_key'] ?? null) || ! is_string($data['secret_key'] ?? null)) {
-            throw new RuntimeException('This installation has no identity yet. Run tindaflow:activate --request first.');
-        }
-
-        return ['installation' => $data['installation'], 'public_key' => $data['public_key'], 'secret_key' => $data['secret_key']];
+    /** The identity made for a replacement that has not been applied yet. @return array{installation: string, public_key: string, secret_key: string}|null */
+    public function pending(): ?array
+    {
+        return $this->read($this->pendingPath());
     }
 
     /** Creates the identity if there is none, and returns it either way. @return array{installation: string, public_key: string, secret_key: string} */
     public function ensure(): array
     {
-        if ($this->exists()) {
-            return $this->load();
+        return $this->exists() ? $this->load() : $this->create($this->path());
+    }
+
+    /** The same for the pending identity, so that asking again makes the same replacement request. @return array{installation: string, public_key: string, secret_key: string} */
+    public function ensurePending(): array
+    {
+        return $this->pending() ?? $this->create($this->pendingPath());
+    }
+
+    /** The pending identity becomes the one in use; the old one, retired by the provider, is overwritten. */
+    public function promotePending(): void
+    {
+        if ($this->pending() === null || ! rename($this->pendingPath(), $this->path())) {
+            throw new RuntimeException('Cannot put the new identity in place.');
+        }
+    }
+
+    /** @return array{installation: string, public_key: string, secret_key: string}|null */
+    private function read(string $path): ?array
+    {
+        $data = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
+
+        if (! is_array($data) || ! is_string($data['installation'] ?? null) || ! is_string($data['public_key'] ?? null) || ! is_string($data['secret_key'] ?? null)) {
+            return null;
         }
 
+        return ['installation' => $data['installation'], 'public_key' => $data['public_key'], 'secret_key' => $data['secret_key']];
+    }
+
+    /** @return array{installation: string, public_key: string, secret_key: string} */
+    private function create(string $path): array
+    {
         $pair = sodium_crypto_sign_keypair();
         $identity = [
             'installation' => self::uuid(),
@@ -48,7 +84,7 @@ final class InstallationIdentity
             'secret_key' => base64_encode(sodium_crypto_sign_secretkey($pair)),
         ];
 
-        $this->write(json_encode($identity, JSON_THROW_ON_ERROR));
+        $this->write($path, json_encode($identity, JSON_THROW_ON_ERROR));
 
         return $identity;
     }
@@ -57,10 +93,10 @@ final class InstallationIdentity
      * Writes the file so that it is readable by its owner only from the moment it exists (ADR-019 defect 7): the umask restricts what
      * is created, and `x` refuses to reuse a file already there, which would keep its old permissions. It is then swapped into place.
      */
-    private function write(string $contents): void
+    private function write(string $path, string $contents): void
     {
-        $directory = dirname($this->path());
-        $temporary = $this->path().'.tmp';
+        $directory = dirname($path);
+        $temporary = $path.'.tmp';
         $umask = umask(0077);
 
         try {
@@ -79,8 +115,8 @@ final class InstallationIdentity
 
         $this->handToStorageOwner([$directory, $temporary]);
 
-        if (! rename($temporary, $this->path())) {
-            throw new RuntimeException("Cannot write {$this->path()}.");
+        if (! rename($temporary, $path)) {
+            throw new RuntimeException("Cannot write {$path}.");
         }
     }
 
@@ -110,15 +146,17 @@ final class InstallationIdentity
     /**
      * What the provider needs to register this PC. `fingerprint` is the host helper's three hashes (ADR-018 decision 4), or null when
      * there is no fresh hardware file, in which case the provider will refuse the request. `store` names the shop already on this
-     * computer when it is to be adopted (ADR-019 slice 3), so that the provider registers the id it already has.
+     * computer when it is to be adopted (ADR-019 slice 3), so that the provider registers the id it already has. `identity` is given
+     * for a replacement, whose request carries the pending one.
      *
      * @param  array<string, string>|null  $fingerprint
      * @param  array{id: string, name: string}|null  $store
+     * @param  array{installation: string, public_key: string, secret_key: string}|null  $identity
      * @return array<string, mixed>
      */
-    public function request(?array $fingerprint = null, ?array $store = null): array
+    public function request(?array $fingerprint = null, ?array $store = null, ?array $identity = null): array
     {
-        $identity = $this->ensure();
+        $identity ??= $this->ensure();
 
         return [
             'v' => 1,

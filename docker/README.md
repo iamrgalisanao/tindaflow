@@ -84,6 +84,31 @@ docker compose exec app php artisan tindaflow:reset-password owner@example.com
 
 It sets a new strong password, **prints it once** (copy it now; it is stored nowhere in plain text), ends every session that user has, and records a `PASSWORD_RESET` entry in the audit log. Sign in with it and change it under Users. If the user was deactivated, add `--activate`. It refuses an unknown e-mail, and an e-mail used in more than one store, without changing anything.
 
+## Replacing the shop's computer
+
+For a licensed shop on a new computer, or the same one after a repair that changed its hardware. This applies only to a build that carries a vendor key. Until the new license is applied, a locked shop cannot open a new shift.
+
+1. **On the new computer, restore the shop** ("Restoring a whole shop", below), and install the Windows host helper; its `-Check` must pass.
+2. **Make the request** and send `replace-request.json` to your TindaFlow provider. Say what happened to the old computer. The request makes a new identity for this computer; nothing changes until you apply the reply.
+   ```bash
+   docker compose exec app php artisan tindaflow:activate --request --replace --out=/tmp/replace-request.json
+   docker compose cp app:/tmp/replace-request.json .
+   ```
+3. **The provider** licenses the new computer and retires the old one:
+   ```bash
+   php artisan license:replace-computer DEPLOYMENT_CODE replace-request.json --reason="The old computer died" --out=bundle.txt
+   ```
+4. **Apply the bundle.** It changes only the license: no user, setting, till, stock or sale.
+   ```bash
+   docker compose cp bundle.txt app:/tmp/bundle.txt
+   docker compose exec app php artisan tindaflow:activate --bundle=/tmp/bundle.txt --replace
+   docker compose exec app php artisan tindaflow:license-status
+   ```
+   If the power fails while applying, apply the same bundle again. If the bundle is lost, the provider runs the same command again.
+5. **Switch the old computer off.** It is never renewed again, and the provider is told whenever it tries. Until its last certificate runs out (up to about 30 days, longer with an extension code) it could still sell if someone ran it offline, so wipe it or take it out of service. Anything it sells after the backup you restored is not in the new computer's records.
+
+Extension codes and their count start again on the new computer. A shop whose license was revoked cannot be replaced.
+
 ## Licensing a shop that already trades
 
 This applies only to a build that carries a vendor key. Today no build does. `--adopt` records the license for the shop already on the computer and **changes nothing else**: no user, setting, till, stock or sale. (A new installation that will be licensed uses `tindaflow:activate` without `--adopt`, and must not run `db:seed` first. If it already did, adopt it.)
@@ -131,7 +156,8 @@ This applies only to a build that carries a vendor key. Today no build does, so 
   ```
   The request holds no secret key, but it does hold the license and the hardware hashes. It needs the host helper's file to be current. If the reply is lost, send the same request again. **Apply the reply before it runs out** (it is good for about 30 days from when the provider made it).
 - **Locked because of the clock** (`CLOCK_ROLLBACK`): first set the computer's date and time correctly. If it is still locked, the computer's clock was once ahead. Online, renew as above; if the last renewal was under an hour ago, wait and try again. Offline, ask your provider for a time-reset code and type it on the License screen. A reply file never unlocks a clock lock, on purpose.
-- **Locked because the hardware changed, a forked chain, or a revocation:** there is no way back from this computer. Contact your TindaFlow provider.
+- **Locked because the hardware changed:** replace the computer (below), even if it is the same computer after a repair.
+- **A forked chain, or a revocation:** there is no way back yet. Contact your TindaFlow provider.
 
 ## Backups
 
@@ -232,7 +258,7 @@ The commands below are written to work in PowerShell and in bash. Run them from 
 
 **The tills** stay enrolled, with nothing to re-enter, as long as the server answers at the same address with the same certificate and `APP_KEY`. If the new computer has another name or IP address, set `APP_URL`, make a certificate for the new address, and enroll the tills again. A public host name needs `tls/letsencrypt.sh issue` again.
 
-**On a different computer a license would see different hardware.** Moving a license to a new computer is not built yet (ADR-019). Builds with no vendor key, which is every build today, are not affected.
+**On a different computer a license sees different hardware** and locks. After restoring, follow "Replacing the shop's computer". Builds with no vendor key, which is every build today, are not affected.
 
 **What is tested.** `scripts/drill-whole-shop-restore.sh` runs these steps in CI on Linux on every change: it builds a shop, sells, destroys it, restores it from the two files and compares every record. The steps have **not** been run on Windows. Practise them on a spare Windows computer before relying on them.
 
