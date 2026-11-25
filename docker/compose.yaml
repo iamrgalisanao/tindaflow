@@ -156,6 +156,12 @@ services:
     volumes:
       - ./backup/backup.sh:/usr/local/bin/backup.sh:ro
       - ./backup/restore.sh:/usr/local/bin/restore.sh:ro
+      - ./backup/restore-shop-files.sh:/usr/local/bin/restore-shop-files.sh:ro
+      # The shop's files, read-only, archived (encrypted, only with BACKUP_PASSPHRASE) beside each dump: a dump alone
+      # cannot rebuild a shop. This file has APP_KEY and the passwords; the certificate folder has the private key.
+      - ./.env:/shop/env:ro
+      - ${TLS_CERT_DIR:-./certs}:/shop/certs:ro
+      - app-storage:/shop/storage:ro
       - ./backup/alert-telegram.sh:/usr/local/bin/alert-telegram.sh:ro
       - ./backup/upload-rclone.sh:/usr/local/bin/upload-rclone.sh:ro
       # The database's own volume, read-only, ONLY so backup.sh can watch how full its disk is (it never reads the files).

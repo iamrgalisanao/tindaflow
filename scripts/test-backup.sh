@@ -27,12 +27,14 @@ count_lines() { if [ -f "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; 
 
 # A fresh sandbox per case: its own BACKUP_DIR, stub binaries and alert log.
 new_case() {
+    unset TMPDIR RESULT # a case may point TMPDIR inside its own folder, which is deleted when it ends
     WORK="$(mktemp -d)"
     export BACKUP_DIR="$WORK/backups" DATA_DIR="$WORK/data" ALERTS="$WORK/alerts.log" BIN="$WORK/bin"
     mkdir -p "$BACKUP_DIR" "$DATA_DIR" "$BIN"
     export PATH="$BIN:$ORIGINAL_PATH"
     export ALERT_COMMAND='printf "%s\n" "$1" >> "$ALERTS"'
     export BACKUP_INTERVAL_MINUTES=60 BACKUP_PASSPHRASE='' BACKUP_UPLOAD_COMMAND='' DF_CMD=''
+    export SHOP_DIR="$WORK/no-shop"
     unset TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID RCLONE_DEST HEARTBEAT_URL BACKUP_UPLOAD_UNENCRYPTED ALERT_SITE_NAME TELEGRAM_API_BASE
     unset BACKUP_NOW
     stub pg_dump 'printf "PGDMP-data" > "${@: -2:1}" 2>/dev/null || true; exit 0' # writes to the -f argument
@@ -255,6 +257,135 @@ check "the first backup of an old month is kept and its second is pruned" presen
 check "the second backup of that day is pruned" missing "$BACKUP_DIR/tindaflow-20260101-200000.dump"
 check "the newest is never deleted" present "$BACKUP_DIR/tindaflow-20260920-110000.dump"
 rm -rf "$WORK"
+
+# --- the shop's files: everything a replacement PC needs that a database dump does not hold ------------------------------
+RESTORE_FILES="$HERE/../docker/backup/restore-shop-files.sh"
+
+make_shop() { # the three things the compose file mounts under /shop, plus a log that must NOT be archived
+    export SHOP_DIR="$WORK/shop" TMPDIR="$WORK/tmp"
+    mkdir -p "$SHOP_DIR/certs" "$SHOP_DIR/storage/app/license" "$SHOP_DIR/storage/logs" "$TMPDIR"
+    printf 'APP_KEY=base64:SECRET-APP-KEY\nDB_PASSWORD=pw with spaces\n' > "$SHOP_DIR/env"
+    printf 'CERTIFICATE-TEXT\n' > "$SHOP_DIR/certs/fullchain.pem"
+    printf 'PRIVATE-KEY-TEXT\n' > "$SHOP_DIR/certs/privkey.pem"
+    printf '{"installation":"abc"}' > "$SHOP_DIR/storage/app/license/installation.json"
+    printf 'a log line\n' > "$SHOP_DIR/storage/logs/laravel.log"
+    stub psql 'echo 2026_01_01_000000_example_migration'
+    source "$SCRIPT" # SHOP_DIR is read when the script is loaded
+}
+# compgen, not ls: backup.sh leaves nullglob on, under which `ls` of a pattern that matches nothing lists the current folder.
+shop_archive() { compgen -G "$BACKUP_DIR/tindaflow-*.files.tar.enc" | sort | tail -n 1; }
+archives() { { compgen -G "$BACKUP_DIR/tindaflow-*.files.tar.enc" || true; } | wc -l | tr -d ' '; }
+unhealthy() { ! health > "$WORK/health.txt"; }
+
+echo "== the shop's files are backed up beside the dump, encrypted"
+new_case
+dump_stub 0
+export BACKUP_PASSPHRASE='secret'
+make_shop
+status_set started "$(date -u +%s)"
+take_backup > /dev/null 2>&1 || RESULT=$?
+check "the backup succeeds" equals "${RESULT:-0}" 0
+unset RESULT
+check "one files archive is written" equals "$(archives)" 1
+dump_name="$(ls "$BACKUP_DIR"/tindaflow-*.dump.enc | tail -n 1)"
+check "it carries the same time stamp as its dump" equals "$(basename "$(shop_archive)" .files.tar.enc)" "$(basename "$dump_name" .dump.enc)"
+check "no secret can be read in it" bash -c '! grep -qa "SECRET-APP-KEY\|PRIVATE-KEY-TEXT" "'"$(shop_archive)"'"'
+check "no partial is left" gone_all "$BACKUP_DIR/*.partial"
+check "no plaintext working copy is left behind" equals "$(ls -A "$TMPDIR" | wc -l | tr -d ' ')" 0
+check "files_state is ok" equals "$(status_get files_state)" ok
+check "health is healthy" health
+
+echo "== and they come back exactly"
+bash "$RESTORE_FILES" "$(shop_archive)" "$WORK/restored" > "$WORK/restore.log" 2>&1 || RESULT=$?
+check "restore-shop-files succeeds" equals "${RESULT:-0}" 0
+unset RESULT
+check "the settings file is identical" cmp "$SHOP_DIR/env" "$WORK/restored/env"
+check "the certificate is identical" cmp "$SHOP_DIR/certs/fullchain.pem" "$WORK/restored/certs/fullchain.pem"
+check "the private key is identical" cmp "$SHOP_DIR/certs/privkey.pem" "$WORK/restored/certs/privkey.pem"
+check "the stored license files are identical" cmp "$SHOP_DIR/storage/app/license/installation.json" "$WORK/restored/storage/app/license/installation.json"
+check "logs are not archived" missing "$WORK/restored/storage/logs"
+check "the manifest names the matching dump" grep -q "^database_dump=$(basename "$dump_name")$" "$WORK/restored/manifest.txt"
+check "and the newest migration the database had" grep -q "^latest_migration=2026_01_01_000000_example_migration$" "$WORK/restored/manifest.txt"
+check "the output names the dump to restore" grep -q "$(basename "$dump_name")" "$WORK/restore.log"
+check "the output never prints a secret" bash -c '! grep -q "SECRET-APP-KEY\|PRIVATE-KEY-TEXT\|pw with spaces" "'"$WORK"'/restore.log"'
+
+echo "== restoring the shop's files refuses to guess or overwrite"
+mkdir -p "$WORK/occupied" && printf 'keep me' > "$WORK/occupied/env"
+check "a folder that is not empty is refused" bash -c '! bash "'"$RESTORE_FILES"'" "'"$(shop_archive)"'" "'"$WORK"'/occupied"'
+check "and what was in it is untouched" equals "$(cat "$WORK/occupied/env")" "keep me"
+check "a wrong passphrase fails" bash -c '! BACKUP_PASSPHRASE=wrong bash "'"$RESTORE_FILES"'" "'"$(shop_archive)"'" "'"$WORK"'/wrong"'
+check "and leaves no settings behind" missing "$WORK/wrong/env"
+check "no passphrase fails" bash -c '! BACKUP_PASSPHRASE= bash "'"$RESTORE_FILES"'" "'"$(shop_archive)"'" "'"$WORK"'/none"'
+printf 'not an archive' > "$WORK/broken.files.tar.enc"
+check "a damaged archive fails" bash -c '! bash "'"$RESTORE_FILES"'" "'"$WORK"'/broken.files.tar.enc" "'"$WORK"'/broken"'
+rm -rf "$WORK"
+
+echo "== without a passphrase the shop's files are never written, and that is said"
+new_case
+dump_stub 0
+make_shop
+take_backup > /dev/null 2> "$WORK/log" || RESULT=$?
+check "the database backup still succeeds" equals "${RESULT:-0}" 0
+unset RESULT
+check "no files archive is written" equals "$(archives)" 0
+check "no plaintext copy of the shop's files is anywhere in the backup folder" bash -c '! grep -rqa "SECRET-APP-KEY" "'"$BACKUP_DIR"'"'
+check "files_state is off" equals "$(status_get files_state)" off
+check "the log says they are NOT backed up" grep -q "NOT backed up" "$WORK/log"
+rm -rf "$WORK"
+
+echo "== a shop file that cannot be backed up is a failed backup"
+new_case
+dump_stub 0
+export BACKUP_PASSPHRASE='secret'
+make_shop
+rm "$SHOP_DIR/certs/privkey.pem"
+status_set started "$(date -u +%s)"
+take_backup > /dev/null 2>&1 || RESULT=$?
+check "take_backup returns non-zero" equals "${RESULT:-0}" 1
+unset RESULT
+check "the database dump is still kept" test "$(ls "$BACKUP_DIR"/tindaflow-*.dump.enc | wc -l)" -eq 1
+check "no files archive is kept" equals "$(archives)" 0
+check "no partial or plaintext is left" bash -c '! ls "'"$BACKUP_DIR"'"/*.partial 2>/dev/null && [ -z "$(ls -A "'"$TMPDIR"'")" ]'
+check "the reason names the missing file" grep -q "privkey.pem" "$BACKUP_DIR/.status"
+check "one alert" equals "$(count_lines "$ALERTS")" 1
+take_backup > /dev/null 2>&1 || true
+check "a second failure does not alert again" equals "$(count_lines "$ALERTS")" 1
+check "health is unhealthy" unhealthy
+check "and says it is the shop files" grep -q "shop's files" "$WORK/health.txt"
+printf 'PRIVATE-KEY-TEXT\n' > "$SHOP_DIR/certs/privkey.pem"
+take_backup > /dev/null 2>&1
+check "once fixed it is healthy again" health
+check "with a recovery alert" equals "$(count_lines "$ALERTS")" 2
+printf 'DB_PASSWORD=pw\n' > "$SHOP_DIR/env"
+take_backup > /dev/null 2>&1 || RESULT=$?
+check "a settings file without APP_KEY is refused too" equals "${RESULT:-0}" 1
+unset RESULT
+check "and the reason names APP_KEY" grep -q "APP_KEY" "$BACKUP_DIR/.status"
+rm -rf "$WORK"
+
+echo "== the shop's files go off the machine with the dump, and are pruned like it"
+new_case
+dump_stub 0
+export BACKUP_PASSPHRASE='secret' WORK
+make_shop
+BACKUP_UPLOAD_COMMAND='printf "%s\n" "$1" >> "$WORK/uploaded.log"' take_backup > /dev/null 2>&1
+check "both files are uploaded" equals "$(count_lines "$WORK/uploaded.log")" 2
+check "one of them is the files archive" grep -q "\.files\.tar\.enc$" "$WORK/uploaded.log"
+BACKUP_UPLOAD_COMMAND='case "$1" in *.files.tar.enc) exit 1 ;; esac' take_backup > /dev/null 2>&1 || RESULT=$?
+check "a files archive that cannot be uploaded is a failed backup" equals "${RESULT:-0}" 1
+unset RESULT
+check "and upload_ok is 0" equals "$(status_get upload_ok)" 0
+rm -f "$BACKUP_DIR"/tindaflow-*
+BACKUP_NOW=20260920-120000
+for stamp in 20260920-110000 20260918-090000 20260918-150000; do
+    touch "$BACKUP_DIR/tindaflow-${stamp}.dump.enc" "$BACKUP_DIR/tindaflow-${stamp}.files.tar.enc"
+done
+prune > /dev/null 2>&1
+check "a recent files archive is kept" present "$BACKUP_DIR/tindaflow-20260920-110000.files.tar.enc"
+check "the first of an older day is kept, with its dump" bash -c '[ -e "'"$BACKUP_DIR"'/tindaflow-20260918-090000.files.tar.enc" ] && [ -e "'"$BACKUP_DIR"'/tindaflow-20260918-090000.dump.enc" ]'
+check "the second of that day is pruned, with its dump" bash -c '[ ! -e "'"$BACKUP_DIR"'/tindaflow-20260918-150000.files.tar.enc" ] && [ ! -e "'"$BACKUP_DIR"'/tindaflow-20260918-150000.dump.enc" ]'
+rm -rf "$WORK"
+unset TMPDIR
 
 echo
 echo "$PASS passed, $FAIL failed"
