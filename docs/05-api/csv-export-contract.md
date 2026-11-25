@@ -55,6 +55,8 @@ or removing an existing column is breaking.
 | Inventory On Hand | `reportInventoryOnHand` | `product_id, sku, product_name, location_id, quantity_on_hand, reorder_level` |
 | Low Stock | `reportLowStock` | `product_id, sku, product_name, quantity_on_hand, reorder_level, shortfall` |
 
+*ADR-016 slice 2.2b (2026-11-25): Sales by Date Range, Void, Refund and Discount reports gain one column APPENDED at the end, `slip_number`, only in a store that documents sales by slip or ever has. Exactly one of `invoice_number` and `slip_number` is filled for each row. A store that has only ever issued invoices gets the columns listed above, unchanged.*
+
 *ADR-017 slice A (2026-10-26): in the two inventory reports `reorder_level` is the EFFECTIVE low-stock threshold (the product's own, else the store default), and Low Stock lists products whose on-hand is at or below it (`shortfall` may be 0). The product catalog CSV is unchanged in shape; a blank `reorder_level` there means the store default.*
 
 *ADR-017 slice C (2026-10-28): the product catalog CSV (`productExport`, `productImport`) gains one column APPENDED at the end, `shelf_life_days` (whole days 1 to 3650, blank = none), so an older file without it still imports. Nothing else in any export changed.*

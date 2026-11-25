@@ -33,11 +33,12 @@ class SalesReportController extends Controller
     public function salesByDateRange(Request $request, ReportQueryService $service): Response
     {
         $actor = Auth::guard('web')->user();
-        ['rows' => $rows, 'summary' => $summary] = $service->salesByDateRange($actor->store_id, $this->fromDate($request), $this->toDate($request));
+        ['rows' => $rows, 'summary' => $summary, 'extra_columns' => $extra] = $service->salesByDateRange($actor->store_id, $this->fromDate($request), $this->toDate($request));
 
         return $this->reportResponse($request, ['from' => $request->query('from'), 'to' => $request->query('to')], $rows, $summary, [
             'sold_at', 'invoice_number', 'transaction_number', 'terminal_id', 'cashier_id',
             'subtotal', 'discount_total', 'grand_total', 'status',
+            ...$extra,
         ]);
     }
 
@@ -97,10 +98,11 @@ class SalesReportController extends Controller
     public function discounts(Request $request, ReportQueryService $service): Response
     {
         $actor = Auth::guard('web')->user();
-        ['rows' => $rows, 'summary' => $summary] = $service->discounts($actor->store_id, $this->fromDate($request), $this->toDate($request));
+        ['rows' => $rows, 'summary' => $summary, 'extra_columns' => $extra] = $service->discounts($actor->store_id, $this->fromDate($request), $this->toDate($request));
 
         return $this->reportResponse($request, ['from' => $request->query('from'), 'to' => $request->query('to')], $rows, $summary, [
             'sold_at', 'invoice_number', 'line_discount_total', 'order_discount_total', 'discount_total',
+            ...$extra,
         ]);
     }
 

@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Domain\Money;
+use App\Enums\SaleDocumentMode;
 use App\Services\Inventory\StockRules;
 use App\Services\Payments\NetCollectionService;
 use Illuminate\Database\Query\Builder;
@@ -274,12 +275,14 @@ final class ReportQueryService
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
     public function salesByDateRange(string $storeId, ?Carbon $from, ?Carbon $to): array
     {
+        $slips = $this->storeUsesSlips($storeId);
         $rows = DB::table('sales')
             ->leftJoin('invoices', 'invoices.sale_id', '=', 'sales.id')
+            ->leftJoin('sale_slips', 'sale_slips.sale_id', '=', 'sales.id')
             ->where('sales.store_id', $storeId)
             ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->select([
-                'sales.sold_at', 'invoices.invoice_number', 'sales.transaction_number',
+                'sales.sold_at', 'invoices.invoice_number', 'sale_slips.slip_number', 'sales.transaction_number',
                 'sales.terminal_id', 'sales.cashier_id', 'sales.subtotal',
                 'sales.discount_total', 'sales.grand_total', 'sales.status',
             ])
@@ -296,9 +299,9 @@ final class ReportQueryService
             'discount_total' => $this->money($row->discount_total),
             'grand_total' => $this->money($row->grand_total),
             'status' => $row->status,
-        ])->all();
+        ] + $this->slipValue($slips, $row))->all();
 
-        return ['rows' => $mapped, 'summary' => ['transaction_count' => count($mapped)]];
+        return ['rows' => $mapped, 'summary' => ['transaction_count' => count($mapped)], 'extra_columns' => $this->slipColumns($slips)];
     }
 
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
@@ -449,14 +452,16 @@ final class ReportQueryService
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
     public function voids(string $storeId, ?Carbon $from, ?Carbon $to): array
     {
+        $slips = $this->storeUsesSlips($storeId);
         $rows = DB::table('voids')
             ->join('sales', 'sales.id', '=', 'voids.sale_id')
             ->leftJoin('invoices', 'invoices.sale_id', '=', 'sales.id')
+            ->leftJoin('sale_slips', 'sale_slips.sale_id', '=', 'sales.id')
             ->where('sales.store_id', $storeId)
             ->when($from, fn ($q) => $q->where('voids.requested_at', '>=', $from))
             ->when($to, fn ($q) => $q->where('voids.requested_at', '<=', $to))
             ->select([
-                'voids.id as void_id', 'voids.sale_id', 'invoices.invoice_number',
+                'voids.id as void_id', 'voids.sale_id', 'invoices.invoice_number', 'sale_slips.slip_number',
                 'voids.requested_by', 'voids.approved_by', 'voids.reason',
                 'voids.terminal_id', 'voids.fiscal_day_id', 'voids.resolved_at',
                 'sales.grand_total as sale_grand_total', 'voids.status', 'voids.requested_at',
@@ -479,22 +484,24 @@ final class ReportQueryService
             // without these a REJECTED/REQUESTED void is indistinguishable from an executed one.
             'status' => $row->status,
             'requested_at' => Carbon::parse($row->requested_at)->toJSON(),
-        ])->all();
+        ] + $this->slipValue($slips, $row))->all();
 
-        return ['rows' => $mapped, 'summary' => ['void_count' => count($mapped)]];
+        return ['rows' => $mapped, 'summary' => ['void_count' => count($mapped)], 'extra_columns' => $this->slipColumns($slips)];
     }
 
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
     public function refunds(string $storeId, ?Carbon $from, ?Carbon $to): array
     {
+        $slips = $this->storeUsesSlips($storeId);
         $rows = DB::table('refunds')
             ->join('sales', 'sales.id', '=', 'refunds.sale_id')
             ->leftJoin('invoices', 'invoices.sale_id', '=', 'sales.id')
+            ->leftJoin('sale_slips', 'sale_slips.sale_id', '=', 'sales.id')
             ->where('sales.store_id', $storeId)
             ->when($from, fn ($q) => $q->where('refunds.requested_at', '>=', $from))
             ->when($to, fn ($q) => $q->where('refunds.requested_at', '<=', $to))
             ->select([
-                'refunds.id as refund_id', 'refunds.sale_id', 'invoices.invoice_number',
+                'refunds.id as refund_id', 'refunds.sale_id', 'invoices.invoice_number', 'sale_slips.slip_number',
                 'refunds.requested_by', 'refunds.approved_by', 'refunds.reason',
                 'refunds.terminal_id', 'refunds.fiscal_day_id', 'refunds.refunded_at',
                 'refunds.refund_total', 'refunds.status', 'refunds.requested_at',
@@ -515,26 +522,28 @@ final class ReportQueryService
             'refund_total' => $row->refund_total === null ? null : $this->money($row->refund_total),
             'status' => $row->status,
             'requested_at' => Carbon::parse($row->requested_at)->toJSON(),
-        ])->all();
+        ] + $this->slipValue($slips, $row))->all();
 
-        return ['rows' => $mapped, 'summary' => ['refund_count' => count($mapped)]];
+        return ['rows' => $mapped, 'summary' => ['refund_count' => count($mapped)], 'extra_columns' => $this->slipColumns($slips)];
     }
 
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
     public function discounts(string $storeId, ?Carbon $from, ?Carbon $to): array
     {
+        $slips = $this->storeUsesSlips($storeId);
         $rows = DB::table('sales')
             ->leftJoin('invoices', 'invoices.sale_id', '=', 'sales.id')
+            ->leftJoin('sale_slips', 'sale_slips.sale_id', '=', 'sales.id')
             ->leftJoin('sale_items', 'sale_items.sale_id', '=', 'sales.id')
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
             ->where('sales.discount_total', '>', 0)
             ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
-            ->selectRaw('sales.id as sale_id, sales.sold_at, invoices.invoice_number')
+            ->selectRaw('sales.id as sale_id, sales.sold_at, invoices.invoice_number, sale_slips.slip_number')
             ->selectRaw('COALESCE(SUM(sale_items.line_discount_amount), 0.00) as line_discount_total')
             ->selectRaw('MAX(sales.order_level_discount_amount) as order_discount_total')
             ->selectRaw('MAX(sales.discount_total) as discount_total')
-            ->groupBy('sales.id', 'sales.sold_at', 'invoices.invoice_number')
+            ->groupBy('sales.id', 'sales.sold_at', 'invoices.invoice_number', 'sale_slips.slip_number')
             ->orderBy('sales.sold_at')
             ->get();
 
@@ -544,9 +553,9 @@ final class ReportQueryService
             'line_discount_total' => $this->money($row->line_discount_total),
             'order_discount_total' => $this->money($row->order_discount_total),
             'discount_total' => $this->money($row->discount_total),
-        ])->all();
+        ] + $this->slipValue($slips, $row))->all();
 
-        return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['discount_total'])];
+        return ['rows' => $mapped, 'summary' => $this->sumColumns($mapped, ['discount_total']), 'extra_columns' => $this->slipColumns($slips)];
     }
 
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
@@ -801,5 +810,26 @@ final class ReportQueryService
         }
 
         return $totals;
+    }
+
+    /**
+     * Whether this store's document reports name slips as well as invoices (ADR-016, slice 2.2b): it documents sales by slip now,
+     * or it ever has. A store that has only ever issued invoices gets exactly the reports it always had.
+     */
+    private function storeUsesSlips(string $storeId): bool
+    {
+        return SaleDocumentMode::forStore($storeId)->isSlip() || DB::table('sale_slips')->where('store_id', $storeId)->exists();
+    }
+
+    /** @return array<string, string|null> the extra value of one row; nothing at all for a store without slips */
+    private function slipValue(bool $slips, object $row): array
+    {
+        return $slips ? ['slip_number' => $row->slip_number] : [];
+    }
+
+    /** @return list<string> the CSV columns added after the pinned ones (csv-export-contract.md: appending is not breaking) */
+    private function slipColumns(bool $slips): array
+    {
+        return $slips ? ['slip_number'] : [];
     }
 }
