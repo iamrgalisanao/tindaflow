@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Tests\Concerns\FakesHostHardware;
+use Tests\Concerns\FakesLicensedInstallation;
 use Tests\Unit\Services\License\Contract\SignsTestCertificates;
 
 /**
@@ -23,6 +24,7 @@ use Tests\Unit\Services\License\Contract\SignsTestCertificates;
 class LicenseGateHttpTest extends PostgresSchemaTestCase
 {
     use FakesHostHardware;
+    use FakesLicensedInstallation;
     use SignsTestCertificates;
 
     private function login(User $user): TestResponse
@@ -71,6 +73,7 @@ class LicenseGateHttpTest extends PostgresSchemaTestCase
     private function storeCertificate(int $daysToExpiry, string $mode = 'enforce', array $row = []): void
     {
         $now = CarbonImmutable::now();
+        $this->fakeLicensedInstallation();
         $token = self::sign(self::payload([
             'mode' => $mode,
             'iat' => $now->subDays(10)->format('Y-m-d\TH:i:sP'),
@@ -221,6 +224,37 @@ class LicenseGateHttpTest extends PostgresSchemaTestCase
     {
         config(['tindaflow.license.vendor_keys' => ['some-other-key' => self::testPublicKeyBase64()]]);
         $this->storeCertificate(20);
+
+        $this->openShift($this->enrolledCashier())->assertStatus(409)->assertJsonPath('error.details.reason', 'NOT_ACTIVATED');
+    }
+
+    public function test_a_certificate_for_another_installation_is_the_same_as_none(): void
+    {
+        $this->trustTestVendorKey();
+        $this->storeCertificate(20);
+        $this->fakeIdentityFile('11111111-2222-4333-8444-555555555555');
+
+        $this->openShift($this->enrolledCashier())->assertStatus(409)->assertJsonPath('error.details.reason', 'NOT_ACTIVATED');
+    }
+
+    public function test_a_certificate_with_no_identity_on_this_computer_is_the_same_as_none(): void
+    {
+        $this->trustTestVendorKey();
+        $this->storeCertificate(20);
+        config(['tindaflow.license.installation_file' => sys_get_temp_dir().'/tindaflow-no-such-identity.json']);
+
+        $this->openShift($this->enrolledCashier())->assertStatus(409)->assertJsonPath('error.details.reason', 'NOT_ACTIVATED');
+    }
+
+    public function test_a_certificate_for_a_store_this_database_does_not_hold_is_the_same_as_none(): void
+    {
+        $this->trustTestVendorKey();
+        $this->storeCertificate(20);
+        $now = CarbonImmutable::now();
+        DB::table('license_state')->where('id', 1)->update(['certificate' => self::sign(self::payload([
+            'store' => 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+            'iat' => $now->subDays(10)->format('Y-m-d\TH:i:sP'), 'exp' => $now->addDays(20)->format('Y-m-d\TH:i:sP'),
+        ]))]);
 
         $this->openShift($this->enrolledCashier())->assertStatus(409)->assertJsonPath('error.details.reason', 'NOT_ACTIVATED');
     }

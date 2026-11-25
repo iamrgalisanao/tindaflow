@@ -47,6 +47,20 @@ class HostHardwareTest extends TestCase
         $this->assertNotNull($stale->generatedAt);
     }
 
+    public function test_a_file_dated_more_than_an_hour_ahead_is_not_fresh(): void
+    {
+        $now = CarbonImmutable::now();
+
+        $this->fakeHostHardware(generatedAt: $now->addMinutes(59)->format('Y-m-d\TH:i:sP'));
+        $this->assertSame(HostHardware::FRESH, $this->reading()->status, 'a host clock a little ahead is tolerated');
+
+        $this->fakeHostHardware(generatedAt: $now->addMinutes(61)->format('Y-m-d\TH:i:sP'));
+        $future = $this->reading();
+        $this->assertSame(HostHardware::INVALID, $future->status);
+        $this->assertNull($future->fingerprint);
+        $this->assertNotNull($future->generatedAt, 'kept so a time reset can set this stamp aside');
+    }
+
     public function test_a_missing_file_is_missing(): void
     {
         config(['tindaflow.license.hardware_file' => sys_get_temp_dir().'/tindaflow-no-such-hardware-file.json']);

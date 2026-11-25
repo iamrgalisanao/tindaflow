@@ -5,7 +5,6 @@ namespace App\Services\License;
 use App\Services\Audit\AuditTrail;
 use App\Services\License\Contract\Certificate;
 use App\Services\License\Contract\CertificateRejected;
-use App\Services\License\Contract\CertificateVerifier;
 use App\Services\License\Contract\OfflineCode;
 use App\Services\License\Contract\OfflineCodeVerifier;
 use App\Services\License\Time\TrustedClock;
@@ -86,10 +85,9 @@ final class OfflineCodeService
             throw new OfflineCodeRefused('This installation has been revoked. No code can unlock it.');
         }
 
-        try {
-            $certificate = (new CertificateVerifier($ring))->verify($row->certificate);
-        } catch (CertificateRejected) {
-            throw new OfflineCodeRefused('The certificate held is not accepted by this build. Ask your TindaFlow provider.');
+        $certificate = $this->gate->certificate($row->certificate);
+        if ($certificate === null) {
+            throw new OfflineCodeRefused('The certificate held is not accepted by this installation. Ask your TindaFlow provider.');
         }
 
         if ($code->deployment !== $certificate->deployment || $code->installationDigest !== OfflineCode::digestOf($certificate->installation)) {

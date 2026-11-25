@@ -46,6 +46,8 @@ final class ActivationService
         private readonly InventoryLocationService $locations,
         private readonly TerminalProvisioner $terminals,
         private readonly TrustedClock $clock,
+        private readonly HostHardware $hardware,
+        private readonly FingerprintMatcher $matcher,
     ) {}
 
     /**
@@ -64,6 +66,7 @@ final class ActivationService
             return $this->alreadyActivated($state->certificate, $bundle);
         }
 
+        $this->assertThisHardware($certificate, $now);
         $this->assertCanActivate($bundle);
 
         $adminPassword = Str::password(20);
@@ -153,6 +156,23 @@ final class ActivationService
         }
 
         return [$bundle, $certificate];
+    }
+
+    /**
+     * ADR-018 decision 9: the certificate must have been made for this computer's hardware, by the same 2-of-3 rule the license is
+     * later checked with. Here an unreadable hardware file refuses, because nothing has been activated yet.
+     */
+    private function assertThisHardware(Certificate $certificate, DateTimeImmutable $now): void
+    {
+        $reading = $this->hardware->read($now);
+        if (! $reading->isFresh()) {
+            throw new ActivationRefused('The hardware file is '.strtolower($reading->status).', so this computer cannot be checked against the certificate. Run the TindaFlow host helper, then try again.');
+        }
+
+        $matched = $this->matcher->matchedCount($certificate->fingerprint, $reading->fingerprint);
+        if (! $this->matcher->isAcceptable($matched)) {
+            throw new ActivationRefused("The certificate was made for different hardware ({$matched} of 3 values match; ".FingerprintMatcher::REQUIRED_MATCHES.' are needed). Send a new activation request from this computer to your provider.');
+        }
     }
 
     private function assertCanActivate(ActivationBundle $bundle): void

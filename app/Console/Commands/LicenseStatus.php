@@ -64,12 +64,13 @@ class LicenseStatus extends Command
         // The provider needs the certificate number to make an offline code.
         $row = DB::table('license_state')->where('id', 1)->first();
         if ($row !== null && $row->certificate_seq !== null) {
-            $this->line("Certificate: {$row->certificate_seq}.");
+            $accepted = $gate->certificate($row->certificate) !== null;
+            $this->line("Certificate: {$row->certificate_seq}".($accepted ? '.' : ' (stored, but not accepted on this computer; the log says why).'));
             if ($row->extended_until !== null && (int) $row->extension_base_seq === (int) $row->certificate_seq) {
                 $this->line('Extended offline until '.(new DateTimeImmutable($row->extended_until))->setTimezone(new DateTimeZone((string) config('app.timezone')))->format('Y-m-d H:i')." ({$row->extensions_in_a_row} of ".OfflineCodeService::MAX_EXTENSIONS_IN_A_ROW.' in a row).');
             }
         }
         $this->line('Trusted time mark: '.($mark?->format('Y-m-d H:i:sP') ?? '(none yet; the heartbeat has not run)'));
-        $this->line('Hardware file: '.strtolower($reading->status).($reading->generatedAt !== null ? ', written '.$reading->generatedAt->format('Y-m-d H:i:sP') : '').($reading->isFresh() ? '.' : ' (activation and renewal need a file under 26 hours old).'));
+        $this->line('Hardware file: '.strtolower($reading->status).($reading->generatedAt !== null ? ', written '.$reading->generatedAt->format('Y-m-d H:i:sP') : '').($reading->isFresh() ? '.' : ' (activation and renewal need a readable file, under 26 hours old and not dated in the future).'));
     }
 }

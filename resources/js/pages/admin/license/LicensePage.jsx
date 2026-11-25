@@ -12,7 +12,7 @@ const HARDWARE = {
     FRESH: 'Up to date',
     STALE: 'Out of date (over 26 hours old). Activation and renewal wait until the host helper writes it again.',
     MISSING: 'Not found. Check that the host helper is installed on this computer.',
-    INVALID: 'Unreadable. Check the host helper on this computer.',
+    INVALID: 'Unreadable, or dated in the future. Check the date and time and the host helper on this computer.',
 };
 
 function Fact({ label, children }) {

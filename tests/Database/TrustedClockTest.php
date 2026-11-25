@@ -247,22 +247,33 @@ class TrustedClockTest extends PostgresSchemaTestCase
         $this->assertStringContainsString('Hardware file: missing', $output);
     }
 
+    public function test_a_hardware_file_dated_in_the_future_cannot_push_the_mark_forward(): void
+    {
+        config(['tindaflow.license.vendor_keys' => ['test-2026-01' => base64_encode(str_repeat('k', 32))]]);
+        $this->boot('boot-1', 1000);
+        $this->fakeHostHardware(generatedAt: CarbonImmutable::now()->addDays(60)->format('Y-m-d\TH:i:sP'));
+
+        Artisan::call('tindaflow:license-heartbeat');
+
+        $this->assertLessThan(CarbonImmutable::now()->addMinute()->getTimestamp(), $this->clock()->highWaterMark()->getTimestamp());
+    }
+
     public function test_the_host_helpers_clock_is_a_second_clock_that_can_only_move_the_mark_forward(): void
     {
         config(['tindaflow.license.vendor_keys' => ['test-2026-01' => base64_encode(str_repeat('k', 32))]]);
         $this->boot('boot-1', 1000);
-        $twoHoursAhead = CarbonImmutable::now()->addHours(2);
-        $this->fakeHostHardware(generatedAt: $twoHoursAhead->format('Y-m-d\TH:i:sP'));
+        $ahead = CarbonImmutable::now()->addMinutes(50);
+        $this->fakeHostHardware(generatedAt: $ahead->format('Y-m-d\TH:i:sP'));
 
         Artisan::call('tindaflow:license-heartbeat');
 
-        $this->assertEquals($twoHoursAhead->setMicrosecond(0), CarbonImmutable::instance($this->clock()->highWaterMark())->setTimezone($twoHoursAhead->getTimezone()));
+        $this->assertEquals($ahead->setMicrosecond(0), CarbonImmutable::instance($this->clock()->highWaterMark())->setTimezone($ahead->getTimezone()));
 
         // A file stamped earlier than the mark moves nothing.
         $this->fakeHostHardware(generatedAt: CarbonImmutable::now()->subHour()->format('Y-m-d\TH:i:sP'));
         $this->boot('boot-1', 1060);
         Artisan::call('tindaflow:license-heartbeat');
 
-        $this->assertGreaterThanOrEqual($twoHoursAhead->getTimestamp(), $this->clock()->highWaterMark()->getTimestamp());
+        $this->assertGreaterThanOrEqual($ahead->getTimestamp(), $this->clock()->highWaterMark()->getTimestamp());
     }
 }

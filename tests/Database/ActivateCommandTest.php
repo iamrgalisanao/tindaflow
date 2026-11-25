@@ -276,6 +276,43 @@ class ActivateCommandTest extends PostgresSchemaTestCase
         $this->assertSame(0, Store::count());
     }
 
+    public function test_a_certificate_for_other_hardware_is_refused(): void
+    {
+        $this->writeBundle($this->makeRequest(), ['fp' => ['board_serial' => str_repeat('0', 64), 'bios_serial' => str_repeat('1', 64)] + self::testFingerprint()]);
+
+        $this->assertSame(1, $this->activate());
+        $this->assertStringContainsString('made for different hardware (1 of 3', Artisan::output());
+        $this->assertSame(0, Store::count());
+        $this->assertSame(0, DB::table('license_state')->count());
+    }
+
+    public function test_one_changed_component_does_not_stop_activation(): void
+    {
+        $this->writeBundle($this->makeRequest(), ['fp' => ['bios_serial' => str_repeat('1', 64)] + self::testFingerprint()]);
+
+        $this->assertSame(0, $this->activate(), Artisan::output());
+    }
+
+    public function test_activation_needs_a_current_hardware_file(): void
+    {
+        $this->writeBundle($this->makeRequest());
+        config(['tindaflow.license.hardware_file' => sys_get_temp_dir().'/tindaflow-no-such-hardware-file.json']);
+
+        $this->assertSame(1, $this->activate());
+        $this->assertStringContainsString('hardware file is missing', Artisan::output());
+        $this->assertSame(0, Store::count());
+    }
+
+    public function test_running_it_again_without_a_current_hardware_file_still_reports_already_activated(): void
+    {
+        $this->writeBundle($this->makeRequest());
+        $this->assertSame(0, $this->activate());
+        config(['tindaflow.license.hardware_file' => sys_get_temp_dir().'/tindaflow-no-such-hardware-file.json']);
+
+        $this->assertSame(0, $this->activate());
+        $this->assertStringContainsString('Already activated', Artisan::output());
+    }
+
     public function test_a_database_that_already_holds_sales_is_refused(): void
     {
         Sale::factory()->create();
