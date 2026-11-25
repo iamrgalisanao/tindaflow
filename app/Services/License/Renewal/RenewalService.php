@@ -34,6 +34,9 @@ use RuntimeException;
  * and applied weeks later, so its provider time only ever moves the trusted-time mark FORWARD. Only an answer that has just come
  * over the network (or a time-reset code, which is used once) may set the mark back.
  *
+ * Keys change (ADR-019 slice 3). A request names the keys this build accepts, and a certificate held under a key this build has
+ * since revoked is still sent, to ask for its successor; only what the build accepts is ever applied.
+ *
  * A PC locked because its clock fell behind the mark says so in its request: only a certificate newer than the one it holds can
  * re-set the mark, and the provider otherwise answers "unchanged" for 24 hours.
  */
@@ -94,7 +97,7 @@ final class RenewalService
             $verifier = new CertificateVerifier($this->gate->keyRing());
 
             try {
-                $current = $verifier->verify($row->certificate);
+                $current = $this->held($row->certificate);
                 $identity = $this->identity->load();
             } catch (CertificateRejected|RuntimeException $e) {
                 return $this->failed('The certificate held cannot be used ('.$e->getMessage().').', $now);
@@ -148,10 +151,8 @@ final class RenewalService
      */
     private function prepare(object $row, DateTimeImmutable $now): array|RenewalResult
     {
-        $verifier = new CertificateVerifier($this->gate->keyRing());
-
         try {
-            $current = $verifier->verify($row->certificate);
+            $current = $this->held($row->certificate);
             $identity = $this->identity->load();
         } catch (CertificateRejected|RuntimeException $e) {
             return $this->failed('The certificate held cannot be used ('.$e->getMessage().').', $now);
@@ -178,7 +179,14 @@ final class RenewalService
             'installation' => $current->installation,
             'certificate' => $row->certificate,
             'fingerprint' => $hardware->fingerprint,
+            'trusts' => $this->gate->trustedKeys(),
         ] + ($clockLocked ? ['clock_locked' => true] : [])];
+    }
+
+    /** @throws CertificateRejected the certificate held is not one any key in this build made */
+    private function held(string $token): Certificate
+    {
+        return (new CertificateVerifier($this->gate->heldKeyRing()))->verify($token);
     }
 
     private function isClockLocked(DateTimeImmutable $now): bool
@@ -210,6 +218,10 @@ final class RenewalService
         if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'INSTALLATION_REPLACED') {
             // Not signed, so it changes nothing here; it only says why.
             return $this->failed('The provider reports that this computer has been replaced by another and is not renewed any more (HTTP 403). Contact your TindaFlow provider.', $now);
+        }
+
+        if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'SOFTWARE_UPDATE_REQUIRED') {
+            return $this->failed("The provider has changed its key, and this computer's TindaFlow software does not accept the new one. Ask your TindaFlow provider for the update (HTTP 403). Nothing was changed.", $now);
         }
 
         if ($reply->status === 409) {

@@ -68,6 +68,10 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
 
     private bool $loseRenewalAnswers = false;
 
+    private int $port = 0;
+
+    private const NEXT_KEY = 'tindaflow-license-test-only-2027';
+
     protected function setUp(): void
     {
         $path = (string) getenv('TINDAFLOW_CONTROL_PLANE_PATH');
@@ -96,17 +100,13 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         $this->fakeHostHardware();
 
         $this->artisanThere(['migrate:fresh', '--force']);
-        $port = $this->serveControlPlane();
-        $this->routeClientRequestsTo($port);
+        $this->port = $this->serveControlPlane();
+        $this->routeClientRequestsTo();
     }
 
     protected function tearDown(): void
     {
-        if (is_resource($this->server)) {
-            proc_terminate($this->server);
-            proc_close($this->server);
-            $this->server = null;
-        }
+        $this->stopControlPlane();
         if ($this->workDirectory !== '') {
             File::deleteDirectory($this->workDirectory);
         }
@@ -498,6 +498,130 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         return $bundle;
     }
 
+    // ADR-019 slice 3, changing keys and rebuilding the provider's service: the shop goes on, and only its license changes.
+
+    public function test_the_provider_changes_its_key_an_old_build_is_told_to_update_and_the_updated_one_carries_on(): void
+    {
+        $this->activateAndTrade();
+        $this->ageLatestCertificate();
+        $this->changeProviderKey(compromised: false);
+
+        $this->assertRenewal(1, 'does not accept the new one');
+        $this->assertSame(1, $this->heldSeq());
+        $this->assertSame(1, (int) $this->registry()->query('select count(*) from issued_certificates')->fetchColumn(), 'nothing was signed for the old build');
+        $this->artisanThere(['license:check'], 1);
+
+        $this->updateTheBuild(revokeOldKey: false);
+        $this->assertOnlyLicensingChanges(fn () => $this->assertRenewal(0, 'Renewed: certificate 2'));
+
+        $this->assertSame('test-2027-01', $this->lastRenewalAudit()['kid']);
+        $this->assertFalse($this->lastRenewalAudit()['chain_gap']);
+        $this->assertTradingAgain();
+        $this->assertStringContainsString('No problem found', $this->artisanThere(['license:check']));
+    }
+
+    public function test_after_a_stolen_key_the_updated_shop_is_refused_a_shift_until_one_renewal_under_the_new_key(): void
+    {
+        $this->activateAndTrade();
+        $this->changeProviderKey(compromised: true);
+        $this->updateTheBuild(revokeOldKey: true);
+        $this->assertNotNull(app(LicenseGate::class)->check()->verdict->shiftOpenRefusal());
+
+        // The certificate held is minutes old: it is replaced all the same.
+        $this->assertOnlyLicensingChanges(fn () => $this->assertRenewal(0, 'Renewed: certificate 2'));
+
+        $this->assertTradingAgain();
+    }
+
+    public function test_after_a_stolen_key_a_shop_with_no_internet_gets_the_new_one_by_file(): void
+    {
+        $this->activateAndTrade();
+        $this->changeProviderKey(compromised: true);
+        $this->updateTheBuild(revokeOldKey: true);
+
+        $this->assertOnlyLicensingChanges(function () {
+            $reply = $this->renewByFile();
+            $this->assertSame(0, Artisan::call('tindaflow:license-renew', ['--apply' => $reply]), Artisan::output());
+        });
+
+        $this->assertSame(2, $this->heldSeq());
+        $this->assertTradingAgain();
+    }
+
+    public function test_the_provider_service_is_rebuilt_from_a_backup_and_the_shop_carries_on(): void
+    {
+        $this->activateAndTrade();
+        $this->ageLatestCertificate();
+        $this->assertRenewal(0, 'Renewed: certificate 2');
+        $backup = $this->workDirectory.'/registry.dump';
+        $this->postgresTool('pg_dump', ['--format=custom', '--file='.$backup, $this->registryDatabase()]);
+
+        // After the backup: another renewal, and an offline code the shop used. The registry will know of neither.
+        $this->ageLatestCertificate();
+        $this->assertRenewal(0, 'Renewed: certificate 3');
+        $this->artisanThere(['license:extension-code', $this->deploymentCode, '--reason=Outage']);
+        $this->assertSame(0, Artisan::call('tindaflow:license-code', ['code' => $this->latestOfflineCode()]), Artisan::output());
+
+        // The service is lost with its database, and rebuilt with the same signing keys, a new application key, and paused.
+        $this->stopControlPlane();
+        $this->postgres('postgres')->exec('drop database '.$this->registryDatabase().' with (force)');
+        $this->createRegistryDatabase();
+        $this->postgresTool('pg_restore', ['--no-owner', '--exit-on-error', '--dbname='.$this->registryDatabase(), $backup]);
+        $this->restartControlPlane(['APP_KEY' => 'base64:'.base64_encode(random_bytes(32)), 'LICENSING_PAUSED' => 'true']);
+
+        $this->assertRenewal(1, 'could not be reached');
+        $this->artisanThere(['license:after-restore', '--reason=Rebuilt after a disk failure']);
+        $this->assertStringContainsString('No problem found', $this->artisanThere(['license:check']));
+        $this->restartControlPlane(['LICENSING_PAUSED' => 'false']);
+
+        $this->ageLatestCertificate();
+        $this->assertOnlyLicensingChanges(function () {
+            $this->assertRenewal(0, 'Renewed: certificate 4');
+            $this->assertSame(1, $this->registryEvents('CHAIN_AHEAD_ACCEPTED'), 'the shop held a certificate newer than the restored registry');
+            // A new code is numbered above the one used after the backup, so the shop takes it.
+            $this->artisanThere(['license:extension-code', $this->deploymentCode, '--reason=Outage again']);
+            $this->assertSame(0, Artisan::call('tindaflow:license-code', ['code' => $this->latestOfflineCode()]), Artisan::output());
+        });
+        $this->assertTradingAgain();
+    }
+
+    /** The provider signs with a new key from now on, and lists the old one as an earlier one, or as stolen too. */
+    private function changeProviderKey(bool $compromised): void
+    {
+        $this->restartControlPlane([
+            'LICENSING_SIGNING_KID' => 'test-2027-01',
+            'LICENSING_SIGNING_KEY' => base64_encode(sodium_crypto_sign_secretkey(self::testKeyPair(self::NEXT_KEY))),
+            'LICENSING_PREVIOUS_KEYS' => 'test-2026-01:'.self::testPublicKeyBase64(),
+            'LICENSING_COMPROMISED_KIDS' => $compromised ? 'test-2026-01' : '',
+        ]);
+    }
+
+    /** The shop installs a build that knows the new key. The old public key stays in it, revoked or not. */
+    private function updateTheBuild(bool $revokeOldKey): void
+    {
+        config([
+            'tindaflow.license.vendor_keys' => ['test-2026-01' => self::testPublicKeyBase64(), 'test-2027-01' => self::testPublicKeyBase64(self::NEXT_KEY)],
+            'tindaflow.license.revoked_kids' => $revokeOldKey ? ['test-2026-01'] : [],
+        ]);
+    }
+
+    /**
+     * pg_dump and pg_restore, which must be the server's version or newer. PG_BIN names their folder where they are not on the path.
+     *
+     * @param  list<string>  $arguments
+     */
+    private function postgresTool(string $tool, array $arguments): void
+    {
+        $server = $this->postgresServer();
+        $bin = (string) getenv('PG_BIN');
+        $command = [$bin === '' ? $tool : rtrim($bin, '/\\').'/'.$tool, '--host='.$server['DB_HOST'], '--port='.$server['DB_PORT'], '--username='.$server['DB_USERNAME'], '--no-password', ...$arguments];
+        $log = $this->workDirectory.'/'.$tool.'.log';
+        $process = proc_open($command, [1 => ['file', $log, 'w'], 2 => ['file', $log, 'a']], $pipes, $this->workDirectory, ['PGPASSWORD' => $server['DB_PASSWORD']] + getenv());
+        $exit = $process === false ? 127 : proc_close($process);
+
+        $this->assertSame(0, $exit, "{$tool} failed (set PG_BIN to the folder of PostgreSQL's tools): ".(string) @file_get_contents($log));
+    }
+
     private function tradingShopBeforeAnyLicense(): Store
     {
         Sale::factory()->create();
@@ -835,18 +959,35 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         return "\n--- control plane log ---\n".substr((string) @file_get_contents($this->workDirectory.'/server.log'), -4000);
     }
 
-    private function routeClientRequestsTo(int $port): void
+    private function stopControlPlane(): void
+    {
+        if (is_resource($this->server)) {
+            proc_terminate($this->server);
+            proc_close($this->server);
+            $this->server = null;
+        }
+    }
+
+    /** @param  array<string, string>  $changes  to the provider's settings; its commands and its server both use them from here on */
+    private function restartControlPlane(array $changes): void
+    {
+        $this->stopControlPlane();
+        $this->environment = $changes + $this->environment;
+        $this->port = $this->serveControlPlane();
+    }
+
+    private function routeClientRequestsTo(): void
     {
         $client = new Client(['http_errors' => false, 'timeout' => 20]);
 
         Http::preventStrayRequests();
-        Http::fake(function (Request $request) use ($client, $port) {
+        Http::fake(function (Request $request) use ($client) {
             $url = $request->url();
             if (! str_starts_with($url, self::PRIMARY.'/') && ! str_starts_with($url, self::STANDBY.'/')) {
                 throw new RuntimeException("The client called an address the bundle did not name: {$url}");
             }
 
-            $response = $client->request($request->method(), "http://127.0.0.1:{$port}".parse_url($url, PHP_URL_PATH), [
+            $response = $client->request($request->method(), "http://127.0.0.1:{$this->port}".parse_url($url, PHP_URL_PATH), [
                 'headers' => array_map(fn (array $values) => implode(', ', $values), array_diff_key($request->headers(), ['Host' => true])),
                 'body' => $request->body(),
             ]);

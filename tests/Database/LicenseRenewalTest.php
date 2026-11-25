@@ -5,6 +5,7 @@ namespace Tests\Database;
 use App\Models\AuditEvent;
 use App\Models\Store;
 use App\Services\License\InstallationIdentity;
+use App\Services\License\LicenseGate;
 use App\Services\License\Renewal\Rfc9421Signer;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
@@ -134,6 +135,79 @@ class LicenseRenewalTest extends PostgresSchemaTestCase
         Artisan::call('tindaflow:license-renew');
 
         return Artisan::output();
+    }
+
+    /** A build that has taken on a new key and distrusts the one the held certificate is under. */
+    private function distrustTheHeldKey(): void
+    {
+        config([
+            'tindaflow.license.vendor_keys' => ['test-2026-01' => self::testPublicKeyBase64(), 'test-2027-01' => self::testPublicKeyBase64('next-key')],
+            'tindaflow.license.revoked_kids' => ['test-2026-01'],
+        ]);
+    }
+
+    public function test_the_request_names_the_keys_this_build_accepts_and_not_the_ones_it_revoked(): void
+    {
+        config([
+            'tindaflow.license.vendor_keys' => ['test-2027-01' => self::testPublicKeyBase64('next-key'), 'test-2026-01' => self::testPublicKeyBase64()],
+            'tindaflow.license.revoked_kids' => ['test-2025-01'],
+            'tindaflow.license.code_keys' => [2 => self::testCodePublicKeyBase64('next-code-key'), 1 => self::testCodePublicKeyBase64()],
+            'tindaflow.license.revoked_code_keys' => [1],
+        ]);
+        $this->fakeControlPlane(['v' => 1, 'status' => 'UNCHANGED', 'certificate' => $this->currentToken]);
+
+        $this->renew();
+
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/v1/renewals')
+            && json_decode($request->body(), true)['trusts'] === ['kids' => ['test-2026-01', 'test-2027-01'], 'code_keys' => [2]]);
+    }
+
+    public function test_a_certificate_under_a_key_the_build_revoked_is_still_sent_and_its_successor_unlocks_the_shop(): void
+    {
+        $this->distrustTheHeldKey();
+        $this->assertNotNull(app(LicenseGate::class)->check()->verdict->shiftOpenRefusal(), 'until it renews, the build counts it as none');
+        $token = $this->successor(6, ['kid' => 'test-2027-01'], 'next-key');
+        $this->fakeControlPlane(['v' => 1, 'status' => 'RENEWED', 'certificate' => $token]);
+
+        $this->assertSame(0, Artisan::call('tindaflow:license-renew'));
+
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/v1/renewals') && json_decode($request->body(), true)['certificate'] === $this->currentToken);
+        $this->assertSame($token, $this->state()->certificate);
+        $this->assertNull(app(LicenseGate::class)->check()->verdict->shiftOpenRefusal());
+    }
+
+    public function test_a_successor_under_the_revoked_key_is_refused(): void
+    {
+        $this->distrustTheHeldKey();
+        $this->fakeControlPlane(['v' => 1, 'status' => 'RENEWED', 'certificate' => $this->successor(6)]);
+
+        $output = $this->renew();
+
+        $this->assertStringContainsString('REVOKED_KID', $output);
+        $this->assertSame($this->currentToken, $this->state()->certificate);
+    }
+
+    public function test_a_held_certificate_that_its_revoked_key_did_not_sign_is_not_sent(): void
+    {
+        $this->distrustTheHeldKey();
+        DB::table('license_state')->where('id', 1)->update(['certificate' => self::sign(self::payload($this->certificatePayload(5)), 'someone-else')]);
+        Http::fake();
+
+        $this->assertSame(1, Artisan::call('tindaflow:license-renew'));
+
+        Http::assertNothingSent();
+    }
+
+    public function test_when_the_provider_has_a_key_this_build_does_not_accept_it_says_an_update_is_needed(): void
+    {
+        $this->fakeControlPlane(['error' => ['code' => 'SOFTWARE_UPDATE_REQUIRED', 'message' => 'Update.']], 403);
+
+        $output = $this->renew();
+
+        $this->assertStringContainsString('update', $output);
+        $this->assertSame($this->currentToken, $this->state()->certificate);
+        $this->assertNotNull($this->state()->pending_request_id, 'the same request is made again once updated');
+        $this->assertStringContainsString('update', (string) $this->state()->last_renewal_error);
     }
 
     public function test_a_new_certificate_discards_an_offline_extension_and_restarts_the_count_but_not_the_ordinals(): void

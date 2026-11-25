@@ -126,7 +126,8 @@ Every way a shop can be refused a new shift, and its way back. "Drilled" means t
 | Chain forked: an old backup restored, or an answer lost for good | The provider approves a reconnection (part 5) | built in part 5, drilled |
 | Chain forked: a copy of the installation | None, and that is the point: only the copy the provider does not approve is refused | as designed |
 | The identity file is lost | Replacing the computer (part 4) | built in part 4 |
-| The build no longer accepts the stored certificate | None yet: "rotating keys" | not built |
+| The build no longer accepts the stored certificate (its key was revoked) | Renewal, online or by file, with the new build (part 6) | built in part 6, drilled |
+| The provider signs with a new key and the build does not have it | Update the build, then renew (part 6) | built in part 6, drilled |
 
 - **The defect.** The control plane answers a certificate under 24 hours old with that same certificate, and the client resets its trusted time only when it receives a new one. So an online renewal could not clear a clock lock until a day after the last certificate, although ADR-018 decision 3 says it does. A locked client now says so (`clock_locked`), and the control plane then issues a new certificate if the last one is over **1 hour** old (the length is an engineering choice, to bound how fast certificate numbers can grow).
 - **Renewal by file.** `tindaflow:license-renew --request` writes the renewal request signed with the installation's own key; `license:renew-file` on the control plane applies every rule of the machine API and writes the reply; `--apply` takes it with the same checks as an online answer. The provider may answer the same request again after the 72 hours, since a file is easily lost.
@@ -170,6 +171,33 @@ ADR-018 decision 5 names a provider "Re-chain" action for a restore older than t
 - **Proven:** drills restore an older license on a shop with a sale, online and by file, reconnect it changing nothing outside licensing, and see the other holder refused. Two processes presenting the approved certificate together get one reconnection. Removing the exact-certificate, expiry or one-use limit makes tests fail.
 
 **Limits:** **nothing here can tell the real shop from a copy.** The approval goes to whoever presents that certificate first, so the protection is the provider's check with the owner, as ADR-018 decision 5 says ("owner-verified"). How that check is made is not defined yet. **ADR-018 also requires, before a third client, an owner-held re-sync code with a yearly cap and an audit counter. That is not built.** A restore also brings back the count of offline codes used, so a code for the restored certificate could be typed again until the shop renews; ADR-018 already accepts that a copy can do this once.
+
+## Slice 3, part 6, built 2026-11-25: changing keys and rebuilding the provider's service
+
+**Two things did not work.** The control plane checked the certificate a shop presented against its current signing key only, so changing the key would have refused every shop. And the client would not send a certificate under a key its build had revoked, so the step ADR-018 prescribes for a stolen key would have stranded every shop it protected.
+
+**Changing keys**
+- The control plane lists its earlier public keys (`LICENSING_PREVIOUS_KEYS`) and any compromised ids (`LICENSING_COMPROMISED_KIDS`). A certificate under an earlier key continues the chain. Under a **compromised** one only the exact certificate the registry issued counts, so a forgery is refused even when numbered ahead. Nothing is signed with a compromised key. The latest certificate is handed back unchanged only while it is under the current key.
+- A lost answer signed with a key the shop can no longer take is signed again for the same request, once per such loss.
+- **The renewal request now names the keys the build accepts** (`trusts: {kids, code_keys}`, online and by file). A shop that does not accept the current key is refused (`SOFTWARE_UPDATE_REQUIRED`) before anything is signed or served, a revocation included. No offline code is made with a code key it did not name. `license:check --next-kid=` says which shops are not ready, which makes ADR-018's "signing switches after all clients run it" checkable.
+- The client sends a certificate held under a **revoked** key to ask for its successor, after checking its signature, and applies only what the build accepts. So **a revoked key's public half must stay in the build.**
+
+**Rebuilding the service**
+- What must be kept is the registry dump and the settings with both private keys (the control plane's README, "Rebuilding this service"). `APP_KEY` need not survive.
+- `LICENSING_PAUSED` stops the machine API while a restored registry is checked. `license:after-restore` (only while paused) withdraws waiting reconnection approvals and unused activation codes, which a backup brings back, moves offline code numbers up by 100, and lists the registry for the operator.
+- `license:check` verifies that the configured keys can carry on every active shop, and prints the public keys to compare with the builds.
+- A shop activated after the backup is registered again from its replacement request.
+
+**Proven:** cross-repository drills on a shop with a sale, changing only licensing state and licensing audit entries: a planned change (the old build told to update, nothing signed for it); a stolen key, online and by file; and a registry dumped with `pg_dump`, dropped, restored with a new `APP_KEY`, with a renewal and a used offline code made after the dump. Removing any one of the safeguards above makes a test fail.
+
+**Limits**
+- **Suspensions, revocations and replacements made after the backup are lost** unless the operator re-applies them from a record kept elsewhere. Nothing builds that record, and nothing backs the service up on a schedule.
+- After a restore, a copy holding the certificate the backup calls latest could renew before the real shop does. The real shop's newer certificate is still accepted, and the copy is then a fork; the alert to read is `CHAIN_AHEAD_ACCEPTED`.
+- **A revoked key locks shift opening, report mode included, from the update until the renewal** (the build cannot trust a mode claimed under that key). The License screen's "check now" button is off in that state; the console command and the scheduler work.
+- After a compromise, a shop on an old build still accepts whatever the stolen key signs. A shop holding a newer certificate than a restored registry, signed by a now compromised key, needs its computer replaced.
+- **No real keys exist, and no hardware security module, key ceremony or key backup.** Those are slice 7. Nothing here has run on a real server or shop computer.
+
+This completes the recovery capabilities named for slice 3. Still open within them: reinstating a revoked computer (needs the owner's decision), approving a new hardware baseline, and how the provider verifies an owner before reconnecting a chain.
 
 ## Order of work
 

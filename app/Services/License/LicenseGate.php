@@ -34,6 +34,32 @@ final class LicenseGate
         return new KeyRing((array) config('tindaflow.license.vendor_keys'), (array) config('tindaflow.license.revoked_kids'));
     }
 
+    /**
+     * For reading the certificate HELD when asking the provider for its successor, and for nothing else (ADR-019 slice 3, rotating
+     * keys): the same public keys, revoked ones included. A build that distrusts a key counts a certificate under it as none, but the
+     * shop must still be able to say which certificate it holds, or it could never get one under the new key. What comes back is
+     * judged with {@see KeyRing()}. A key whose public half has been taken out of the build cannot even be read this way.
+     */
+    public function heldKeyRing(): KeyRing
+    {
+        return new KeyRing((array) config('tindaflow.license.vendor_keys'));
+    }
+
+    /**
+     * The keys this build accepts, told to the provider with each renewal so that it signs nothing this build would refuse.
+     *
+     * @return array{kids: list<string>, code_keys: list<int>}
+     */
+    public function trustedKeys(): array
+    {
+        $kids = array_diff(array_map('strval', array_keys((array) config('tindaflow.license.vendor_keys'))), (array) config('tindaflow.license.revoked_kids'));
+        $codeKeys = array_diff(array_keys((array) config('tindaflow.license.code_keys')), (array) config('tindaflow.license.revoked_code_keys'));
+        sort($kids, SORT_STRING);
+        sort($codeKeys, SORT_NUMERIC);
+
+        return ['kids' => $kids, 'code_keys' => $codeKeys];
+    }
+
     public function check(?DateTimeImmutable $wallNow = null): LicenseCheck
     {
         $wallNow ??= CarbonImmutable::now();
