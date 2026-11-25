@@ -136,7 +136,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
             {scanNotice && (
                 <p
                     role="status"
-                    className={`rounded px-3 py-2 text-sm ${scanNotice.kind === 'added' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}
+                    className={`rounded px-3 py-2 text-sm ${scanNotice.kind === 'added' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-rose-500/10 text-rose-300'}`}
                 >
                     {scanNotice.text}
                 </p>
@@ -229,7 +229,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                 )}
                 {shown === null && <p className="py-8 text-center text-sm text-slate-400">Loading products…</p>}
                 {loadFailed && !searching && (
-                    <p role="alert" className="rounded bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                    <p role="alert" className="rounded bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
                         The products could not be loaded. You can still scan a barcode or search.
                     </p>
                 )}
@@ -260,7 +260,7 @@ export default function CatalogPanel({ search, onSearchChange, onSearch, onClear
                                         <span
                                             data-stock={onHand.tone}
                                             className={`mt-1 w-fit rounded px-1.5 py-0.5 font-mono text-[11px] font-bold ${
-                                                onHand.tone === 'out' ? 'bg-red-500/15 text-red-300' : onHand.tone === 'low' ? 'bg-amber-500/15 text-amber-300' : 'text-slate-500'
+                                                onHand.tone === 'out' ? 'bg-rose-500/15 text-rose-300' : onHand.tone === 'low' ? 'bg-amber-500/15 text-amber-300' : 'text-slate-500'
                                             }`}
                                         >
                                             {onHand.text}

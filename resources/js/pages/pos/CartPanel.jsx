@@ -108,7 +108,7 @@ export default function CartPanel({
                                     <p
                                         data-stock={onHand.tone}
                                         role={onHand.tone === 'over' ? 'alert' : undefined}
-                                        className={`text-xs ${onHand.tone === 'over' ? 'font-semibold text-red-300' : onHand.tone === 'low' ? 'font-medium text-amber-300' : 'text-slate-500'}`}
+                                        className={`text-xs ${onHand.tone === 'over' ? 'font-semibold text-rose-300' : onHand.tone === 'low' ? 'font-medium text-amber-300' : 'text-slate-500'}`}
                                     >
                                         {onHand.text}
                                         {onHand.hint ? ` ${onHand.hint}` : ''}
@@ -151,7 +151,7 @@ export default function CartPanel({
                                     aria-label={`Quantity of ${line.product.name}`}
                                     aria-invalid={invalid}
                                     className={`min-h-11 w-16 border-y px-1 text-center font-mono text-sm tabular-nums focus:outline-none focus:ring-1 ${
-                                        invalid ? 'border-red-500 bg-red-500/10 focus:ring-red-500' : 'border-slate-700 focus:ring-emerald-500'
+                                        invalid ? 'border-rose-500 bg-rose-500/10 focus:ring-rose-500' : 'border-slate-700 focus:ring-emerald-500'
                                     }`}
                                 />
                                 <button
@@ -172,7 +172,7 @@ export default function CartPanel({
                                 type="button"
                                 onClick={() => onRemove(line.key)}
                                 aria-label={`Remove ${line.product.name}`}
-                                className="min-h-11 min-w-11 shrink-0 rounded text-lg text-slate-400 hover:bg-red-500/10 hover:text-red-400"
+                                className="min-h-11 min-w-11 shrink-0 rounded text-lg text-slate-400 hover:bg-rose-500/10 hover:text-rose-400"
                             >
                                 &times;
                             </button>
@@ -183,7 +183,7 @@ export default function CartPanel({
 
             <div className="border-t border-slate-700 px-4 py-3">
                 {hasInvalidLine && (
-                    <p role="alert" className="mb-2 rounded bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                    <p role="alert" className="mb-2 rounded bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
                         A quantity is not valid. Use a number above zero, with up to 3 decimals (a whole number from 1 to 99 for a meal).
                     </p>
                 )}
@@ -324,19 +324,19 @@ export default function CartPanel({
                         </div>
                         <div className="flex items-center justify-between gap-3 text-slate-400">
                             <span>Left after this sale</span>
-                            <span className={`font-mono tabular-nums ${overLimit ? 'text-red-400' : 'text-emerald-400'}`}>
+                            <span className={`font-mono tabular-nums ${overLimit ? 'text-rose-400' : 'text-emerald-400'}`}>
                                 {leftAfter === null ? '—' : `${leftAfter < 0n ? '-' : ''}₱${pesos(leftAfter < 0n ? -leftAfter : leftAfter)}`}
                             </span>
                         </div>
                         {overLimit && (
-                            <p role="alert" className="mt-1 rounded bg-red-500/10 px-2 py-1 text-red-300">
+                            <p role="alert" className="mt-1 rounded bg-rose-500/10 px-2 py-1 text-rose-300">
                                 This cart is over {credit.name}&apos;s credit limit. Remove items, or pay with cash instead; the sale will be refused.
                             </p>
                         )}
                     </div>
                 )}
                 {statutoryDiscountIncomplete && (
-                    <p role="alert" className="mb-2 rounded bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                    <p role="alert" className="mb-2 rounded bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
                         Enter the ID number and name for the Senior Citizen / PWD discount.
                     </p>
                 )}

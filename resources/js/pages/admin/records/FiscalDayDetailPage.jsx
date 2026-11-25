@@ -51,7 +51,7 @@ export function ZReadingPanel({ reading, onPrinted }) {
                     </p>
                 </div>
                 {printError && (
-                    <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                    <p role="alert" className="rounded-md bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
                         {printError}
                     </p>
                 )}

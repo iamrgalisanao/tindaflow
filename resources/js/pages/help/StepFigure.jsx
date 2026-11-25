@@ -19,13 +19,13 @@ const ACTIONS = new Set(['click', 'type']);
 const TONES = {
     click: { ring: 'border-emerald-400', dim: 'border-emerald-400/45', chip: 'bg-emerald-400 text-slate-950', badge: 'bg-emerald-400 text-slate-950' },
     type: { ring: 'border-emerald-400', dim: 'border-emerald-400/45', chip: 'bg-emerald-400 text-slate-950', badge: 'bg-emerald-400 text-slate-950' },
-    avoid: { ring: 'border-red-400', dim: 'border-red-400', chip: 'bg-red-500 text-white', badge: 'bg-red-500 text-white' },
+    avoid: { ring: 'border-rose-400', dim: 'border-rose-400', chip: 'bg-rose-500 text-white', badge: 'bg-rose-500 text-white' },
     look: { ring: 'border-sky-400', dim: 'border-sky-400', chip: 'bg-sky-400 text-slate-950', badge: 'bg-sky-400 text-slate-950' },
 };
 
 const LEGEND = [
     { type: 'click', label: 'Click or tap here', dot: 'bg-emerald-400' },
-    { type: 'avoid', label: "Don't click", dot: 'bg-red-500' },
+    { type: 'avoid', label: "Don't click", dot: 'bg-rose-500' },
     { type: 'look', label: 'Just look', dot: 'bg-sky-400' },
 ];
 
@@ -248,7 +248,7 @@ function Figure({ shot, marks, alt, zoom, onZoom }) {
                             ? `${tone.ring} animate-help-pulse motion-reduce:animate-none bg-emerald-400/10`
                             : `${tone.dim} border-dashed`
                         : mark.type === 'avoid'
-                          ? `${tone.ring} border-dashed bg-red-500/10 animate-help-wobble motion-reduce:animate-none`
+                          ? `${tone.ring} border-dashed bg-rose-500/10 animate-help-wobble motion-reduce:animate-none`
                           : `${tone.ring} bg-sky-400/10`;
 
                     return (
@@ -336,7 +336,7 @@ function Figure({ shot, marks, alt, zoom, onZoom }) {
                                         {mark.type === 'avoid' ? '×' : mark.type === 'look' ? '?' : position + 1}
                                     </span>
                                     <span className="text-left text-sm text-slate-300">
-                                        {mark.type === 'avoid' && <span className="font-semibold text-red-300">Don&apos;t: </span>}
+                                        {mark.type === 'avoid' && <span className="font-semibold text-rose-300">Don&apos;t: </span>}
                                         {mark.type === 'look' && <span className="font-semibold text-sky-300">Look: </span>}
                                         {mark.detail ?? mark.label}
                                         {mark.type === 'type' && mark.text && (

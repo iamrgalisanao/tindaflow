@@ -96,23 +96,18 @@ a figure withheld during an open shift.
 | `warn-line` | `amber-700` |
 | `warn-tint` | `amber-950` |
 
-## Known inconsistency: two reds
+## One red (converged 2026-11-25)
 
-The app uses **both** `rose-*` and `red-*` for the same idea. Measured on 2026-09-26:
+The app once used both `red-*` and `rose-*` for failure, split by area rather than by meaning. On 2026-09-26 that was measured at 47
+`red-*` utilities in 12 files and left for a quiet moment. By 2026-11-25 it had grown to **105 utilities in 24 files**, so it was
+converged: every `red-*` under `resources/js` became the same step of `rose-*`, including the Help guides' "don't click this" markers,
+which the guides still call red. It is a hue change only.
 
-- `rose-*` — the majority, and what the tokens alias.
-- `red-*` — **47 utilities across 12 files**: `text-red-300` (14), `bg-red-500/10` (12),
-  `text-red-400` (5), `border-red-800` (5), `bg-red-950` (5), `border-red-500/30` (4),
-  `ring-red-500` (1), `border-red-500` (1).
+**Use `rose-*`, or the `danger` tokens, for anything that failed, destroys something or must not be touched. Do not add `red-*`.**
 
-The split runs by area rather than by meaning: the POS screens and the older Store Setup admin
-screens use `red-*`; the records, reports and catalog screens use `rose-*`. Both render as "this went
-wrong", and the difference is visible when a POS error sits next to an admin one.
-
-**Not converged in this change, on purpose.** It touches 12 files including `Pos.jsx` and the POS
-panels, which are under active concurrent work; a mechanical 47-site sweep landing on top of that is
-how a clean-looking merge turns into a broken one. It is recorded here with its exact scope so the
-sweep can be done deliberately, in one commit, when those files are quiet.
+`resources/css/app.css` also leaves `docs/` out of Tailwind's source scan (`@source not`). Without that, a class merely *named* in a
+document, such as one being migrated away from here, was compiled into the app's stylesheet. The two `red` rules still built come
+from Laravel's own Blade views, which `app.css` scans on purpose.
 
 ## How to use them
 

@@ -52,11 +52,11 @@ function HowToRead() {
                     </p>
                 </div>
                 <div className="flex items-start gap-3">
-                    <span className="relative mt-1 flex h-9 w-14 shrink-0 items-center justify-center rounded-md border-2 border-dashed border-red-400 bg-red-500/10">
-                        <span className="absolute -left-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[11px] font-bold text-white">×</span>
+                    <span className="relative mt-1 flex h-9 w-14 shrink-0 items-center justify-center rounded-md border-2 border-dashed border-rose-400 bg-rose-500/10">
+                        <span className="absolute -left-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[11px] font-bold text-white">×</span>
                     </span>
                     <p className="text-sm text-slate-300">
-                        <strong className="text-red-300">Red</strong> is what to leave alone, usually because it undoes work or sends you somewhere else.
+                        <strong className="text-rose-300">Red</strong> is what to leave alone, usually because it undoes work or sends you somewhere else.
                     </p>
                 </div>
                 <div className="flex items-start gap-3">
