@@ -34,6 +34,9 @@ use Throwable;
  * requests are caught just before the network and replayed unchanged (method, path, headers, body) to the control plane served
  * on 127.0.0.1. The signed target address is the https one, which is what the control plane is configured with.
  *
+ * The control plane's registry is a real PostgreSQL database of its own, as in production (ADR-019 slice 2). It is dropped and
+ * rebuilt for every test, so its name (PGSQL_CONTROL_PLANE_TEST_DATABASE) must be `tindaflow_cp..._test`; it is created if missing.
+ *
  * Not part of the normal suites: it needs a checkout of the control plane with its dependencies installed. Run it with
  *   TINDAFLOW_CONTROL_PLANE_PATH=/path/to/tindaflow-control-plane php artisan test tests/CrossRepo
  * The control plane's CI runs it on every change there and once a day against this repository's main branch.
@@ -79,7 +82,7 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
 
         $this->workDirectory = sys_get_temp_dir().'/tindaflow-cross-'.bin2hex(random_bytes(6));
         mkdir($this->workDirectory);
-        touch($this->workDirectory.'/registry.sqlite');
+        $this->createRegistryDatabase();
         $this->environment = $this->controlPlaneEnvironment();
 
         config([
@@ -90,7 +93,7 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         ]);
         $this->fakeHostHardware();
 
-        $this->artisanThere(['migrate', '--force']);
+        $this->artisanThere(['migrate:fresh', '--force']);
         $port = $this->serveControlPlane();
         $this->routeClientRequestsTo($port);
     }
@@ -339,13 +342,53 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
 
     private function registry(): PDO
     {
-        return new PDO('sqlite:'.$this->workDirectory.'/registry.sqlite', options: [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        return $this->postgres($this->registryDatabase());
+    }
+
+    /** The one place the registry's name is decided. Every test wipes this database, so anything not named as a test database is refused. */
+    private function registryDatabase(): string
+    {
+        $name = (string) env('PGSQL_CONTROL_PLANE_TEST_DATABASE', 'tindaflow_cp_cross_test');
+        // Ending in `_test` is not enough to be safe to wipe: a developer's everyday database may be named that way too.
+        if (preg_match('/\Atindaflow_cp(_[a-z0-9]+)*_test\z/', $name) !== 1) {
+            throw new RuntimeException("The cross-repository test wipes the control plane's database, so it must be named tindaflow_cp..._test. Got '{$name}'.");
+        }
+
+        return $name;
+    }
+
+    private function createRegistryDatabase(): void
+    {
+        $server = $this->postgres('postgres');
+        $exists = $server->prepare('select 1 from pg_database where datname = ?');
+        $exists->execute([$this->registryDatabase()]);
+        if ($exists->fetchColumn() === false) {
+            $server->exec('create database '.$this->registryDatabase());
+        }
+    }
+
+    private function postgres(string $database): PDO
+    {
+        $server = $this->postgresServer();
+
+        return new PDO("pgsql:host={$server['DB_HOST']};port={$server['DB_PORT']};dbname={$database}", $server['DB_USERNAME'], $server['DB_PASSWORD'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    }
+
+    /** @return array{DB_HOST: string, DB_PORT: string, DB_USERNAME: string, DB_PASSWORD: string} the same server the client's tests use */
+    private function postgresServer(): array
+    {
+        return [
+            'DB_HOST' => (string) env('PGSQL_TEST_HOST', '127.0.0.1'),
+            'DB_PORT' => (string) env('PGSQL_TEST_PORT', '5432'),
+            'DB_USERNAME' => (string) env('PGSQL_TEST_USERNAME', 'postgres'),
+            'DB_PASSWORD' => (string) env('PGSQL_TEST_PASSWORD', ''),
+        ];
     }
 
     /** The control plane re-issues only after 24 hours, so make the one it holds two days old. */
     private function ageLatestCertificate(): void
     {
-        $this->registry()->exec("update issued_certificates set iat = datetime('now', '-2 days')");
+        $this->registry()->exec("update issued_certificates set iat = now() - interval '2 days'");
     }
 
     private function registryEvents(string $event): int
@@ -365,12 +408,12 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
     {
         $inherited = array_intersect_key(getenv(), array_flip(['PATH', 'Path', 'SystemRoot', 'SYSTEMROOT', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'PHPRC', 'PHP_INI_SCAN_DIR']));
 
-        return $inherited + [
+        return $inherited + $this->postgresServer() + [
             'APP_ENV' => 'local',
             'APP_KEY' => 'base64:'.base64_encode(random_bytes(32)),
             'APP_TIMEZONE' => 'UTC',
-            'DB_CONNECTION' => 'sqlite',
-            'DB_DATABASE' => $this->workDirectory.'/registry.sqlite',
+            'DB_CONNECTION' => 'pgsql',
+            'DB_DATABASE' => $this->registryDatabase(),
             'DB_URL' => '',
             'CACHE_STORE' => 'database',
             'SESSION_DRIVER' => 'array',
