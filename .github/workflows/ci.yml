@@ -116,3 +116,13 @@ jobs:
           context: docker/backup
           file: docker/backup/Dockerfile
           push: false
+
+  # A backup that has never been restored is a hope. This builds a shop with the production stack, sells on it, destroys it
+  # and rebuilds it from the two backup files and the passphrase, by the steps in docker/README.md.
+  restore-drill:
+    name: Whole-shop restore drill
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Back up a shop, destroy it, and restore it from the backup files
+        run: bash scripts/drill-whole-shop-restore.sh

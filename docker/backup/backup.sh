@@ -20,7 +20,14 @@
 # off-machine copy is REFUSED unless the dump is encrypted (BACKUP_PASSPHRASE), because the destination is somebody else's disk.
 #
 # Each backup is a pg_dump custom-format archive, checked readable (pg_restore --list) before it is kept, optionally
-# encrypted with AES-256, then pruned and handed to BACKUP_UPLOAD_COMMAND. Retention (by the timestamp in the name):
+# encrypted with AES-256, then pruned and handed to BACKUP_UPLOAD_COMMAND.
+#
+# A dump alone cannot rebuild a shop. Beside each one goes a second archive of the SHOP'S FILES (ADR-019 slice 3), found
+# under SHOP_DIR: the settings file (APP_KEY and every password), the HTTPS certificate and the app's stored files (the
+# license and this installation's identity key). All of it is secret, so it is written only when BACKUP_PASSPHRASE is set,
+# never in plain form. restore-shop-files.sh opens it.
+#
+# Retention (by the timestamp in the name), the same for both kinds:
 #   every backup younger than BACKUP_KEEP_HOURLY_HOURS,
 #   then the first backup of each day for BACKUP_KEEP_DAILY_DAYS,
 #   then the first backup of each month for BACKUP_KEEP_MONTHLY_MONTHS.
@@ -41,6 +48,8 @@ DISK_WARN_PERCENT="${DISK_WARN_PERCENT:-80}"
 DISK_CRIT_PERCENT="${DISK_CRIT_PERCENT:-90}"
 # The database's own volume, mounted read-only into this container so its disk can be watched (docker/compose.yaml).
 DATA_DIR="${DATA_DIR:-/pgdata}"
+# The shop's files, mounted read-only into this container (docker/compose.yaml): env, certs/ and storage/.
+SHOP_DIR="${SHOP_DIR:-/shop}"
 STATUS_FILE="$BACKUP_DIR/.status"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -102,6 +111,78 @@ backup_failed() {
     return 1
 }
 
+# Writes tindaflow-<stamp>.files.tar.enc beside the dump of the same stamp and sets SHOP_FILE to it; SHOP_FILE stays empty
+# when there is nothing to write. Returns 1, with the reason in SHOP_ERROR, when it should have been written and was not.
+# Like take_backup, it runs where `set -e` is off, so every step is checked by hand.
+take_shop_files() {
+    local stamp="$1" dump="$2" work
+    SHOP_FILE="" SHOP_ERROR=""
+
+    if [ ! -d "$SHOP_DIR" ]; then
+        status_set files_state na
+        return 0
+    fi
+    if [ -z "${BACKUP_PASSPHRASE:-}" ]; then
+        status_set files_state off
+        log "WARNING: the shop's settings, certificate and stored files are NOT backed up, only the database: set BACKUP_PASSPHRASE" >&2
+        return 0
+    fi
+
+    # A working copy outside BACKUP_DIR, readable by this user only, and removed whatever happens next.
+    if ! work="$(mktemp -d)"; then
+        SHOP_ERROR="cannot create a working folder"
+    else
+        write_shop_archive "$work" "$stamp" "$dump" || true
+        rm -rf -- "$work"
+    fi
+
+    if [ -n "$SHOP_ERROR" ]; then
+        rm -f -- "$BACKUP_DIR/tindaflow-${stamp}.files.tar.enc.partial"
+        status_set files_state failing
+        return 1
+    fi
+    status_set files_state ok
+    log "wrote $(basename "$SHOP_FILE") ($(wc -c < "$SHOP_FILE") bytes)"
+}
+
+write_shop_archive() {
+    local work="$1" stamp="$2" dump="$3" copy="$1/shop" missing migration file partial
+    file="$BACKUP_DIR/tindaflow-${stamp}.files.tar.enc"
+    partial="${file}.partial"
+
+    for missing in env certs/fullchain.pem certs/privkey.pem storage/app; do
+        [ -r "$SHOP_DIR/$missing" ] || { SHOP_ERROR="$missing is missing or unreadable under $SHOP_DIR"; return 1; }
+    done
+    # Without it a restored shop cannot read its sessions or its tills' credentials: an archive lacking it would be a false comfort.
+    grep -Eq '^APP_KEY=.+' "$SHOP_DIR/env" || { SHOP_ERROR="the settings file has no APP_KEY"; return 1; }
+
+    # -L: a certificate that is a link (some certificate tools make one) is archived as the file it points to.
+    if ! { mkdir -p "$copy/storage" && cp "$SHOP_DIR/env" "$copy/env" && cp -RL "$SHOP_DIR/certs" "$copy/certs" \
+        && cp -R "$SHOP_DIR/storage/app" "$copy/storage/app"; }; then
+        SHOP_ERROR="could not copy the shop's files"
+        return 1
+    fi
+
+    migration="$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME" -d "$DB_DATABASE" -Atc 'select migration from migrations order by id desc limit 1' 2> /dev/null)" || migration=""
+    printf 'taken_at=%s\ndatabase_dump=%s\ndatabase_name=%s\nlatest_migration=%s\n' \
+        "$stamp" "$(basename "$dump")" "$DB_DATABASE" "${migration:-unknown}" > "$copy/manifest.txt" || { SHOP_ERROR="could not write the manifest"; return 1; }
+    if ! (cd "$copy" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS); then
+        SHOP_ERROR="could not checksum the shop's files"
+        return 1
+    fi
+
+    if ! tar -C "$copy" -cf - . | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:BACKUP_PASSPHRASE -out "$partial"; then
+        SHOP_ERROR="could not write the encrypted archive"
+        return 1
+    fi
+    if ! openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE -in "$partial" | tar -tf - > /dev/null; then
+        SHOP_ERROR="the archive could not be read back, so it was discarded"
+        return 1
+    fi
+    mv "$partial" "$file" || { SHOP_ERROR="could not move the finished archive into place"; return 1; }
+    SHOP_FILE="$file"
+}
+
 # Seconds since the epoch "now"; BACKUP_NOW (a UTC timestamp like 20260920-131500) exists so pruning can be tested.
 now_epoch() {
     if [ -n "${BACKUP_NOW:-}" ]; then
@@ -159,6 +240,10 @@ take_backup() {
     status_set last_success "$(epoch_now)"
     status_set last_file "$(basename "$file")"
 
+    # A failure here is reported after the dump has been handled: the dump is good and still goes off the machine.
+    local files_failed=""
+    take_shop_files "$stamp" "$file" || files_failed="the shop's files could not be backed up: $SHOP_ERROR"
+
     prune || log "pruning failed; old copies were left in place" >&2
     local upload
     upload="$(upload_command)"
@@ -171,16 +256,23 @@ take_backup() {
             return 1
         fi
         # The command receives the file path as its first argument (rclone, rsync, scp, a script...).
-        if bash -c "$upload" upload "$file"; then
-            log "uploaded $(basename "$file")"
-            status_set upload_ok 1
-        else
-            status_set upload_ok 0
-            backup_failed "the off-machine copy of $(basename "$file") failed; the local copy is kept"
-            return 1
-        fi
+        local each
+        for each in "$file" ${SHOP_FILE:+"$SHOP_FILE"}; do
+            if ! bash -c "$upload" upload "$each"; then
+                status_set upload_ok 0
+                backup_failed "the off-machine copy of $(basename "$each") failed; the local copy is kept"
+                return 1
+            fi
+            log "uploaded $(basename "$each")"
+        done
+        status_set upload_ok 1
     else
         status_set upload_ok na
+    fi
+
+    if [ -n "$files_failed" ]; then
+        backup_failed "$files_failed"
+        return 1
     fi
 
     status_set last_error ""
@@ -255,6 +347,7 @@ health() {
         return 1
     fi
     if [ "$(status_get upload_ok)" = 0 ]; then echo "unhealthy: the off-machine copy is failing"; return 1; fi
+    if [ "$(status_get files_state)" = failing ]; then echo "unhealthy: the shop's files are not being backed up; last error: $(status_get last_error)"; return 1; fi
     if [ "$(status_get disk_level)" = critical ]; then echo "unhealthy: a disk is critically full"; return 1; fi
     echo "healthy"
 }
@@ -278,7 +371,14 @@ prune() {
             log "removed abandoned ${stale##*/}"
         fi
     done
-    local files=("$BACKUP_DIR"/tindaflow-*.dump "$BACKUP_DIR"/tindaflow-*.dump.enc)
+    # The dumps and the shop-files archives are two series under one policy; each keeps its own newest.
+    prune_series "$BACKUP_DIR"/tindaflow-*.dump "$BACKUP_DIR"/tindaflow-*.dump.enc
+    prune_series "$BACKUP_DIR"/tindaflow-*.files.tar.enc
+}
+
+# Applies the cutoffs worked out by prune (whose local variables it reads) to one series of backup files.
+prune_series() {
+    local files=("$@")
     [ "${#files[@]}" -gt 0 ] || return 0
 
     # Oldest first, so the first file seen for a day or a month is that day's or month's earliest.
@@ -324,7 +424,7 @@ main() {
         prune) prune ;;
         health) health ;;
         loop)
-            log "every ${BACKUP_INTERVAL_MINUTES} min to ${BACKUP_DIR} (encrypted: $([ -n "${BACKUP_PASSPHRASE:-}" ] && echo yes || echo NO), off-machine copy: $([ -n "$(upload_command)" ] && echo yes || echo NO), alerts: $([ -n "$(alert_command)" ] && echo yes || echo NO), heartbeat: $([ -n "${HEARTBEAT_URL:-}" ] && echo yes || echo NO))"
+            log "every ${BACKUP_INTERVAL_MINUTES} min to ${BACKUP_DIR} (encrypted: $([ -n "${BACKUP_PASSPHRASE:-}" ] && echo yes || echo NO), shop files: $([ -d "$SHOP_DIR" ] && [ -n "${BACKUP_PASSPHRASE:-}" ] && echo yes || echo NO), off-machine copy: $([ -n "$(upload_command)" ] && echo yes || echo NO), alerts: $([ -n "$(alert_command)" ] && echo yes || echo NO), heartbeat: $([ -n "${HEARTBEAT_URL:-}" ] && echo yes || echo NO))"
             if [ -n "$(upload_command)" ] && [ -z "${BACKUP_PASSPHRASE:-}" ] && [ "${BACKUP_UPLOAD_UNENCRYPTED:-}" != yes ]; then
                 log "WARNING: an off-machine copy is configured but BACKUP_PASSPHRASE is not, so nothing will be uploaded until it is set" >&2
             fi

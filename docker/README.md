@@ -7,7 +7,7 @@ One command starts the whole store server: `docker compose up -d --build`. It ru
 | `web` | nginx: TLS, the compiled assets, hands requests to the app | the LAN or internet (ports 80 and 443 only) |
 | `app` | PHP-FPM running TindaFlow, connected to the database as the restricted `tindaflow_app` role | `web` only |
 | `postgres` | PostgreSQL 17, the only copy of your sales | `app`, `migrate` and `backup` only, no published port |
-| `backup` | dumps the database every hour, checks each dump, prunes old ones | itself |
+| `backup` | dumps the database every hour and archives the shop's files, checks both, prunes old ones | itself |
 | `migrate` | runs once at every `up`: applies migrations and locks down the application's database role, then exits | itself |
 
 **Two database roles.** The *owner* (`DB_OWNER_USERNAME`) creates and migrates the tables; only `migrate` and the restore script use it. The application connects as `tindaflow_app`, and PostgreSQL itself refuses that role any UPDATE or DELETE on the tables that must be append-only (sale lines, payments, invoices, slips, the audit log, the electronic journal, the stock ledger, X/Z readings) and lets it change only a sale's status and a void's or refund's own lifecycle columns. The only tables it may DELETE from are the session and cache tables Laravel keeps housekeeping in and two child tables the app removes rows from (alternate barcodes, stock-count lines); `tindaflow:harden-database` refuses to finish if the set is anything else. So a bug, or a stolen application credential, cannot rewrite what was sold. The running `app` container never holds the owner's password.
@@ -88,6 +88,7 @@ It sets a new strong password, **prints it once** (copy it now; it is stored now
 
 The `backup` container writes a dump to `./backups` (`BACKUP_DIR`) every `BACKUP_INTERVAL_MINUTES` (default 60): **the most sales you can lose in a crash is one interval.** Each dump is checked readable before it is kept. Retention is every dump for 24 hours, then the first of each day for 30 days, then the first of each month for 12 months (all set in `.env`); pruning removes old copies only, never database rows.
 
+- **A dump alone cannot rebuild a shop.** Beside each `tindaflow-<time>.dump.enc` the container writes `tindaflow-<time>.files.tar.enc`: `docker/.env` (with `APP_KEY` and every password), the HTTPS certificate in `certs/`, and the app's stored files (`storage/app`: the license and this installation's identity key). All of it is secret, so **it is written only when `BACKUP_PASSPHRASE` is set**; without one the log warns every interval that only the database is backed up. The two are kept, pruned and copied off the machine together. A missing certificate or a settings file without `APP_KEY` is a failed backup, like a failed dump. Not in it: logs, `docker/letsencrypt/` (get a new certificate instead) and the program itself.
 - **Put `BACKUP_DIR` on a different disk from the database.** A backup on the same disk dies with it.
 - **Encrypt:** set `BACKUP_PASSPHRASE`. Store the passphrase somewhere else; an encrypted backup is useless without it.
 - **Copy off the machine:** see "Off-machine copy and alerts" below. Until you do, a fire, theft or flood takes the backups with the server.
@@ -121,7 +122,7 @@ The `backup` container is `postgres:17` plus `curl` and `rclone` (`docker/backup
 **Restore drill from the off-machine copy** (do this before go-live, and again after big changes; a backup never restored is a hope):
 
 ```bash
-docker compose exec backup rclone ls "$RCLONE_DEST"                                      # find a file name
+docker compose exec backup rclone ls "$RCLONE_DEST"                                      # find a file name (there are two per time stamp)
 docker compose exec backup rclone copyto "$RCLONE_DEST/<file>.dump.enc" /backups/drill.dump.enc
 docker compose exec backup restore.sh /backups/drill.dump.enc tindaflow_drill            # uses BACKUP_PASSPHRASE
 ```
@@ -136,9 +137,55 @@ A restore only ever writes into a **new** database, so it cannot overwrite live 
 docker compose exec backup restore.sh /backups/tindaflow-20260920-101500.dump tindaflow_restored
 ```
 
-It prints the table, index and migration counts, the number of sales and invoices, and the last invoice number. To go live with the copy: `docker compose stop app`, set `DB_DATABASE=tindaflow_restored` in `.env` (the `postgres` container keeps both databases), `docker compose up -d app`. That runs `migrate` again, which gives `tindaflow_app` the same locked-down access on the restored copy.
+It prints the table, index and migration counts, the number of sales and invoices, and the last invoice number. The restore takes no privileges from the dump (the application's role may not exist yet), so until `migrate` has run only the owner can read the copy. To go live with it: `docker compose stop app scheduler backup`, set `DB_DATABASE=tindaflow_restored` in `.env` (the `postgres` container keeps both databases), then `docker compose up -d`. That runs `migrate` again, which gives `tindaflow_app` the same locked-down access on the restored copy. **Name no service in that last command:** `up -d app` would leave the backups and the scheduler on the old database.
 
 **Do this drill before go-live, and again after any PostgreSQL major upgrade or big schema change**: a backup you have never restored is a hope, not a backup. Drop the practice database afterwards.
+
+A backup you take by hand (`backup.sh once`) is pruned by the same rules as the hourly ones. To keep one, before an upgrade for instance, copy both of its files somewhere else.
+
+### Restoring a whole shop (a new or rebuilt computer)
+
+You need three things, and nothing else from the old computer:
+
+1. **The program**, the same version as the shop ran, or a newer one. Never an older one.
+2. **The two backup files with the same time stamp**: `tindaflow-<time>.dump.enc` and `tindaflow-<time>.files.tar.enc`. You lose what was sold after that time.
+3. **The `BACKUP_PASSPHRASE`.** It is inside the files archive too, which cannot be opened without it, so it must be kept somewhere else.
+
+> **Do not practise this in a second folder on the shop's own computer as written.** `compose.yaml` names the project `tindaflow`, so any copy of this folder uses the **live** shop's database and files. Practise on another computer. If you must use the same one, add `-p tindaflow-drill` to **every** `docker compose` command, give the copy other `HTTP_PORT` and `HTTPS_PORT` values and its own `BACKUP_DIR`, and stop if any command works on a container whose name does not start with `tindaflow-drill`.
+
+The commands below are written to work in PowerShell and in bash. Run them from the new `docker/` folder. `<time>` is the time stamp in the file names.
+
+1. **Put the two files in `backups/`** (create the folder).
+2. **Give the passphrase to this window.** PowerShell: `$env:BACKUP_PASSPHRASE = '<passphrase>'`. Bash: `export BACKUP_PASSPHRASE='<passphrase>'`.
+3. **Open the files archive.** On Linux add `--user "$(id -u):$(id -g)"` after `--rm`, so that the files are yours.
+   ```bash
+   docker run --rm -e BACKUP_PASSPHRASE -v "${PWD}/backups:/backups" -v "${PWD}/backup:/scripts:ro" postgres:17 bash /scripts/restore-shop-files.sh /backups/tindaflow-<time>.files.tar.enc /backups/restored
+   ```
+   It lists the matching dump and the newest migration the shop had. The program you are using must have that file in `database/migrations/`.
+4. **Put the settings and the certificate in place.** Copy `backups/restored/env` to `.env`, and the files in `backups/restored/certs/` into `certs/`. Then read `.env` and correct anything that belongs to the old computer: `BACKUP_DIR`, `TLS_CERT_DIR`, `TINDAFLOW_HOST_DIR`. (If `BACKUP_DIR` points elsewhere, put the dump there.)
+5. **Start only the database.**
+   ```bash
+   docker compose build
+   docker compose up -d --wait postgres
+   ```
+6. **Restore the dump into a new database.**
+   ```bash
+   docker compose run --rm --no-deps --entrypoint bash backup /usr/local/bin/restore.sh /backups/tindaflow-<time>.dump.enc tindaflow_restored
+   ```
+   Check the number of sales it prints against what you expect.
+7. **In `.env`, set `DB_DATABASE=tindaflow_restored`.**
+8. **Put the app's stored files back**, owned by the application and private again:
+   ```bash
+   docker compose run --rm --no-deps -v "${PWD}/backups/restored/storage/app:/restore:ro" --entrypoint sh app -c 'cp -R /restore/. storage/app/ && chown -R www-data:www-data storage/app && if [ -d storage/app/license ]; then chmod 700 storage/app/license && chmod 600 storage/app/license/*; fi'
+   ```
+9. **Start everything**, naming no service: `docker compose up -d`. Then `docker compose ps` must show every long-running container healthy.
+10. **Check the shop**: sign in, compare the latest sales and totals, and make sure a till still opens. Then **delete `backups/restored/`**, which holds every secret in plain text.
+
+**The tills** stay enrolled, with nothing to re-enter, as long as the server answers at the same address with the same certificate and `APP_KEY`. If the new computer has another name or IP address, set `APP_URL`, make a certificate for the new address, and enroll the tills again. A public host name needs `tls/letsencrypt.sh issue` again.
+
+**On a different computer a license would see different hardware.** Moving a license to a new computer is not built yet (ADR-019). Builds with no vendor key, which is every build today, are not affected.
+
+**What is tested.** `scripts/drill-whole-shop-restore.sh` runs these steps in CI on Linux on every change: it builds a shop, sells, destroys it, restores it from the two files and compares every record. The steps have **not** been run on Windows. Practise them on a spare Windows computer before relying on them.
 
 ## Everyday
 

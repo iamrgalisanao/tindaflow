@@ -98,6 +98,18 @@ The control plane's tests now run on PostgreSQL as well as SQLite, in a CI job w
 
 **Not proven:** more than two at once, other pairs of operations, load, any PostgreSQL version but 17, and a production server. The registry's "append-only by database privilege" is still only a comment.
 
+## Slice 3, part 1, built 2026-11-25: restoring a whole shop
+
+**The restore did not work where it was needed.** `restore.sh` kept the dump's grants to the application's database role. That role does not exist on a new server, so the restore stopped there (reproduced with a throwaway role). Privileges are now left out of the restore and set again by the `migrate` step, as on a first install.
+
+- **A second archive beside every dump** holds what a dump does not: `docker/.env` with `APP_KEY` and the passwords, the HTTPS certificate, and `storage/app`. It is written only when `BACKUP_PASSPHRASE` is set, so none of this is ever on disk in a backup unencrypted. It is uploaded and pruned with the dump, and failing to write it is a failed backup. This means a shop's secrets now travel with its off-machine copy: whoever holds the passphrase and that copy holds the shop.
+- **`docker/README.md`, "Restoring a whole shop"**, is the procedure. It also corrects the older go-live step, which moved only `app` to the restored database, and warns that the fixed Compose project name makes a second folder use the live volumes.
+- **Drill:** `scripts/drill-whole-shop-restore.sh`, a CI job. It builds a shop on the production stack, sells, backs up, destroys it, restores from the two files and the passphrase, and checks that every record, the certificate and the license files are unchanged, that the enrolled till still works, that slip numbers continue, that the application's role still cannot rewrite sales, and that the backups and scheduler use the restored database. It also checks slice 1's open item: an identity file written by `artisan` as root is private to `www-data` in a real container.
+
+**Limits:** the drill runs on Linux; the steps have **not** been run on Windows or on the pilot PC. It does not exercise the off-machine copy (rclone) or a public host's certificate renewal. A shop with no `BACKUP_PASSPHRASE` still has only database backups, and says so only in its log. Moving a license to other hardware is a later part of slice 3.
+
+**The rest of slice 3 is not built:** a way back to trading for an expired, locked or revoked shop; adopting an existing store; replacing the PC; re-chaining after a restored backup; rebuilding the control plane and rotating keys.
+
 ## Order of work
 
 Each slice is a small change that can be merged alone and has an exit test.

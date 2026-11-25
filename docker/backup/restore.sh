@@ -6,7 +6,11 @@
 # It refuses to write into a database that already exists, so a restore can never overwrite live data. To go live
 # with the restored copy: stop the app, point DB_DATABASE at the new database (or rename the databases), start the
 # app. Encrypted backups (.enc) need BACKUP_PASSPHRASE. Restoring needs the database owner's login (DB_OWNER_*).
-# Going live with the copy re-provisions the application's role on the next `docker compose up` (the migrate step).
+#
+# Ownership and privileges are NOT taken from the dump. The dump grants access to the application's role, which does not
+# exist on a new server, and restoring those grants there stops the whole restore. The `migrate` step of the next
+# `docker compose up` creates the role and sets every privilege again (php artisan tindaflow:harden-database), exactly
+# as on a first install. Until it has run, only the owner can read the restored database.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
@@ -44,7 +48,7 @@ trap '[ -z "$CLEANUP" ] || rm -f "$CLEANUP"' EXIT
 
 pg_restore --list "$WORK" > /dev/null
 createdb "$TARGET"
-pg_restore -d "$TARGET" --no-owner --exit-on-error "$WORK"
+pg_restore -d "$TARGET" --no-owner --no-privileges --exit-on-error "$WORK"
 
 echo "restored into '${TARGET}'. What came back:"
 # The deployment fingerprint (App\Support\DeploymentId): the same short code the admin footer shows, derived from the
