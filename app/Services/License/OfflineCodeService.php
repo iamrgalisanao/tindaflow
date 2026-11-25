@@ -41,11 +41,12 @@ final class OfflineCodeService
     ) {}
 
     /**
+     * @param  string|null  $actorUserId  who typed it in the Manager area; null for the console
      * @return string what was done, for the person who typed the code
      *
      * @throws OfflineCodeRefused
      */
-    public function apply(string $text, ?DateTimeImmutable $now = null): string
+    public function apply(string $text, ?DateTimeImmutable $now = null, ?string $actorUserId = null): string
     {
         $now ??= CarbonImmutable::now();
 
@@ -55,13 +56,13 @@ final class OfflineCodeService
         }
 
         try {
-            return DB::transaction(fn (): string => $this->applyLocked($text, $now));
+            return DB::transaction(fn (): string => $this->applyLocked($text, $now, $actorUserId));
         } finally {
             $lock->release();
         }
     }
 
-    private function applyLocked(string $text, DateTimeImmutable $now): string
+    private function applyLocked(string $text, DateTimeImmutable $now, ?string $actorUserId): string
     {
         $ring = $this->gate->keyRing();
         $codeKeys = (array) config('tindaflow.license.code_keys');
@@ -105,11 +106,11 @@ final class OfflineCodeService
         }
 
         return $code->type === OfflineCode::TIME_RESET
-            ? $this->resetTime($code, $certificate, $now)
-            : $this->extend($code, $certificate, $row, $now);
+            ? $this->resetTime($code, $certificate, $now, $actorUserId)
+            : $this->extend($code, $certificate, $row, $now, $actorUserId);
     }
 
-    private function extend(OfflineCode $code, Certificate $certificate, object $row, DateTimeImmutable $now): string
+    private function extend(OfflineCode $code, Certificate $certificate, object $row, DateTimeImmutable $now, ?string $actorUserId): string
     {
         $check = $this->gate->check($now);
         if ($check->verdict->state === LicenseState::Locked) {
@@ -138,7 +139,7 @@ final class OfflineCodeService
             'last_code_ordinal' => $code->ordinal,
             'updated_at' => $this->stamp($now),
         ]);
-        AuditTrail::record($certificate->store, 'LICENSE_EXTENDED', null, 'store', $certificate->store, null, [
+        AuditTrail::record($certificate->store, 'LICENSE_EXTENDED', $actorUserId, 'store', $certificate->store, null, [
             'ordinal' => $code->ordinal, 'base_seq' => $certificate->seq, 'until' => $this->stamp($until), 'in_a_row' => $inARow,
         ]);
 
@@ -147,11 +148,11 @@ final class OfflineCodeService
         return "Extended: the license now runs until {$local} (extension {$inARow} of ".self::MAX_EXTENSIONS_IN_A_ROW.' before it must renew online).';
     }
 
-    private function resetTime(OfflineCode $code, Certificate $certificate, DateTimeImmutable $now): string
+    private function resetTime(OfflineCode $code, Certificate $certificate, DateTimeImmutable $now, ?string $actorUserId): string
     {
         $previous = $this->clock->rebaseline($code->iat, $this->hardware->read($now)->generatedAt);
         DB::table('license_state')->where('id', 1)->update(['last_code_ordinal' => $code->ordinal, 'updated_at' => $this->stamp($now)]);
-        AuditTrail::record($certificate->store, 'LICENSE_TIME_RESET', null, 'store', $certificate->store, null, [
+        AuditTrail::record($certificate->store, 'LICENSE_TIME_RESET', $actorUserId, 'store', $certificate->store, null, [
             'ordinal' => $code->ordinal, 'base_seq' => $certificate->seq,
             'from' => $previous === null ? null : $this->stamp($previous), 'to' => $this->stamp($code->iat),
         ]);

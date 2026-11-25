@@ -17,6 +17,7 @@ use App\Http\Controllers\InventoryLocationController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceSeriesController;
 use App\Http\Controllers\JournalEntryController;
+use App\Http\Controllers\LicenseController;
 use App\Http\Controllers\MenuController;
 use App\Http\Controllers\MenuGroupController;
 use App\Http\Controllers\MenuPriceController;
@@ -353,6 +354,15 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
     Route::middleware(['auth', EnsureUserIsActive::class, 'can:EMPLOYEE_POLICY_MANAGE'])->group(function () {
         Route::post('/employees/import', [EmployeeController::class, 'import']);
         Route::put('/credit-policies/{employeeType}', [EmployeeController::class, 'creditPolicySetLimit']);
+    });
+
+    // License (ADR-018 decision 10): the Manager area's license screen. LICENSE_MANAGE (MANAGER and ADMIN; a cashier gets 403), a session and no
+    // terminal. These three are never gated by the license itself: a lapsed or locked installation is exactly when they are needed. "Check now"
+    // reaches the provider and code entry changes the license, so each is limited per user (the 429 is RATE_LIMITED).
+    Route::middleware(['auth', EnsureUserIsActive::class, 'can:LICENSE_MANAGE'])->group(function () {
+        Route::get('/license', [LicenseController::class, 'status']);
+        Route::post('/license/renew', [LicenseController::class, 'renew'])->middleware('throttle:license-renew');
+        Route::post('/license/codes', [LicenseController::class, 'applyCode'])->middleware('throttle:license-codes');
     });
 
     // Billing (ADR-016 section 8, slice 4.1). Every operation, reads and CSV exports included, is BILLING_MANAGE (MANAGER and ADMIN; a

@@ -730,3 +730,13 @@ reason — that was the real gap this pass closes.
 | GET | /reports/sales-by-meal-type | reportSalesByMealType | session | false | `REPORT_VIEW` | no | `from`, `to` (business dates, default today; at most 366 days) | 200 ReportResult / CSV (`meal_type, item, item_type, quantity_sold, sold_amount, quantity_returned, returned_amount, quantity_net, net_amount`); `summary` = `row_count, sales, refunds, net_sales, voids, meal_types[]` | 401, 403 |
 
 Computed on read from the sale snapshots by `SalesByMealTypeQuery`, all tills of the store, net of the refunds executed in the period, voided sales not counted; the rows add up to `summary.net_sales`. **Changed existing operations (additive):** `fiscalDayClose` and `fiscalDayZReadingGet` return, for a slip-mode day with something to list, the extra key `totals_snapshot.sales_by_meal_type` (the same query, frozen at close); an invoice-mode day's snapshot and an older day's are unchanged. `fiscalDayZReadingPrint` renders the section on the end-of-day report of a slip-mode day (58mm sheet) from the stored copy, so an original and every copy are identical. No new capability, error code or audit event.
+
+## License (ADR-018 decision 10, 2026-11-25)
+
+Session only, no terminal. All three are `LICENSE_MANAGE` (MANAGER, ADMIN). None is gated by the license itself.
+
+| Method | Path | operationId | Auth | Terminal | Capability | Idempotent | Request | Response | Errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /license | licenseStatus | session | false | `LICENSE_MANAGE` | n/a | — | 200 LicenseStatus | 401, 403 |
+| POST | /license/renew | licenseRenew | session | false | `LICENSE_MANAGE` | no (a repeat is harmless: the renewal keeps its own request id) | — | 200 {outcome, message, license} | 401, 403, 429 `RATE_LIMITED` |
+| POST | /license/codes | licenseCodeApply | session | false | `LICENSE_MANAGE` | no (a code is used once) | {code} | 200 {message, license} | 401, 403, 422 `LICENSE_CODE_REFUSED` / `VALIDATION_FAILED`, 429 `RATE_LIMITED` |

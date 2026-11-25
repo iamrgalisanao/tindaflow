@@ -3741,6 +3741,86 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+  /license:
+    get:
+      operationId: licenseStatus
+      tags: [License]
+      summary: The installation's license state (ADR-018)
+      description: 'ADR-018 decision 10, the Manager area. Requires LICENSE_MANAGE (MANAGER, ADMIN); session only, no terminal. Never gated by the license itself. In a build with no vendor key the state is LEGACY, enforcing is false and the license fields are null. Never returns the certificate, a key or the hardware hashes.'
+      x-capability: LICENSE_MANAGE
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: The license state
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LicenseStatus'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /license/renew:
+    post:
+      operationId: licenseRenew
+      tags: [License]
+      summary: Ask the provider for the next certificate now
+      description: 'The same renewal the hourly schedule runs. Every outcome, a failed or skipped one included, is a 200 that says what happened; the license changes only by a certificate or revocation that passes every check. Audited as LICENSE_CHECK_REQUESTED unless skipped. Limited to 4 a minute per user (RATE_LIMITED 429).'
+      x-capability: LICENSE_MANAGE
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: What the attempt did, and the state afterwards
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outcome: {type: string, enum: [RENEWED, UNCHANGED, REVOKED, SKIPPED, FAILED]}
+                  message: {type: string}
+                  license: {$ref: '#/components/schemas/LicenseStatus'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '429':
+          description: RATE_LIMITED
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /license/codes:
+    post:
+      operationId: licenseCodeApply
+      tags: [License]
+      summary: Apply an offline extension or time-reset code
+      description: 'ADR-018 decisions 3 and 6. Case, spaces and line breaks are ignored. A refusal is 422 LICENSE_CODE_REFUSED with the reason in the message; nothing changes and the code is not used up. Applying and refusing are audited with the actor; the code itself is never stored in the audit log. Limited to 10 a minute per user (RATE_LIMITED 429).'
+      x-capability: LICENSE_MANAGE
+      security:
+      - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: {type: string, maxLength: 600}
+      responses:
+        '200':
+          description: The code was applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {type: string}
+                  license: {$ref: '#/components/schemas/LicenseStatus'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '429':
+          description: RATE_LIMITED
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
   /shifts/open:
     post:
       operationId: shiftOpen
@@ -5226,12 +5306,39 @@ components:
     UserRole:
       type: string
       enum: [ADMIN, MANAGER, CASHIER]
+    LicenseStatus:
+      type: object
+      description: 'ADR-018. In a build with no vendor key: state LEGACY, enforcing false, every license field null.'
+      properties:
+        state: {type: string, enum: [LEGACY, NOT_ACTIVATED, ACTIVE, WARNING, EXPIRED, LOCKED]}
+        enforcing: {type: boolean, description: 'false in LEGACY and for a report-mode certificate'}
+        reason: {type: string, nullable: true, description: 'why a new shift would be refused: NOT_ACTIVATED, EXPIRED, CLOCK_ROLLBACK, FINGERPRINT_MISMATCH, REVOKED or CHAIN_INVALID'}
+        message: {type: string, nullable: true}
+        deployment_code: {type: string, nullable: true}
+        certificate_number: {type: integer, nullable: true, description: 'the provider needs it to make an offline code'}
+        seats: {type: integer, nullable: true}
+        valid_until: {type: string, format: date-time, nullable: true, description: 'the certificate expiry, or the later one an extension gives'}
+        certificate_expires_at: {type: string, format: date-time, nullable: true}
+        extended_until: {type: string, format: date-time, nullable: true}
+        extensions_used: {type: integer}
+        extensions_allowed: {type: integer}
+        trusted_time: {type: string, format: date-time, nullable: true}
+        last_renewed_at: {type: string, format: date-time, nullable: true}
+        last_renewal_attempt_at: {type: string, format: date-time, nullable: true}
+        last_renewal_error: {type: string, nullable: true}
+        hardware_file:
+          type: object
+          nullable: true
+          properties:
+            status: {type: string, enum: [FRESH, STALE, MISSING, INVALID]}
+            generated_at: {type: string, format: date-time, nullable: true}
+        accepts_offline_codes: {type: boolean}
     Capability:
       type: string
       description: 'The full Stage 2 capability catalog (domain-model.md §2.2), including the six additions synced back into Stage 2 during Stage 4 remediation pass 2 (2026-09-16) — CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE — so this enum and Stage 2''s canonical list never drift again. This is a fixed enum of string constants, not a dynamic/configurable permission system — see api-design.md §4 for the role→capability mapping and rationale.
 
         '
-      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE, EMPLOYEE_MANAGE, EMPLOYEE_POLICY_MANAGE, CREDIT_LIMIT_OVERRIDE, BILLING_MANAGE, STOCK_SALE_OVERRIDE]
+      enum: [SALE_VOID, SALE_VOID_APPROVE, SALE_REFUND, SALE_REFUND_APPROVE, PRICE_OVERRIDE, DISCOUNT_OVERRIDE, STOCK_ADJUST, CASH_OUT, REPORT_VIEW, STORE_SETTINGS_MANAGE, FISCAL_DAY_CLOSE, CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE, EMPLOYEE_MANAGE, EMPLOYEE_POLICY_MANAGE, CREDIT_LIMIT_OVERRIDE, BILLING_MANAGE, STOCK_SALE_OVERRIDE, LICENSE_MANAGE]
     UserSummary:
       type: object
       properties:

@@ -65,6 +65,10 @@ class AppServiceProvider extends ServiceProvider
         ]);
         RateLimiter::for('override-code', fn (Request $request) => $overrideLimit('code:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 
+        // ADR-018 decision 10: "check license now" calls the provider, and code entry changes the license; neither is done often.
+        RateLimiter::for('license-renew', fn (Request $request) => Limit::perMinute(4)->by('license-renew:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+        RateLimiter::for('license-codes', fn (Request $request) => Limit::perMinute(10)->by('license-codes:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
         // A generous ceiling on the whole API, per signed-in user: far above what a till produces, low enough that
         // a runaway client or a stolen session cannot hammer the database or the import/export endpoints. (Laravel
         // orders `auth` ahead of `throttle`, so a guest is answered 401 before it is counted; the only route a

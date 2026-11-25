@@ -29,6 +29,7 @@ import MealPricesPage from './pages/admin/menu/MealPricesPage';
 import MealsPage from './pages/admin/menu/MealsPage';
 import OverrideCodePage from './pages/admin/overrides/OverrideCodePage';
 import UsersPage from './pages/admin/users/UsersPage';
+import LicensePage from './pages/admin/license/LicensePage';
 import StockPage from './pages/admin/inventory/StockPage';
 import TodaysStockPage from './pages/admin/inventory/TodaysStockPage';
 import SalesPage from './pages/admin/sales/SalesPage';
@@ -179,6 +180,14 @@ export default function AppRouter() {
                     element={
                         <RequireAuth>
                             <TaxRegistrations />
+                        </RequireAuth>
+                    }
+                />
+                <Route
+                    path="/admin/license"
+                    element={
+                        <RequireAuth>
+                            <LicensePage />
                         </RequireAuth>
                     }
                 />
