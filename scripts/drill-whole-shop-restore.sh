@@ -200,7 +200,8 @@ check_equal "the second sale is slip 2" TILL-1-000002 "$(sell)"
 say "the files the app keeps outside the database"
 # As documented, artisan runs as root here. The web workers run as www-data and must be able to read what it wrote
 # (ADR-019 defect 7); this is the first check of that in a real container, before any restart repairs ownership.
-dc exec -T app php artisan tindaflow:activate --request --out=/tmp/request.json > /dev/null
+request="$(dc exec -T app php artisan tindaflow:activate --request --adopt --out=/tmp/request.json --no-ansi 2>&1)" ||
+    fail "the activation request was refused: $request" # the shop exists by now, so it is a request to adopt it
 check_equal "the identity file made by root belongs to the web workers, for them alone" "www-data 600" "$(dc exec -T app stat -c '%U %a' storage/app/license/installation.json)"
 check_equal "and so does its folder" "www-data 700" "$(dc exec -T app stat -c '%U %a' storage/app/license)"
 dc exec -T app runuser -u www-data -- cat storage/app/license/installation.json > /dev/null || fail "www-data cannot read the identity file"
