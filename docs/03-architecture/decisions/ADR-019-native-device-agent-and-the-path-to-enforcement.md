@@ -133,6 +133,19 @@ Every way a shop can be refused a new shift, and its way back. "Drilled" means t
 
 **Limits:** no screen for the files (console only, as activation is). A reply applied after its certificate has run out is refused, and a reply that is made but never applied leaves the registry one certificate ahead: the same request gets the same reply again, but once the PC asks something new it is a fork, which has no way back until re-chaining is built. The drill makes a license old by re-signing it, with the test key, as 40 days old; it does not wait. Nothing here has run on a real shop computer.
 
+## Slice 3, part 3, built 2026-11-25: adopting a shop that already trades
+
+An existing store could not be licensed: activation refused its sales, and the control plane always minted a new store id.
+
+- **`tindaflow:activate --request --adopt`** names the one store on the computer (id and name, which are licensing data; nothing about sales or people). **`license:register-client --existing=`** registers that id, under the same uniqueness checks as a minted one, so the deployment code on the shop's backups and reports does not change. `license:issue-bundle` refuses a bundle whose deployment has another store id.
+- **`tindaflow:activate --bundle= --adopt`** checks everything a new activation checks, requires exactly one store with the bundle's id, and writes only the license state and one `LICENSE_ACTIVATED` audit entry marked `adopted`. The bundle's store settings are not applied. The cross-repository drill proves nothing outside licensing changes and that the adopted shop then renews.
+- **A defect found and fixed:** activation refused a database with sales or another store, but a shop with its own store and **no sales yet** was set up again over itself: a second administrator, slip mode, a stock location and a till (reproduced before the fix). Activation without `--adopt` now refuses any database that already has a store, and a plain request from one is refused too.
+- **`--force`** (ADR-018 decision 9, activating over existing sales) is **not built and not wanted**: adopting is the safe way to license a database with sales.
+- **Not done here:** ADR-018 decision 11's migration of an ADR-014 till license (renaming the file) waits for the till limit to be read from the certificate (slice 4); renaming it now would stop new tills from being added. No build ships an ADR-014 key.
+- **Order for an existing install** is in `docker/README.md`, "Licensing a shop that already trades": request on a keyless build, get the bundle, then install the keyed build and apply it at once. Between those two steps the shop cannot open a shift.
+
+**Limits:** the provider takes the store id on the shop's word. It unlocks nothing by itself, since the certificate binds one computer's key and hardware, but someone could register an id first and block the real shop, which the provider would have to sort out by hand. Nothing here has run on a real shop computer. **It does not make the pilot PC licensable:** its hardware check fails (a placeholder base board serial), which waits for certificate v3 (slice 6).
+
 ## Order of work
 
 Each slice is a small change that can be merged alone and has an exit test.

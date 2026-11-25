@@ -365,6 +365,61 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         $this->assertTradingAgain();
     }
 
+    // Adopting a shop that already trades (ADR-019 slice 3): the provider registers the store id the shop already has, and applying
+    // the bundle may change nothing but licensing state and the audit log.
+
+    public function test_a_shop_that_already_trades_is_adopted_with_nothing_else_changed_and_then_renews(): void
+    {
+        $store = $this->tradingShopBeforeAnyLicense();
+        $bundle = $this->adoptionBundle();
+
+        $this->assertOnlyLicensingChanges(fn () => $this->assertSame(0, Artisan::call('tindaflow:activate', ['--bundle' => $bundle, '--adopt' => true]), Artisan::output()));
+
+        $this->assertSame($store->id, $this->storeId, 'the registry took the id the shop already had');
+        $this->assertSame(DeploymentId::shorten($store->id), $this->deploymentCode);
+        $this->assertSame($this->deploymentCode, DeploymentId::current(), 'the code on its backups and reports is unchanged');
+        $this->assertTradingAgain();
+
+        $this->ageLatestCertificate();
+        $this->assertRenewal(0, 'Renewed: certificate 2');
+        $this->assertFalse($this->lastRenewalAudit()['chain_gap']);
+    }
+
+    public function test_a_shop_adopted_in_report_mode_is_licensed_and_never_refused(): void
+    {
+        $this->tradingShopBeforeAnyLicense();
+        $bundle = $this->adoptionBundle(['--mode=report']);
+
+        $this->assertSame(0, Artisan::call('tindaflow:activate', ['--bundle' => $bundle, '--adopt' => true]), Artisan::output());
+
+        $this->assertFalse(app(LicenseGate::class)->check()->verdict->enforcing);
+        $this->assertSame(LicenseState::Active, $this->licenseState());
+    }
+
+    private function tradingShopBeforeAnyLicense(): Store
+    {
+        Sale::factory()->create();
+
+        return Store::sole();
+    }
+
+    /** @param  list<string>  $options  for registering the client */
+    private function adoptionBundle(array $options = []): string
+    {
+        $request = $this->workDirectory.'/adoption-request.json';
+        $bundle = $this->workDirectory.'/adoption-bundle.txt';
+
+        $this->assertSame(0, Artisan::call('tindaflow:activate', ['--request' => true, '--adopt' => true, '--out' => $request]), Artisan::output());
+
+        $registered = $this->artisanThere(['license:register-client', 'Existing Cafe', '--existing='.$request, ...$options]);
+        $this->assertSame(1, preg_match('/deployment code ([0-9A-F]{8}), store id ([0-9a-f-]{36})/', $registered, $found), $registered);
+        [, $this->deploymentCode, $this->storeId] = $found;
+
+        $this->artisanThere(['license:issue-bundle', $this->deploymentCode, $request, '--out='.$bundle]);
+
+        return $bundle;
+    }
+
     private function activateAndTrade(): void
     {
         $this->activate();

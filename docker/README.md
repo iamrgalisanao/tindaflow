@@ -84,6 +84,36 @@ docker compose exec app php artisan tindaflow:reset-password owner@example.com
 
 It sets a new strong password, **prints it once** (copy it now; it is stored nowhere in plain text), ends every session that user has, and records a `PASSWORD_RESET` entry in the audit log. Sign in with it and change it under Users. If the user was deactivated, add `--activate`. It refuses an unknown e-mail, and an e-mail used in more than one store, without changing anything.
 
+## Licensing a shop that already trades
+
+This applies only to a build that carries a vendor key. Today no build does. `--adopt` records the license for the shop already on the computer and **changes nothing else**: no user, setting, till, stock or sale. (A new installation that will be licensed uses `tindaflow:activate` without `--adopt`, and must not run `db:seed` first. If it already did, adopt it.)
+
+**Order matters.** A build with a vendor key refuses new shifts until a license is applied, and stops an open shift's sales 18 hours after it opened. So get the license **before** you put that build on the shop's computer. Run everything from the `docker/` folder; the commands work in PowerShell and bash.
+
+1. **Update to a version that has `--adopt` and still carries no vendor key.** Nothing changes for the shop. The Windows host helper must be installed and its `-Check` must pass; a computer that cannot give the three hardware values cannot be licensed yet.
+2. **Make the request** and send `adopt-request.json` to your TindaFlow provider.
+   ```bash
+   docker compose exec app php artisan tindaflow:activate --request --adopt --out=/tmp/adopt-request.json
+   docker compose cp app:/tmp/adopt-request.json .
+   ```
+3. **The provider** registers the shop with the store id it already has, and sends back a bundle. Ask for **report mode** the first time: it records what it would refuse, and refuses nothing.
+   ```bash
+   php artisan license:register-client "Client name" --existing=adopt-request.json --seats=2 --mode=report
+   php artisan license:issue-bundle DEPLOYMENT_CODE adopt-request.json --out=bundle.txt
+   ```
+   The certificate in it is good for about 30 days from when it was made.
+4. **With `bundle.txt` in hand, outside trading hours, with no shift open:** take a backup (`docker compose exec backup bash /usr/local/bin/backup.sh once`) and copy both of its files off the computer. Keep the version you are running, so that you can go back to it.
+5. **Update to the version with the vendor key, and apply the bundle at once:**
+   ```bash
+   docker compose up -d --build
+   docker compose cp bundle.txt app:/tmp/bundle.txt
+   docker compose exec app php artisan tindaflow:activate --bundle=/tmp/bundle.txt --adopt
+   docker compose exec app php artisan tindaflow:license-status
+   ```
+6. **If the bundle is refused**, nothing was changed. Go back to the previous version, which refuses nothing, and send the message to your provider.
+
+If the shop has more tills than the license covers, the command says so. Nothing is blocked: the till limit in the license is not enforced yet. A till limit set the older way (`license.public_key`) keeps working as before.
+
 ## A license that has run out, or a clock lock
 
 This applies only to a build that carries a vendor key. Today no build does, so nothing here can happen yet. `docker compose exec app php artisan tindaflow:license-status` shows the state. Selling resumes only when a new shift is allowed again; closing a shift, reports, reprints, voids and refunds are never blocked.

@@ -109,12 +109,14 @@ final class InstallationIdentity
 
     /**
      * What the provider needs to register this PC. `fingerprint` is the host helper's three hashes (ADR-018 decision 4), or null when
-     * there is no fresh hardware file, in which case the provider will refuse the request.
+     * there is no fresh hardware file, in which case the provider will refuse the request. `store` names the shop already on this
+     * computer when it is to be adopted (ADR-019 slice 3), so that the provider registers the id it already has.
      *
      * @param  array<string, string>|null  $fingerprint
+     * @param  array{id: string, name: string}|null  $store
      * @return array<string, mixed>
      */
-    public function request(?array $fingerprint = null): array
+    public function request(?array $fingerprint = null, ?array $store = null): array
     {
         $identity = $this->ensure();
 
@@ -124,7 +126,7 @@ final class InstallationIdentity
             'installation' => $identity['installation'],
             'installation_key' => $identity['public_key'],
             'fingerprint' => $fingerprint,
-        ];
+        ] + ($store === null ? [] : ['store' => $store]);
     }
 
     private static function uuid(): string
