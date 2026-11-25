@@ -4,6 +4,7 @@ namespace Tests\Database;
 
 use App\Models\AuditEvent;
 use App\Models\Store;
+use App\Services\License\FingerprintMatcher;
 use App\Services\License\InstallationIdentity;
 use App\Services\License\LicenseGate;
 use App\Services\License\Renewal\Rfc9421Signer;
@@ -208,6 +209,22 @@ class LicenseRenewalTest extends PostgresSchemaTestCase
         $this->assertSame($this->currentToken, $this->state()->certificate);
         $this->assertNotNull($this->state()->pending_request_id, 'the same request is made again once updated');
         $this->assertStringContainsString('update', (string) $this->state()->last_renewal_error);
+    }
+
+    public function test_when_the_hardware_no_longer_matches_it_gives_the_reference_to_tell_the_provider(): void
+    {
+        $this->fakeControlPlane(['error' => ['code' => 'FINGERPRINT_MISMATCH', 'message' => 'No.']], 403);
+        $reference = FingerprintMatcher::reference(self::testFingerprint());
+
+        $output = $this->renew();
+
+        $this->assertMatchesRegularExpression('/\A[0-9a-f]{16}\z/', $reference);
+        $this->assertStringContainsString("hardware reference {$reference}", $output);
+        $this->assertStringContainsString("hardware reference {$reference}. Nothing was changed.", (string) $this->state()->last_renewal_error, 'stored whole');
+        $this->assertSame($this->currentToken, $this->state()->certificate);
+
+        Artisan::call('tindaflow:license-status');
+        $this->assertStringContainsString("Hardware reference: {$reference}", Artisan::output());
     }
 
     public function test_a_new_certificate_discards_an_offline_extension_and_restarts_the_count_but_not_the_ordinals(): void

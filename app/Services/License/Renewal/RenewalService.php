@@ -10,6 +10,7 @@ use App\Services\License\Contract\CertificateRejected;
 use App\Services\License\Contract\CertificateVerifier;
 use App\Services\License\Contract\Revocation;
 use App\Services\License\Contract\SignedEnvelope;
+use App\Services\License\FingerprintMatcher;
 use App\Services\License\HostHardware;
 use App\Services\License\InstallationIdentity;
 use App\Services\License\LicenseGate;
@@ -218,6 +219,13 @@ final class RenewalService
         if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'INSTALLATION_REPLACED') {
             // Not signed, so it changes nothing here; it only says why.
             return $this->failed('The provider reports that this computer has been replaced by another and is not renewed any more (HTTP 403). Contact your TindaFlow provider.', $now);
+        }
+
+        if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'FINGERPRINT_MISMATCH') {
+            // Kept short enough to be stored whole. The provider approves changed hardware by this reference (ADR-019 slice 3).
+            $reference = FingerprintMatcher::reference($request['fingerprint']);
+
+            return $this->failed("The provider says the hardware does not match this license (HTTP 403). If this computer was repaired, give your provider hardware reference {$reference}. Nothing was changed.", $now);
         }
 
         if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'SOFTWARE_UPDATE_REQUIRED') {
