@@ -269,6 +269,8 @@ Each slice is a small change that can be merged alone and has an exit test.
 
 **Not to be built yet:** the React admin portal; attestation; a multi-product licensing abstraction (no second product has been named); a standby cluster; reinstatement of a revoked PC (needs a decision); the production agent and its installer before the spike says go.
 
+**Pointer, 2026-11-25:** [ADR-020](ADR-020-provider-licensing-admin-screens.md) allows server-rendered licensing admin screens in the control plane. The React portal stays deferred, ADR-019's gates are unchanged, and owner confirmation 5 below stays open.
+
 ## The existing pilot install
 
 Do not upgrade it now. Licensing is no reason to, and its version and use are unknown. **Independently of licensing, if it holds real sales:** copy its newest backup, `docker/.env` (with `APP_KEY`) and certificates off that PC. A database backup contains none of the latter, and the default backup folder is on the same disk.
