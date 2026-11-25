@@ -6773,6 +6773,7 @@ components:
             - {type: 'null'}
           items:
             type: array
+            description: 'In line_number order.'
             items: {$ref: '#/components/schemas/SaleItem'}
           payments:
             type: array

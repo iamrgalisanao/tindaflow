@@ -78,9 +78,10 @@ class Sale extends Model
         return $this->belongsTo(Employee::class);
     }
 
+    /** In the order the lines were sold; `line_number` is unique within a sale. */
     public function items(): HasMany
     {
-        return $this->hasMany(SaleItem::class);
+        return $this->hasMany(SaleItem::class)->orderBy('line_number');
     }
 
     public function payments(): HasMany
