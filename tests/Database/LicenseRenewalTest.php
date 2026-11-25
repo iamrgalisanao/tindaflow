@@ -136,6 +136,20 @@ class LicenseRenewalTest extends PostgresSchemaTestCase
         return Artisan::output();
     }
 
+    public function test_a_new_certificate_discards_an_offline_extension_and_restarts_the_count_but_not_the_ordinals(): void
+    {
+        DB::table('license_state')->where('id', 1)->update(['extended_until' => CarbonImmutable::now()->addDays(40)->format('Y-m-d\TH:i:sP'), 'extension_base_seq' => 5, 'extensions_in_a_row' => 2, 'last_code_ordinal' => 7]);
+        $this->fakeControlPlane(['v' => 1, 'status' => 'RENEWED', 'certificate' => $this->successor(6)]);
+
+        $this->assertSame(0, Artisan::call('tindaflow:license-renew'));
+
+        $state = $this->state();
+        $this->assertNull($state->extended_until);
+        $this->assertNull($state->extension_base_seq);
+        $this->assertSame(0, (int) $state->extensions_in_a_row);
+        $this->assertSame(7, (int) $state->last_code_ordinal, 'no code can ever be applied twice');
+    }
+
     public function test_a_successor_replaces_the_certificate_and_moves_the_mark_to_the_providers_time(): void
     {
         $token = $this->successor(6);

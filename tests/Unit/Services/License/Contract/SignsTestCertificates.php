@@ -4,6 +4,9 @@ namespace Tests\Unit\Services\License\Contract;
 
 use App\Services\License\Contract\Base64Url;
 use App\Services\License\Contract\CanonicalJson;
+use App\Services\License\Contract\CodeText;
+use App\Services\License\Contract\OfflineCode;
+use DateTimeImmutable;
 
 /**
  * Builds and signs activation certificates for tests with a throwaway key pair derived from a fixed seed. TEST ONLY:
@@ -22,6 +25,38 @@ trait SignsTestCertificates
     protected static function testPublicKeyBase64(string $label = self::TEST_KEY_LABEL): string
     {
         return base64_encode(sodium_crypto_sign_publickey(self::testKeyPair($label)));
+    }
+
+    /** The SECOND test key family, for offline codes (ADR-018 decision 1: each key serves one purpose). TEST ONLY. */
+    protected static function testCodePublicKeyBase64(string $label = 'tindaflow-code-test-only'): string
+    {
+        return self::testPublicKeyBase64($label);
+    }
+
+    /** The written form of a code signed with a test code key. */
+    protected static function signCode(OfflineCode $code, string $label = 'tindaflow-code-test-only'): string
+    {
+        $payload = $code->toBytes();
+
+        return CodeText::encode($payload.sodium_crypto_sign_detached($payload, sodium_crypto_sign_secretkey(self::testKeyPair($label))));
+    }
+
+    /**
+     * An extension for the certificate of `payload()`; override any of type, keyId, deployment, installation, baseSeq, days, ordinal, iat.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    protected static function offlineCode(array $overrides = []): OfflineCode
+    {
+        $fields = $overrides + [
+            'type' => OfflineCode::EXTENSION, 'keyId' => 1, 'deployment' => 'A1B2C3D4', 'installation' => '7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40',
+            'baseSeq' => 42, 'days' => 30, 'ordinal' => 1, 'iat' => '2026-11-24T09:00:00+08:00',
+        ];
+
+        return OfflineCode::make(
+            $fields['type'], $fields['keyId'], $fields['deployment'], OfflineCode::digestOf($fields['installation']), $fields['baseSeq'],
+            $fields['days'], $fields['ordinal'], new DateTimeImmutable($fields['iat']),
+        );
     }
 
     /**

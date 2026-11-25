@@ -38,18 +38,38 @@ final class TrustedClock
     }
 
     /**
-     * Sets the mark to the control plane's time, which may be EARLIER than the mark (a clock once set into the future has pushed it
-     * ahead). Only an online renewal's signed `iat` may call this (ADR-018 decision 3), and the caller audits it. Returns the mark
-     * it replaced, or null if there was none.
+     * Sets the mark to the provider's time, which may be EARLIER than the mark (a clock once set into the future has pushed it
+     * ahead). Only a signed provider time may call this, an online renewal's `iat` or a time-reset code's (ADR-018 decision 3),
+     * and the caller audits it. Returns the mark it replaced, or null if there was none.
+     *
+     * `$hostStamp` is the host helper's current file stamp. If it is later than the new mark it was written under the wrong clock,
+     * and the heartbeat must not use it to push the mark forward again; the next file the helper writes counts as usual.
      */
-    public function rebaseline(DateTimeImmutable $controlPlaneTime): ?DateTimeImmutable
+    public function rebaseline(DateTimeImmutable $providerTime, ?DateTimeImmutable $hostStamp = null): ?DateTimeImmutable
     {
         $previous = $this->highWaterMark();
-        $this->ensureRow($controlPlaneTime);
+        $this->ensureRow($providerTime);
 
-        DB::table('license_state')->where('id', 1)->update(['trusted_time_hwm' => self::stamp($controlPlaneTime), 'updated_at' => self::stamp($controlPlaneTime)]);
+        DB::table('license_state')->where('id', 1)->update([
+            'trusted_time_hwm' => self::stamp($providerTime),
+            'ignored_host_stamp' => $hostStamp !== null && $hostStamp > $providerTime ? self::stamp($hostStamp) : null,
+            'updated_at' => self::stamp($providerTime),
+        ]);
 
         return $previous;
+    }
+
+    /** The host helper's clock as a second clock: moves the mark forward to it, except for a stamp set aside by a re-baseline. */
+    public function advanceToHostClock(DateTimeImmutable $hostStamp): bool
+    {
+        $ignored = DB::table('license_state')->where('id', 1)->value('ignored_host_stamp');
+        if ($ignored !== null && (new DateTimeImmutable($ignored))->getTimestamp() === $hostStamp->getTimestamp()) {
+            return false;
+        }
+
+        $this->advanceTo($hostStamp);
+
+        return true;
     }
 
     /** One heartbeat. Returns the mark after it. */

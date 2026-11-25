@@ -45,7 +45,10 @@ final class LicenseEvaluator
             return new LicenseVerdict(LicenseState::Locked, $enforcing, $lock);
         }
 
-        return new LicenseVerdict($this->timeState($certificate->exp, $facts->trustedNow()), $enforcing);
+        // An offline extension can only make the expiry later. It is looked at after the locks above, so it never clears LOCKED.
+        $expiry = $facts->extendedUntil !== null && $facts->extendedUntil > $certificate->exp ? $facts->extendedUntil : $certificate->exp;
+
+        return new LicenseVerdict($this->timeState($expiry, $facts->trustedNow()), $enforcing);
     }
 
     private function lockReason(Certificate $certificate, LocalFacts $facts): ?RefusalReason

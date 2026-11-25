@@ -20,6 +20,8 @@ final class LocalFacts
         public readonly ?array $observedFingerprint = null,
         public readonly bool $revoked = false,
         public readonly bool $chainInvalid = false,
+        /** The expiry an applied offline extension gives THIS certificate (decision 6); the caller passes null for any other certificate. */
+        public readonly ?DateTimeImmutable $extendedUntil = null,
     ) {}
 
     /** The later of the clock and the high-water mark: a clock set back cannot make time run backwards (ADR-018 decision 3). */
