@@ -315,8 +315,9 @@ class ActivateCommandTest extends PostgresSchemaTestCase
 
     public function test_a_database_that_already_holds_sales_is_refused(): void
     {
+        $request = $this->makeRequest();
         Sale::factory()->create();
-        $this->writeBundle($this->makeRequest());
+        $this->writeBundle($request);
 
         $this->assertSame(1, $this->activate());
         $this->assertStringContainsString('already holds sales', Artisan::output());
@@ -325,8 +326,9 @@ class ActivateCommandTest extends PostgresSchemaTestCase
 
     public function test_a_database_with_a_different_store_is_refused(): void
     {
+        $request = $this->makeRequest();
         Store::factory()->create();
-        $this->writeBundle($this->makeRequest());
+        $this->writeBundle($request);
 
         $this->assertSame(1, $this->activate());
         $this->assertStringContainsString('different store', Artisan::output());

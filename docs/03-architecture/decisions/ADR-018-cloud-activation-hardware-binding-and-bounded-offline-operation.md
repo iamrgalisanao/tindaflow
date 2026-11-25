@@ -141,6 +141,12 @@ ADR-019, "Slice 3, part 2", has the reasons and the limits.
 - **Trusted time:** a reply file only ever moves the mark forward (decision 3's re-baseline stays for answers received online and for time-reset codes), and one dated more than 1 hour ahead of the PC's clock is refused.
 - **Decision 6:** a renewal by file restarts the count of extensions, as an online one does.
 
+### Amendment, 2026-11-25: adopting a shop that already trades (ADR-019 slice 3)
+ADR-019, "Slice 3, part 3", has the reasons and the limits.
+- **Request:** with `--adopt` it also carries `store: {id, name}`. The control plane may register that id instead of minting one (changes decision 9).
+- **Apply:** `--bundle --adopt` writes only the license state and the audit entry. Without `--adopt`, activation refuses any database that already has a store.
+- **`--force` is withdrawn.** The ADR-014 migration of decision 11 waits until the till limit is read from the certificate.
+
 ## What this does and does not guarantee
 - **Guarantees:** a copy of the images and volumes moved to another PC **without** the host helper's output fails the fingerprint check at activation and renewal. If a determined copier also copies `hardware.json` (it is unsigned and can be copied with the stack), only fork detection and certificate expiry limit the copy: two copies of one chain that both renew expose a fork, and the first to renew wins, but a fork is undetected if the original stops renewing. An unattended copy stops opening shifts within 30 to under 31 days. The provider holds evidence (a signed check-in log, fork records, the deployment watermark of stage-23 addendum 10, the audit trail) for a license dispute.
 - **Does not guarantee:** it cannot stop a determined host administrator. TindaFlow is self-hosted, offline-capable PHP; any client-side check can be patched by someone who edits the code, rebuilds the image or mounts replacement files. The strength is Medium on purpose (D5): deter and detect. The 30-day life weakens the deterrent compared with the original 7 days: an unattended copy can trade for up to about 31 days, and a revocation or suspension reaches an offline client only after its certificate runs out. The enforceable protection remains the license agreement and copyright law. A copy started later with its clock set to the copy date still trades for the rest of its certificate plus one 18-hour shift, and can apply the same extension as the original.

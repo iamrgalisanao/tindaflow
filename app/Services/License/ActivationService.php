@@ -32,7 +32,11 @@ use Illuminate\Support\Str;
  *
  * It refuses, with a message the technician can act on, whenever something does not add up: no vendor key in the build, a bundle
  * made for another PC, a certificate that disagrees with its bundle, a lapsed certificate, a clock more than an hour behind the
- * provider's, a database that already holds sales, or another store.
+ * provider's, or a database that already holds a shop.
+ *
+ * A shop that is already here is licensed with {@see adopt()} instead (ADR-019 slice 3), which records the license for its store
+ * and changes nothing else: no user, setting, till, location or sale. The settings in the bundle are not applied. That takes the
+ * place of the `--force` that ADR-018 decision 9 named, which would have set a shop up over its own records.
  */
 final class ActivationService
 {
@@ -71,7 +75,7 @@ final class ActivationService
 
         $adminPassword = Str::password(20);
         $result = DB::transaction(function () use ($bundle, $certificate, $admin, $manager, $adminPassword) {
-            $store = Store::find($bundle->storeId) ?? (new Store)->forceFill(['id' => $bundle->storeId, 'name' => $bundle->storeName]);
+            $store = (new Store)->forceFill(['id' => $bundle->storeId, 'name' => $bundle->storeName]);
             $store->save();
 
             $adminUser = $this->users->create($store->id, ['name' => $admin['name'], 'email' => $admin['email'], 'role' => 'ADMIN', 'password' => $adminPassword]);
@@ -84,26 +88,7 @@ final class ActivationService
             $this->locations->create($store->id, $bundle->defaultLocation, true, $adminUser);
             $terminal = $this->terminals->create($store, $bundle->tillCode, $adminUser, 'activation');
 
-            DB::table('license_state')->updateOrInsert(['id' => 1], [
-                'certificate' => $bundle->certificate,
-                'certificate_seq' => $certificate->seq,
-                'revoked' => false,
-                'chain_invalid' => false,
-                'control_plane' => json_encode($bundle->controlPlane, JSON_THROW_ON_ERROR),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-            $this->clock->advanceTo($certificate->iat);
-
-            AuditTrail::record($store->id, 'LICENSE_ACTIVATED', $adminUser->id, 'store', $store->id, null, [
-                'installation' => $bundle->installation,
-                'deployment' => $certificate->deployment,
-                'kid' => $certificate->kid,
-                'seq' => $certificate->seq,
-                'mode' => $certificate->mode,
-                'seats' => $certificate->seats,
-                'exp' => $certificate->exp->format('Y-m-d\TH:i:sP'),
-            ]);
+            $this->recordLicense($bundle, $certificate, $adminUser->id);
 
             return new ActivationResult($store, $adminUser, $terminal, $adminPassword, false, $certificate);
         });
@@ -111,6 +96,78 @@ final class ActivationService
         Cache::forget('deployment_id');
 
         return $result;
+    }
+
+    /**
+     * Licenses the shop already on this computer. The bundle must be for its store, which the provider registers from a request
+     * made with `--request --adopt`. Every other check is the same as a new activation's.
+     *
+     * @throws ActivationRefused
+     */
+    public function adopt(string $bundleToken, ?DateTimeImmutable $now = null): ActivationResult
+    {
+        $now ??= CarbonImmutable::now();
+        [$bundle, $certificate] = $this->verified($bundleToken, $now);
+
+        $state = DB::table('license_state')->where('id', 1)->first();
+        if (($state->certificate ?? null) !== null) {
+            return $this->alreadyActivated($state->certificate, $bundle);
+        }
+
+        $this->assertThisHardware($certificate, $now);
+
+        $result = DB::transaction(function () use ($bundle, $certificate) {
+            $store = $this->shopToAdopt($bundle);
+            $this->recordLicense($bundle, $certificate, null, ['adopted' => true]);
+
+            return new ActivationResult($store, null, null, null, false, $certificate);
+        });
+
+        Cache::forget('deployment_id');
+
+        return $result;
+    }
+
+    private function shopToAdopt(ActivationBundle $bundle): Store
+    {
+        $stores = Store::query()->lockForUpdate()->get();
+
+        if ($stores->isEmpty()) {
+            throw new ActivationRefused('This database holds no shop. For a new installation leave out --adopt. Activation was not applied.');
+        }
+        if ($stores->count() > 1) {
+            throw new ActivationRefused("This database holds {$stores->count()} stores, and a license covers one shop. Activation was not applied; ask your TindaFlow provider.");
+        }
+        if ($stores->first()->id !== $bundle->storeId) {
+            throw new ActivationRefused('This bundle was made for another store than the one here. Make a new request with --adopt, for the provider to register this shop with its own id. Activation was not applied.');
+        }
+
+        return $stores->first();
+    }
+
+    /** The license itself: the certificate, where to renew it, the trusted time it shows, and the audit entry. @param  array<string, mixed>  $extra */
+    private function recordLicense(ActivationBundle $bundle, Certificate $certificate, ?string $actorUserId, array $extra = []): void
+    {
+        DB::table('license_state')->updateOrInsert(['id' => 1], [
+            'certificate' => $bundle->certificate,
+            'certificate_seq' => $certificate->seq,
+            'revoked' => false,
+            'chain_invalid' => false,
+            'control_plane' => json_encode($bundle->controlPlane, JSON_THROW_ON_ERROR),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $this->clock->advanceTo($certificate->iat);
+
+        AuditTrail::record($bundle->storeId, 'LICENSE_ACTIVATED', $actorUserId, 'store', $bundle->storeId, null, [
+            'installation' => $bundle->installation,
+            'deployment' => $certificate->deployment,
+            'kid' => $certificate->kid,
+            'seq' => $certificate->seq,
+            'mode' => $certificate->mode,
+            'seats' => $certificate->seats,
+            'exp' => $certificate->exp->format('Y-m-d\TH:i:sP'),
+        ] + $extra);
     }
 
     /** @return array{0: ActivationBundle, 1: Certificate} */
@@ -178,12 +235,15 @@ final class ActivationService
     private function assertCanActivate(ActivationBundle $bundle): void
     {
         if (DB::table('sales')->exists()) {
-            throw new ActivationRefused('This database already holds sales. Activation is for a new installation and was not applied.');
+            throw new ActivationRefused('This database already holds sales. To license the shop that is here, make a new request with --adopt. Activation was not applied.');
         }
 
-        $other = Store::where('id', '!=', $bundle->storeId)->exists();
-        if ($other) {
-            throw new ActivationRefused('This database already has a different store. Activation was not applied.');
+        if (Store::where('id', '!=', $bundle->storeId)->exists()) {
+            throw new ActivationRefused('This database already has a different store. To license the shop that is here, make a new request with --adopt. Activation was not applied.');
+        }
+
+        if (Store::whereKey($bundle->storeId)->exists()) {
+            throw new ActivationRefused('This database already holds this store. To license it without setting it up again, use --adopt. Activation was not applied.');
         }
     }
 
