@@ -22,18 +22,19 @@ final class TerminalProvisioner
     /**
      * @param  string  $via  where the request came from, recorded in the audit event ('api', 'console', 'activation')
      * @param  array<string, mixed>  $extraAudit  more fields for the audit event's after-metadata
+     * @param  int|null  $activationSeats  for the till an activation creates, before its certificate is the stored one: the tills it covers
      *
      * @throws TerminalLimitReachedException
      */
-    public function create(Store|string $store, string $code, ?User $actor, string $via, array $extraAudit = []): Terminal
+    public function create(Store|string $store, string $code, ?User $actor, string $via, array $extraAudit = [], ?int $activationSeats = null): Terminal
     {
         $storeId = $store instanceof Store ? $store->id : $store;
 
-        return DB::transaction(function () use ($storeId, $code, $actor, $via, $extraAudit) {
+        return DB::transaction(function () use ($storeId, $code, $actor, $via, $extraAudit, $activationSeats) {
             // ADR-014: the licensed till count is checked under a lock on the store row, so two simultaneous requests
             // cannot both take the last seat.
             Store::whereKey($storeId)->lockForUpdate()->first();
-            $this->seats->assertRoomForOneMore();
+            $activationSeats === null ? $this->seats->assertRoomForOneMore() : $this->seats->assertRoomWithin($activationSeats);
 
             $terminal = Terminal::create(['store_id' => $storeId, 'terminal_code' => $code, 'status' => 'ACTIVE']);
 

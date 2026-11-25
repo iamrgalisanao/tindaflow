@@ -96,6 +96,8 @@ class TerminalController extends Controller
             page: (int) $request->query('page', 1),
         );
 
+        $maximum = $seats->maximum();
+
         return response()->json([
             'data' => TerminalSummaryResource::collection($paginator->items()),
             'meta' => [
@@ -104,7 +106,7 @@ class TerminalController extends Controller
                 'total' => $paginator->total(),
                 'last_page' => $paginator->lastPage(),
                 // ADR-014: null when no licensed cap is enforced on this installation.
-                'license' => $seats->maximum() === null ? null : ['max_terminals' => $seats->maximum(), 'in_use' => $seats->inUse()],
+                'license' => $maximum === null ? null : ['max_terminals' => $maximum, 'in_use' => $seats->inUse()],
             ],
         ]);
     }

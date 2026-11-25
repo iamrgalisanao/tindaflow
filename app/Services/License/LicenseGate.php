@@ -87,10 +87,12 @@ final class LicenseGate
             extendedUntil: $extendedUntil,
         );
 
+        // An ADR-014 till license counts only until the installation is activated. Once a certificate has been stored, one that is no
+        // longer accepted is NOT_ACTIVATED: an old license file left behind must never switch the license off (ADR-019 slice 4).
         $publicKey = (string) config('tindaflow.license.public_key');
-        $legacyLicensePresent = $publicKey !== '' && $this->entitlement->verifiedPayload($publicKey) !== null;
+        $legacyLicensePresent = ($row->certificate ?? null) === null && $publicKey !== '' && $this->entitlement->verifiedPayload($publicKey) !== null;
 
-        return new LicenseCheck($this->evaluator->evaluate($certificate, $facts, true, $legacyLicensePresent), $facts->trustedNow());
+        return new LicenseCheck($this->evaluator->evaluate($certificate, $facts, true, $legacyLicensePresent), $facts->trustedNow(), $certificate?->seats);
     }
 
     /**

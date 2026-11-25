@@ -198,7 +198,10 @@ class Activate extends Command
         }
         $tills = app(TerminalSeats::class)->inUse();
         if ($tills > $certificate->seats) {
-            $this->warn("This shop has {$tills} tills and the license covers {$certificate->seats}. Nothing is blocked: the till limit in the license is not enforced yet. Tell your TindaFlow provider.");
+            $effect = $certificate->mode === Certificate::MODE_REPORT
+                ? 'Nothing is blocked in report mode.'
+                : 'The tills already set up keep working; no till can be added, and a revoked one cannot be put back, until the license covers them.';
+            $this->warn("This shop has {$tills} tills and the license covers {$certificate->seats}. {$effect} Tell your TindaFlow provider.");
         }
         if (Shift::where('status', 'OPEN')->exists()) {
             $this->line('A shift is open. It carries on.');

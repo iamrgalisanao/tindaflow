@@ -388,7 +388,13 @@ export default function TerminalsPage() {
 
             <form onSubmit={addTerminal} className="mb-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
                 <h3 className="text-sm font-semibold text-slate-100">Add terminal</h3>
-                {license && (
+                {license && license.max_terminals === 0 && (
+                    <p className="mt-1 text-xs text-slate-500">
+                        The license allows no new till right now. Tills already set up keep working. Check the license, or ask your TindaFlow
+                        provider.
+                    </p>
+                )}
+                {license && license.max_terminals > 0 && (
                     <p className="mt-1 text-xs text-slate-500">
                         {license.in_use} of {license.max_terminals} licensed till{license.max_terminals === 1 ? '' : 's'} in use.
                         {atLimit && ' To add another, revoke one you no longer use, or ask your TindaFlow provider to raise the limit.'}
