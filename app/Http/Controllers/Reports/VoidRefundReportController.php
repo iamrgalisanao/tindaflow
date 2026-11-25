@@ -17,22 +17,24 @@ class VoidRefundReportController extends Controller
     public function voids(Request $request, ReportQueryService $service): Response
     {
         $actor = Auth::guard('web')->user();
-        ['rows' => $rows, 'summary' => $summary] = $service->voids($actor->store_id, $this->fromDate($request), $this->toDate($request));
+        ['rows' => $rows, 'summary' => $summary, 'extra_columns' => $extra] = $service->voids($actor->store_id, $this->fromDate($request), $this->toDate($request));
 
         return $this->reportResponse($request, ['from' => $request->query('from'), 'to' => $request->query('to')], $rows, $summary, [
             'void_id', 'sale_id', 'invoice_number', 'requested_by', 'approved_by', 'reason',
             'terminal_id', 'fiscal_day_id', 'resolved_at', 'sale_grand_total',
+            ...$extra,
         ]);
     }
 
     public function refunds(Request $request, ReportQueryService $service): Response
     {
         $actor = Auth::guard('web')->user();
-        ['rows' => $rows, 'summary' => $summary] = $service->refunds($actor->store_id, $this->fromDate($request), $this->toDate($request));
+        ['rows' => $rows, 'summary' => $summary, 'extra_columns' => $extra] = $service->refunds($actor->store_id, $this->fromDate($request), $this->toDate($request));
 
         return $this->reportResponse($request, ['from' => $request->query('from'), 'to' => $request->query('to')], $rows, $summary, [
             'refund_id', 'sale_id', 'invoice_number', 'requested_by', 'approved_by', 'reason',
             'terminal_id', 'fiscal_day_id', 'refunded_at', 'refund_total',
+            ...$extra,
         ]);
     }
 }

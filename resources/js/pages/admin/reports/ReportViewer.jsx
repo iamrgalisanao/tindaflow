@@ -17,7 +17,7 @@ import {
     SummaryValue,
     exportFailureMessage,
 } from './ReportParts';
-import { reportBySlug } from './reportsRegistry';
+import { reportBySlug, withDocumentColumn } from './reportsRegistry';
 import { cellValue, datePreset, shortId, sumIntegers, sumMoney } from './formatters';
 
 const PAGE_SIZE = 50;
@@ -355,6 +355,9 @@ export default function ReportViewer() {
         setExporting(false);
     }
 
+    // What is drawn: the same report and rows, with one column naming invoices and slips alike where the store uses slips.
+    const shown = useMemo(() => withDocumentColumn(report, data?.rows ?? []), [report, data]);
+
     const statusCounts = useMemo(() => {
         if (!data || !report?.statusFilter) {
             return {};
@@ -371,7 +374,7 @@ export default function ReportViewer() {
         if (!data) {
             return [];
         }
-        let copy = [...data.rows];
+        let copy = [...shown.rows];
         if (report?.statusFilter && statusFilter !== 'all') {
             copy = copy.filter((row) => row[report.statusFilter.key] === statusFilter);
         }
@@ -391,7 +394,7 @@ export default function ReportViewer() {
             });
         }
         return copy;
-    }, [data, sort, report, statusFilter]);
+    }, [data, shown, sort, report, statusFilter]);
 
     const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
     const pageRows = useMemo(() => rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [rows, page]);
@@ -705,14 +708,14 @@ export default function ReportViewer() {
 
             {status === 'ready' && rows.length > 0 && (
                 <>
-                    <ReportCards key={`${page}-${statusFilter}-${slug}`} report={report} rows={pageRows} />
+                    <ReportCards key={`${page}-${statusFilter}-${slug}`} report={shown.report} rows={pageRows} />
 
                     <div className="relative hidden md:block">
                         <div ref={scrollRef} onScroll={updateScroll} className="overflow-x-auto rounded-lg border border-slate-800 [color-scheme:dark]">
                             <table className="w-full min-w-max text-left text-sm">
                                 <thead className="sticky top-0 bg-slate-950 text-[11px] uppercase tracking-wide text-slate-500">
                                     <tr>
-                                        {report.columns.map((column, index) => (
+                                        {shown.report.columns.map((column, index) => (
                                             <th
                                                 key={column.key}
                                                 className={`z-10 border-b border-slate-800 bg-slate-950 px-3 py-2 font-mono ${
@@ -740,13 +743,13 @@ export default function ReportViewer() {
                                             <Fragment key={`${page}-${index}`}>
                                                 {showGroup && (
                                                     <tr className="bg-slate-900">
-                                                        <td colSpan={report.columns.length} className="px-3 py-1.5 text-xs font-semibold text-slate-400">
+                                                        <td colSpan={shown.report.columns.length} className="px-3 py-1.5 text-xs font-semibold text-slate-400">
                                                             {report.groupBy.label}: <span className="font-mono text-emerald-400">{shortId(groupValue)}</span>
                                                         </td>
                                                     </tr>
                                                 )}
                                                 <tr className={`group odd:bg-slate-950/40 hover:bg-slate-900 ${report.rowTone?.(row) ?? ''}`}>
-                                                    {report.columns.map((column, columnIndex) => (
+                                                    {shown.report.columns.map((column, columnIndex) => (
                                                         <td
                                                             key={column.key}
                                                             className={`whitespace-nowrap px-3 py-2 ${
@@ -764,7 +767,7 @@ export default function ReportViewer() {
                                 {totaledColumns.length > 0 && (
                                     <tfoot className="border-t-2 border-slate-700 bg-slate-900">
                                         <tr>
-                                            {report.columns.map((column, index) => (
+                                            {shown.report.columns.map((column, index) => (
                                                 <td
                                                     key={column.key}
                                                     className={`whitespace-nowrap px-3 py-2 font-semibold ${

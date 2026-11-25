@@ -4170,6 +4170,7 @@ paths:
       tags: [Reports]
       x-capability: REPORT_VIEW
       summary: Sales by Date Range
+      description: 'ADR-016 slice 2.2b: in a store that documents sales by slip, or ever has, each row also carries slip_number (null for an invoiced sale; invoice_number is null for a slip sale) and the CSV gains slip_number as its LAST column. A store that has only issued invoices gets neither.'
       parameters:
       - {$ref: '#/components/parameters/FromParam'}
       - {$ref: '#/components/parameters/ToParam'}
@@ -4277,6 +4278,7 @@ paths:
       tags: [Reports]
       x-capability: REPORT_VIEW
       summary: Void Report
+      description: 'ADR-016 slice 2.2b: in a store that documents sales by slip, or ever has, each row also carries slip_number (null for an invoiced sale; invoice_number is null for a slip sale) and the CSV gains slip_number as its LAST column. A store that has only issued invoices gets neither.'
       parameters:
       - {$ref: '#/components/parameters/FromParam'}
       - {$ref: '#/components/parameters/ToParam'}
@@ -4291,6 +4293,7 @@ paths:
       tags: [Reports]
       x-capability: REPORT_VIEW
       summary: Refund Report
+      description: 'ADR-016 slice 2.2b: in a store that documents sales by slip, or ever has, each row also carries slip_number (null for an invoiced sale; invoice_number is null for a slip sale) and the CSV gains slip_number as its LAST column. A store that has only issued invoices gets neither.'
       parameters:
       - {$ref: '#/components/parameters/FromParam'}
       - {$ref: '#/components/parameters/ToParam'}
@@ -4305,6 +4308,7 @@ paths:
       tags: [Reports]
       x-capability: REPORT_VIEW
       summary: Discount Report
+      description: 'ADR-016 slice 2.2b: in a store that documents sales by slip, or ever has, each row also carries slip_number (null for an invoiced sale; invoice_number is null for a slip sale) and the CSV gains slip_number as its LAST column. A store that has only issued invoices gets neither.'
       parameters:
       - {$ref: '#/components/parameters/FromParam'}
       - {$ref: '#/components/parameters/ToParam'}

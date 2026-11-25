@@ -52,6 +52,22 @@ export function mealTypeSubtotals(rows) {
 const dateRange = (defaultPreset) => ({ type: 'date_range', defaultPreset });
 
 const col = (key, label, format, extra = {}) => ({ key, label, format, ...extra });
+
+/**
+ * For a store that uses slips (ADR-016), the server adds `slip_number` to the rows of the reports that name a sale's document.
+ * The "Invoice #" column then shows whichever number the sale has, under a heading that says so. Any other report, and a store
+ * that has only ever issued invoices, comes back as it was.
+ */
+export function withDocumentColumn(report, rows) {
+    if (!report || !rows.some((row) => 'slip_number' in row)) {
+        return { report, rows };
+    }
+
+    return {
+        report: { ...report, columns: report.columns.map((column) => (column.key === 'invoice_number' ? col('document_number', 'Invoice / slip #', column.format) : column)) },
+        rows: rows.map((row) => ({ ...row, document_number: row.invoice_number ?? row.slip_number ?? null })),
+    };
+}
 const right = { align: 'right' };
 const center = { align: 'center' };
 
