@@ -143,6 +143,8 @@ An older till license (`license.public_key`) applies until this step. Adopting t
 
 ## A license that has run out, or a clock lock
 
+The till warns whoever is selling during the last 7 days, and, once no new shift can be opened, says when the open shift stops selling. A build with no vendor key, and report mode, show nothing.
+
 This applies only to a build that carries a vendor key. Today no build does, so nothing here can happen yet. `docker compose exec app php artisan tindaflow:license-status` shows the state. Selling resumes only when a new shift is allowed again; closing a shift, reports, reprints, voids and refunds are never blocked.
 
 - **With internet:** choose **Check license now** on the License screen, or run `docker compose exec app php artisan tindaflow:license-renew`. If the provider had suspended the shop, it must resume it first.

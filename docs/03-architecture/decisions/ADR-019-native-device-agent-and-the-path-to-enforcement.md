@@ -233,6 +233,21 @@ Only adding a till, or putting a revoked one back, is limited (`TerminalSeats`, 
 
 **Limits:** as ADR-014 said, whoever controls the server can add a till row in the database; the limit guards the application's own ways of adding one. There is no command to change a deployment's mode from report to enforce. The Terminals screen's new wording is tested by a component test, not seen in a browser. Nothing has run on a real shop computer.
 
+## The till warning, built 2026-11-25
+
+ADR-018 warned managers only. Whoever sells could first learn of the license when a shift would not open, or when an open shift stopped selling after its 18 hours. The till now shows a banner:
+
+| When | What the till says |
+|---|---|
+| WARNING (the last 7 days, an extension counted) | the date it runs out, and that no new shift opens after it (amber) |
+| A new shift would be refused, a shift is open | the reason, and the time that shift stops selling (red) |
+| the same, 18 hours past, on trusted time | the shift can no longer sell but can be closed (red) |
+| A new shift would be refused, none open | the reason, and that none can be opened (red) |
+
+It says nothing when nothing will be refused: no vendor key, or report mode. It comes from a new read-only operation, `licenseTillNotice`, for any user on an enrolled till, which carries no license detail. The till asks when it changes step and every 5 minutes; a failed request shows nothing, so the warning can never stop a sale. Checked in a browser with a test-signed license.
+
+**Limits:** the banner can lag a change by up to 5 minutes. The time shown for an open shift is its opening plus 18 hours; if the computer's clock has been set back, sales stop earlier than the clock suggests, and the banner then says so only once they have stopped. It is not shown on the till's setup and "another cashier's shift" screens, where nothing can be sold. A lock that arrives without warning (hardware, clock, revocation) cannot be announced in advance.
+
 ## Order of work
 
 Each slice is a small change that can be merged alone and has an exit test.

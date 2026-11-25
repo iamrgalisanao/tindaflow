@@ -3785,6 +3785,29 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+  /license/till-notice:
+    get:
+      operationId: licenseTillNotice
+      tags: [License]
+      summary: What the till should warn whoever is selling about
+      description: 'ADR-019, the till warning. Any signed-in user on an enrolled terminal; no capability, since a cashier is who would meet the refusal. notice is null unless something will be refused: always null in a build with no vendor key, for a report-mode certificate, and while the license has more than 7 days to run. It carries no certificate or deployment detail. Never gated by the license itself.'
+      security:
+      - cookieAuth: []
+        terminalCookieAuth: []
+      responses:
+        '200':
+          description: The warning, if there is one
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [notice]
+                properties:
+                  notice:
+                    allOf: [{$ref: '#/components/schemas/LicenseTillNotice'}]
+                    nullable: true
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /license/codes:
     post:
       operationId: licenseCodeApply
@@ -5333,6 +5356,14 @@ components:
             status: {type: string, enum: [FRESH, STALE, MISSING, INVALID]}
             generated_at: {type: string, format: date-time, nullable: true}
         accepts_offline_codes: {type: boolean}
+    LicenseTillNotice:
+      type: object
+      properties:
+        kind: {type: string, enum: [EXPIRING, NEW_SHIFT_REFUSED]}
+        valid_until: {type: string, format: date-time, nullable: true, description: 'EXPIRING only: how long the license runs, an offline extension included'}
+        reason: {type: string, nullable: true, description: 'NEW_SHIFT_REFUSED only: NOT_ACTIVATED, EXPIRED, CLOCK_ROLLBACK, FINGERPRINT_MISMATCH, REVOKED or CHAIN_INVALID'}
+        sales_stop_at: {type: string, format: date-time, nullable: true, description: 'when the terminal''s open shift stops selling (18 hours after it opened); null with no open shift'}
+        sales_stopped: {type: boolean, description: 'the open shift can no longer sell, judged on trusted time'}
     Capability:
       type: string
       description: 'The full Stage 2 capability catalog (domain-model.md §2.2), including the six additions synced back into Stage 2 during Stage 4 remediation pass 2 (2026-09-16) — CATALOG_MANAGE, AUDIT_VIEW, JOURNAL_VIEW, USER_MANAGE, TERMINAL_MANAGE, FISCAL_CONFIGURATION_MANAGE — so this enum and Stage 2''s canonical list never drift again. This is a fixed enum of string constants, not a dynamic/configurable permission system — see api-design.md §4 for the role→capability mapping and rationale.

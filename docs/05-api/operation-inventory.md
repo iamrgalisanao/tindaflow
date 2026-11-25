@@ -740,3 +740,9 @@ Session only, no terminal. All three are `LICENSE_MANAGE` (MANAGER, ADMIN). None
 | GET | /license | licenseStatus | session | false | `LICENSE_MANAGE` | n/a | — | 200 LicenseStatus | 401, 403 |
 | POST | /license/renew | licenseRenew | session | false | `LICENSE_MANAGE` | no (a repeat is harmless: the renewal keeps its own request id) | — | 200 {outcome, message, license} | 401, 403, 429 `RATE_LIMITED` |
 | POST | /license/codes | licenseCodeApply | session | false | `LICENSE_MANAGE` | no (a code is used once) | {code} | 200 {message, license} | 401, 403, 422 `LICENSE_CODE_REFUSED` / `VALIDATION_FAILED`, 429 `RATE_LIMITED` |
+
+The till's warning (ADR-019, 2026-11-25) is separate: session **and** enrolled terminal, no capability, never gated.
+
+| Method | Path | operationId | Auth | Terminal | Capability | Idempotent | Request | Response | Errors |
+|---|---|---|---|---|---|---|---|---|---|
+| GET | /license/till-notice | licenseTillNotice | session | **true** | — (any user at the till) | n/a | — | 200 {notice: LicenseTillNotice or null} | 401, 403 |
