@@ -15,7 +15,10 @@ final class RenewalResult
 
     public const FAILED = 'FAILED';
 
-    public function __construct(public readonly string $outcome, public readonly string $message) {}
+    /** A request file was made for a shop with no internet; `document` holds it. */
+    public const REQUESTED = 'REQUESTED';
+
+    public function __construct(public readonly string $outcome, public readonly string $message, public readonly ?string $document = null) {}
 
     public function failed(): bool
     {

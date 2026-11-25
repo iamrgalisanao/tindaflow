@@ -3,6 +3,7 @@
 namespace Tests\CrossRepo;
 
 use App\Models\AuditEvent;
+use App\Models\Sale;
 use App\Models\Store;
 use App\Services\License\Contract\Base64Url;
 use App\Services\License\InstallationIdentity;
@@ -11,6 +12,7 @@ use App\Services\License\LicenseState;
 use App\Services\License\RefusalReason;
 use App\Support\DeploymentId;
 use Carbon\CarbonImmutable;
+use Closure;
 use DateTimeImmutable;
 use GuzzleHttp\Client;
 use Illuminate\Http\Client\Request;
@@ -280,6 +282,174 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         // The heartbeat must not take the wrongly stamped hardware file as the time again.
         Artisan::call('tindaflow:license-heartbeat');
         $this->assertSame(LicenseState::Active, $this->licenseState());
+    }
+
+    // The ways back to trading (ADR-019 slice 3). Each is drilled on a shop that has traded, and may change nothing but licensing
+    // state and the audit log, which only gains licensing entries.
+
+    public function test_an_expired_shop_with_internet_trades_again_after_one_online_renewal(): void
+    {
+        $this->activateAndTrade();
+        $this->letTheLicenseRunOut();
+
+        $this->assertOnlyLicensingChanges(fn () => $this->assertRenewal(0, 'Renewed: certificate 2'));
+
+        $this->assertTradingAgain();
+    }
+
+    public function test_a_shop_that_expired_while_suspended_trades_again_once_resumed(): void
+    {
+        $this->activateAndTrade();
+        $this->artisanThere(['license:suspend', $this->deploymentCode, '--reason=Unpaid']);
+        $this->letTheLicenseRunOut();
+        $this->assertRenewal(1, 'HTTP 403');
+        $this->assertSame(LicenseState::Expired, $this->licenseState());
+
+        $this->artisanThere(['license:resume', $this->deploymentCode, '--reason=Paid']);
+
+        $this->assertOnlyLicensingChanges(fn () => $this->assertRenewal(0, 'Renewed: certificate 2'));
+        $this->assertTradingAgain();
+    }
+
+    public function test_an_expired_shop_with_no_internet_trades_again_by_file(): void
+    {
+        $this->activateAndTrade();
+        $this->letTheLicenseRunOut();
+
+        $this->assertOnlyLicensingChanges(function () {
+            $reply = $this->renewByFile();
+            $this->assertSame(0, Artisan::call('tindaflow:license-renew', ['--apply' => $reply]), Artisan::output());
+        });
+
+        $this->assertTradingAgain();
+        $this->assertSame(2, $this->heldSeq());
+        $this->assertFalse($this->lastRenewalAudit()['chain_gap']);
+        Http::assertNothingSent();
+    }
+
+    public function test_a_shop_that_never_gets_the_internet_can_be_renewed_by_file_again_and_again(): void
+    {
+        $this->activateAndTrade();
+
+        foreach ([2, 3] as $seq) {
+            $this->letTheLicenseRunOut();
+            $this->assertSame(0, Artisan::call('tindaflow:license-renew', ['--apply' => $this->renewByFile()]), Artisan::output());
+            $this->assertSame($seq, $this->heldSeq());
+            $this->assertTradingAgain();
+        }
+
+        $this->assertSame(0, $this->registryEvents('CHAIN_FORKED'));
+    }
+
+    public function test_a_revocation_reaches_a_shop_with_no_internet_by_file(): void
+    {
+        $this->activateAndTrade();
+        $this->artisanThere(['license:revoke', $this->deploymentCode, '--reason=Breach'], input: $this->deploymentCode."\n");
+
+        $this->assertSame(0, Artisan::call('tindaflow:license-renew', ['--apply' => $this->renewByFile()]), Artisan::output());
+
+        $this->assertSame(RefusalReason::Revoked, app(LicenseGate::class)->check()->verdict->shiftOpenRefusal());
+        Http::assertNothingSent();
+    }
+
+    public function test_a_clock_once_set_ahead_is_cleared_by_an_online_renewal_the_same_day(): void
+    {
+        $this->activateAndTrade();
+        $this->setTheClockAheadAndBack();
+        // The latest certificate is hours old, not a day: an ordinary renewal would be answered with the one already held.
+        $this->registry()->exec("update issued_certificates set iat = now() - interval '2 hours'");
+        $this->fakeHostHardware();
+
+        $this->assertOnlyLicensingChanges(fn () => $this->assertRenewal(0, 'Renewed: certificate 2'));
+
+        $this->assertTradingAgain();
+    }
+
+    private function activateAndTrade(): void
+    {
+        $this->activate();
+        Sale::factory()->create();
+    }
+
+    /**
+     * As if 40 days had passed with no renewal. The control plane runs on the real clock, so instead of moving time, the certificate
+     * the shop holds (and the registry's record of its age) are made 40 days old: the same certificate number, signed by the same key.
+     */
+    private function letTheLicenseRunOut(): void
+    {
+        $payload = json_decode((string) Base64Url::decode(explode('.', (string) DB::table('license_state')->value('certificate'))[0]), true);
+        $now = CarbonImmutable::now()->setTimezone('Asia/Manila');
+        $payload['iat'] = $now->subDays(40)->format('Y-m-d\TH:i:sP');
+        $payload['exp'] = $now->subDays(10)->format('Y-m-d\TH:i:sP');
+
+        DB::table('license_state')->where('id', 1)->update(['certificate' => self::sign($payload)]);
+        $this->registry()->exec("update issued_certificates set iat = now() - interval '40 days'");
+
+        $this->assertSame(RefusalReason::Expired, app(LicenseGate::class)->check()->verdict->shiftOpenRefusal(), 'a new shift is refused');
+    }
+
+    private function setTheClockAheadAndBack(): void
+    {
+        $this->travelTo(CarbonImmutable::now()->addDays(60));
+        $this->fakeHostHardware(generatedAt: CarbonImmutable::now()->format('Y-m-d\TH:i:sP'));
+        Artisan::call('tindaflow:license-heartbeat');
+        $this->travelBack();
+        $this->assertSame(RefusalReason::ClockRollback, app(LicenseGate::class)->check()->verdict->shiftOpenRefusal());
+    }
+
+    /** The whole offline round trip through the real commands of both: request here, answered there. @return string the reply file */
+    private function renewByFile(): string
+    {
+        $request = $this->workDirectory.'/renewal-request.txt';
+        $reply = $this->workDirectory.'/renewal-reply-'.bin2hex(random_bytes(4)).'.json';
+
+        $this->assertSame(0, Artisan::call('tindaflow:license-renew', ['--request' => true, '--out' => $request]), Artisan::output());
+        $this->artisanThere(['license:renew-file', $request, '--out='.$reply]);
+
+        return $reply;
+    }
+
+    private function assertTradingAgain(): void
+    {
+        $verdict = app(LicenseGate::class)->check()->verdict;
+        $this->assertSame(LicenseState::Active, $verdict->state);
+        $this->assertNull($verdict->shiftOpenRefusal(), 'a new shift may open');
+    }
+
+    private function assertOnlyLicensingChanges(Closure $wayBack): void
+    {
+        $shop = $this->shopRecords();
+        $audit = $this->auditRecords();
+        $this->assertNotSame('0:', $shop['sales'], 'the drill is only worth something with a sale to keep');
+
+        $wayBack();
+
+        $this->assertSame($shop, $this->shopRecords(), 'nothing outside licensing changed');
+        $after = $this->auditRecords();
+        $this->assertSame($audit, array_intersect_key($after, $audit), 'no audit entry was changed or removed');
+        foreach (AuditEvent::whereKey(array_keys(array_diff_key($after, $audit)))->pluck('event_type') as $type) {
+            $this->assertStringStartsWith('LICENSE_', $type);
+        }
+    }
+
+    /** @return array<string, string> table => how many rows and a digest of them, for everything that is not licensing, audit or cache */
+    private function shopRecords(): array
+    {
+        $records = [];
+        $tables = DB::select("select table_name as name from information_schema.tables where table_schema = current_schema() and table_type = 'BASE TABLE' order by 1");
+        foreach (array_column($tables, 'name') as $table) {
+            if (! in_array($table, ['license_state', 'audit_events', 'cache', 'cache_locks', 'sessions'], true)) {
+                $records[$table] = DB::selectOne("select count(*) || ':' || coalesce(md5(string_agg(t::text, ',' order by t::text)), '') as digest from \"{$table}\" t")->digest;
+            }
+        }
+
+        return $records;
+    }
+
+    /** @return array<string, string> audit entry id => digest */
+    private function auditRecords(): array
+    {
+        return array_column(DB::select('select id, md5(t::text) as digest from audit_events t order by id'), 'digest', 'id');
     }
 
     /** The code as the registry holds it; license:codes prints this same text. */

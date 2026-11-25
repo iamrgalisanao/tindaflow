@@ -108,7 +108,30 @@ The control plane's tests now run on PostgreSQL as well as SQLite, in a CI job w
 
 **Limits:** the drill runs on Linux; the steps have **not** been run on Windows or on the pilot PC. It does not exercise the off-machine copy (rclone) or a public host's certificate renewal. A shop with no `BACKUP_PASSPHRASE` still has only database backups, and says so only in its log. Moving a license to other hardware is a later part of slice 3.
 
-**The rest of slice 3 is not built:** a way back to trading for an expired, locked or revoked shop; adopting an existing store; replacing the PC; re-chaining after a restored backup; rebuilding the control plane and rotating keys.
+**The rest of slice 3, when part 1 was built:** a way back to trading for an expired, locked or revoked shop (part 2, below); adopting an existing store; replacing the PC; re-chaining after a restored backup; rebuilding the control plane and rotating keys.
+
+## Slice 3, part 2, built 2026-11-25: ways back to trading
+
+Every way a shop can be refused a new shift, and its way back. "Drilled" means the cross-repository test runs the real client against the real control plane on a database holding a sale, and checks that nothing but licensing state changed and that the audit log only gained licensing entries.
+
+| Refused because | Way back | State |
+|---|---|---|
+| Expired, with internet | Online renewal | worked already; now drilled |
+| Expired while suspended | The provider resumes; online renewal | worked already; now drilled |
+| Expired, no internet | Extension codes (two in a row); then **renewal by file** | file renewal is new, drilled |
+| Clock behind the recorded time, with internet | Correct the clock; online renewal | **was broken for a day after each renewal**, fixed, drilled |
+| Clock behind the recorded time, no internet | Correct the clock; time-reset code | worked already, drilled |
+| Revoked | **None. It needs the owner's decision.** A revocation can now also arrive by file | unchanged |
+| Hardware changed (2 of 3 or more) | None yet: "replacing the PC" and approving a new baseline | not built |
+| Chain forked (copy, or an old backup restored) | None yet: "re-chaining" | not built |
+| The build no longer accepts the stored certificate, or the identity file is lost | None yet: "rotating keys" and "replacing the PC" | not built |
+
+- **The defect.** The control plane answers a certificate under 24 hours old with that same certificate, and the client resets its trusted time only when it receives a new one. So an online renewal could not clear a clock lock until a day after the last certificate, although ADR-018 decision 3 says it does. A locked client now says so (`clock_locked`), and the control plane then issues a new certificate if the last one is over **1 hour** old (the length is an engineering choice, to bound how fast certificate numbers can grow).
+- **Renewal by file.** `tindaflow:license-renew --request` writes the renewal request signed with the installation's own key; `license:renew-file` on the control plane applies every rule of the machine API and writes the reply; `--apply` takes it with the same checks as an online answer. The provider may answer the same request again after the 72 hours, since a file is easily lost.
+- **A reply file never moves trusted time back.** It can be kept and applied weeks later, so moving the mark to its time would give that time again. It only moves the mark forward, and is refused if it is dated more than an hour ahead of the PC's clock. A clock lock is cleared by an online renewal or a time-reset code.
+- **A decision to confirm:** a renewal by file counts as a renewal, so it also restarts the count of extension codes. A shop that never has internet can therefore go on indefinitely, one file at a time. The provider decides each one, and suspension and revocation apply. ADR-018 decision 6 says "2 in a row without an online renewal"; the engineering reading is that its purpose is to make the PC check in with the provider, which the file does.
+
+**Limits:** no screen for the files (console only, as activation is). A reply applied after its certificate has run out is refused, and a reply that is made but never applied leaves the registry one certificate ahead: the same request gets the same reply again, but once the PC asks something new it is a fork, which has no way back until re-chaining is built. The drill makes a license old by re-signing it, with the test key, as 40 days old; it does not wait. Nothing here has run on a real shop computer.
 
 ## Order of work
 
