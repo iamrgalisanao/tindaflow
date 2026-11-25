@@ -20,7 +20,8 @@ class TerminalFactory extends Factory
     {
         return [
             'store_id' => Store::factory(),
-            'terminal_code' => 'T-'.fake()->unique()->numerify('##'),
+            // Two digits from 10 up: tests rename a till to T-01 or T-02, which must never already be taken.
+            'terminal_code' => 'T-'.fake()->unique()->numberBetween(10, 99),
             'status' => 'ACTIVE',
             'activated_at' => now(),
         ];
