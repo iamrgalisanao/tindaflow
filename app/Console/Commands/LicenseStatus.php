@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\License\Entitlement;
+use App\Services\License\FingerprintMatcher;
 use App\Services\License\HostHardware;
 use App\Services\License\LicenseGate;
 use App\Services\License\OfflineCodeService;
@@ -72,5 +73,8 @@ class LicenseStatus extends Command
         }
         $this->line('Trusted time mark: '.($mark?->format('Y-m-d H:i:sP') ?? '(none yet; the heartbeat has not run)'));
         $this->line('Hardware file: '.strtolower($reading->status).($reading->generatedAt !== null ? ', written '.$reading->generatedAt->format('Y-m-d H:i:sP') : '').($reading->isFresh() ? '.' : ' (activation and renewal need a readable file, under 26 hours old and not dated in the future).'));
+        if ($reading->isFresh()) {
+            $this->line('Hardware reference: '.FingerprintMatcher::reference($reading->fingerprint).' (your provider asks for it to approve changed hardware).');
+        }
     }
 }

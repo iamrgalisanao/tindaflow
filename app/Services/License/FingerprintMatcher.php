@@ -26,6 +26,19 @@ final class FingerprintMatcher
         return $matched;
     }
 
+    /**
+     * A short name for the hardware as it is now, which the shop reads to the provider so that changed hardware can be approved
+     * (ADR-019 slice 3). The provider's service computes the same one from what a renewal reports. It gives away no component.
+     *
+     * @param  array<string, string>  $observed
+     */
+    public static function reference(array $observed): string
+    {
+        ksort($observed);
+
+        return substr(hash('sha256', (string) json_encode($observed)), 0, 16);
+    }
+
     public function isAcceptable(int $matched): bool
     {
         return $matched >= self::REQUIRED_MATCHES;

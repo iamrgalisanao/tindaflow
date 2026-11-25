@@ -122,7 +122,8 @@ Every way a shop can be refused a new shift, and its way back. "Drilled" means t
 | Clock behind the recorded time, with internet | Correct the clock; online renewal | **was broken for a day after each renewal**, fixed, drilled |
 | Clock behind the recorded time, no internet | Correct the clock; time-reset code | worked already, drilled |
 | Revoked | **None. It needs the owner's decision.** A revocation can now also arrive by file | unchanged |
-| Hardware changed (2 of 3 or more) | Replacing the computer (part 4) | built in part 4, drilled |
+| Hardware changed (2 of 3 or more), the same computer repaired | The provider approves that hardware (part 7) | built in part 7, drilled |
+| Hardware changed because it is another computer | Replacing the computer (part 4) | built in part 4, drilled |
 | Chain forked: an old backup restored, or an answer lost for good | The provider approves a reconnection (part 5) | built in part 5, drilled |
 | Chain forked: a copy of the installation | None, and that is the point: only the copy the provider does not approve is refused | as designed |
 | The identity file is lost | Replacing the computer (part 4) | built in part 4 |
@@ -198,6 +199,18 @@ ADR-018 decision 5 names a provider "Re-chain" action for a restore older than t
 - **No real keys exist, and no hardware security module, key ceremony or key backup.** Those are slice 7. Nothing here has run on a real server or shop computer.
 
 This completes the recovery capabilities named for slice 3. Still open within them: reinstating a revoked computer (needs the owner's decision), approving a new hardware baseline, and how the provider verifies an owner before reconnecting a chain.
+
+## Slice 3, part 7, built 2026-11-25: approving changed hardware
+
+Part 4 left a repaired computer with one way back, being "replaced" by itself, which gives it a new identity and retires the old one. One changed value was tolerated but could never become the approved one, so the next change locked the shop.
+
+- **`license:approve-hardware CODE --hardware=REF --reason=`** approves ONE exact set of hardware the registry has received from the current computer, for **7 days** (`licensing.hardware_approval_days`) and one use. The renewal reporting it, online or by file, gets a certificate made for it, however young the last one is, and that set becomes the approved one. `--cancel` withdraws it; `license:after-restore` withdraws a waiting one. Nothing else is overridden: the chain, suspension, revocation and replacement still decide, and a refusal does not spend it.
+- **The reference** is the first 16 hex digits of SHA-256 over the three component hashes. The client shows it in `tindaflow:license-status` and in the message of a refused renewal; the provider computes the same one from what was sent. No component value is shown.
+- The comparison rules of decision 4 are unchanged: the approved hardware never moves by itself.
+- **No wire format changes.**
+- **Proven:** cross-repository drills lock a shop with a sale by changing two values, approve the reference the client itself shows, and recover online and by file, changing only licensing state. Removing the exact-hardware, expiry, one-use, new-certificate or reported-only safeguard makes a test fail.
+
+**Limits:** as with reconnecting a chain, **nothing here can tell the shop's computer from a copy**. A copy on other hardware is reported and listed like a repair, and would be licensed if its reference were approved, so the protection is that the provider takes the reference from the owner; how the owner is verified is not defined. Approving three changed values is allowed, with a warning, because a new main board can change all three; the limit on what counts as "the same computer" is the provider's judgement. If the hardware changes again after a renewal whose answer was lost, the retry is a fork and needs a reconnection as well. No concurrency test of its own: the approval is spent under the same installation lock as every renewal. Nothing has run on real hardware.
 
 ## Order of work
 

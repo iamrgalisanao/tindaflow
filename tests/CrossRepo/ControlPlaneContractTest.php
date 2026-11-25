@@ -585,6 +585,64 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         $this->assertTradingAgain();
     }
 
+    // ADR-019 slice 3: the same computer after a repair. Enough of its hardware reads differently that its license locks, until the
+    // provider approves that exact hardware, by the reference the computer itself shows.
+
+    public function test_a_repaired_computer_trades_again_once_the_provider_approves_its_hardware(): void
+    {
+        $this->activateAndTrade();
+        $reference = $this->repairTheComputer();
+        $this->assertSame(LicenseState::Locked, $this->licenseState());
+        $this->assertRenewal(1, "hardware reference {$reference}");
+        $this->assertStringContainsString($reference, $this->artisanThere(['license:approve-hardware', $this->deploymentCode]));
+        $this->artisanThere(['license:approve-hardware', $this->deploymentCode, '--hardware='.$reference, '--reason=Board replaced; owner read the reference']);
+
+        $this->assertOnlyLicensingChanges(fn () => $this->assertRenewal(0, 'Renewed: certificate 2'));
+
+        $this->assertTradingAgain();
+        $this->assertEquals($this->repairedHardware(), $this->heldFingerprint());
+        $this->ageLatestCertificate();
+        $this->assertRenewal(0, 'Renewed: certificate 3');
+        $this->assertSame(1, $this->registryEvents('HARDWARE_BASELINE_CHANGED'));
+        $this->assertSame(1, $this->registryEvents('FINGERPRINT_MISMATCH'));
+    }
+
+    public function test_a_repaired_computer_with_no_internet_gets_its_hardware_approved_by_file(): void
+    {
+        $this->activateAndTrade();
+        $reference = $this->repairTheComputer();
+        $request = $this->workDirectory.'/renewal-request.txt';
+        $reply = $this->workDirectory.'/renewal-reply.json';
+        $this->assertSame(0, Artisan::call('tindaflow:license-renew', ['--request' => true, '--out' => $request]), Artisan::output());
+        $this->assertStringContainsString("hardware reference {$reference}", $this->artisanThere(['license:renew-file', $request, '--out='.$reply], 1));
+        $this->artisanThere(['license:approve-hardware', $this->deploymentCode, '--hardware='.$reference, '--reason=Board replaced; owner read the reference']);
+
+        $this->assertOnlyLicensingChanges(function () use ($request, $reply) {
+            $this->artisanThere(['license:renew-file', $request, '--out='.$reply]);
+            $this->assertSame(0, Artisan::call('tindaflow:license-renew', ['--apply' => $reply]), Artisan::output());
+        });
+
+        $this->assertSame(2, $this->heldSeq());
+        $this->assertTradingAgain();
+    }
+
+    /** @return array<string, string> two of the three values read differently, as after a new main board */
+    private function repairedHardware(): array
+    {
+        return ['smbios_uuid' => hash('sha256', 'new board uuid'), 'board_serial' => hash('sha256', 'new board serial')] + self::testFingerprint();
+    }
+
+    /** @return string the hardware reference the computer itself shows afterwards */
+    private function repairTheComputer(): string
+    {
+        $this->fakeHostHardware($this->repairedHardware());
+        Artisan::call('tindaflow:license-status');
+        $output = Artisan::output();
+        $this->assertSame(1, preg_match('/Hardware reference: ([0-9a-f]{16})/', $output, $found), $output);
+
+        return $found[1];
+    }
+
     /** The provider signs with a new key from now on, and lists the old one as an earlier one, or as stolen too. */
     private function changeProviderKey(bool $compromised): void
     {
