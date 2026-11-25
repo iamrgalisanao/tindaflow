@@ -6,6 +6,7 @@ use App\Enums\SaleDocumentMode;
 use App\Models\Store;
 use App\Services\Audit\AuditTrail;
 use App\Services\License\Contract\ActivationBundle;
+use App\Services\License\Contract\Base64Url;
 use App\Services\License\Contract\BundleVerifier;
 use App\Services\License\Contract\Certificate;
 use App\Services\License\Contract\CertificateRejected;
@@ -37,6 +38,9 @@ use Illuminate\Support\Str;
  * A shop that is already here is licensed with {@see adopt()} instead (ADR-019 slice 3), which records the license for its store
  * and changes nothing else: no user, setting, till, location or sale. The settings in the bundle are not applied. That takes the
  * place of the `--force` that ADR-018 decision 9 named, which would have set a shop up over its own records.
+ *
+ * A licensed shop on a new or repaired computer is licensed to it with {@see replace()} (ADR-019 slice 3), likewise changing nothing
+ * but the license. The provider has by then retired the old computer.
  */
 final class ActivationService
 {
@@ -53,6 +57,15 @@ final class ActivationService
         private readonly HostHardware $hardware,
         private readonly FingerprintMatcher $matcher,
     ) {}
+
+    /** The installation the stored license names. Read without checking the signature, so only for matching and for the record. */
+    public static function licensedInstallation(): ?string
+    {
+        $token = (string) DB::table('license_state')->where('id', 1)->value('certificate');
+        $payload = json_decode((string) Base64Url::decode(explode('.', $token)[0]), true);
+
+        return is_array($payload) && is_string($payload['installation'] ?? null) ? $payload['installation'] : null;
+    }
 
     /**
      * @param  array{name: string, email: string}  $admin
@@ -117,7 +130,7 @@ final class ActivationService
         $this->assertThisHardware($certificate, $now);
 
         $result = DB::transaction(function () use ($bundle, $certificate) {
-            $store = $this->shopToAdopt($bundle);
+            $store = $this->onlyShop($bundle, 'For a new installation leave out --adopt.', 'Make a new request with --adopt, for the provider to register this shop with its own id.');
             $this->recordLicense($bundle, $certificate, null, ['adopted' => true]);
 
             return new ActivationResult($store, null, null, null, false, $certificate);
@@ -128,18 +141,64 @@ final class ActivationService
         return $result;
     }
 
-    private function shopToAdopt(ActivationBundle $bundle): Store
+    /**
+     * Licenses the shop on this computer to this computer, in place of the one it was licensed to before. The bundle must answer
+     * the replacement request made here (`--request --replace`), whose new identity takes over together with the license: if the
+     * power fails between the two, applying the same bundle again finishes the job.
+     *
+     * @throws ActivationRefused
+     */
+    public function replace(string $bundleToken, ?DateTimeImmutable $now = null): ActivationResult
+    {
+        $now ??= CarbonImmutable::now();
+        $pending = $this->identity->pending();
+        $noRequest = 'This computer has made no replacement request. Make one with --request --replace and send it to your TindaFlow provider.';
+        // With nothing pending this can only be a repeat, for which the bundle must be this computer's own.
+        [$bundle, $certificate] = $this->verified($bundleToken, $now, $pending, $pending === null ? $noRequest : null);
+        $licensed = self::licensedInstallation();
+
+        if ($licensed === $bundle->installation) {
+            if ($pending !== null) {
+                $this->identity->promotePending();
+            }
+
+            return $this->alreadyActivated((string) DB::table('license_state')->where('id', 1)->value('certificate'), $bundle);
+        }
+        if ($pending === null) {
+            throw new ActivationRefused($noRequest);
+        }
+        if (DB::table('license_state')->where('id', 1)->value('revoked')) {
+            throw new ActivationRefused("This shop's license has been revoked, and replacing the computer does not undo that. Activation was not applied.");
+        }
+
+        $this->assertThisHardware($certificate, $now);
+
+        $result = DB::transaction(function () use ($bundle, $certificate, $licensed) {
+            $store = $this->onlyShop($bundle, 'Restore the shop first (docker/README.md, "Restoring a whole shop").', 'Check that the right shop was restored here.');
+            $this->recordLicense($bundle, $certificate, null, ['replaced_installation' => $licensed]);
+            // Last, so that nothing is committed if it fails.
+            $this->identity->promotePending();
+
+            return new ActivationResult($store, null, null, null, false, $certificate);
+        });
+
+        Cache::forget('deployment_id');
+
+        return $result;
+    }
+
+    private function onlyShop(ActivationBundle $bundle, string $ifNone, string $ifAnother): Store
     {
         $stores = Store::query()->lockForUpdate()->get();
 
         if ($stores->isEmpty()) {
-            throw new ActivationRefused('This database holds no shop. For a new installation leave out --adopt. Activation was not applied.');
+            throw new ActivationRefused("This database holds no shop. {$ifNone} Activation was not applied.");
         }
         if ($stores->count() > 1) {
             throw new ActivationRefused("This database holds {$stores->count()} stores, and a license covers one shop. Activation was not applied; ask your TindaFlow provider.");
         }
         if ($stores->first()->id !== $bundle->storeId) {
-            throw new ActivationRefused('This bundle was made for another store than the one here. Make a new request with --adopt, for the provider to register this shop with its own id. Activation was not applied.');
+            throw new ActivationRefused("This bundle was made for another store than the one here. {$ifAnother} Activation was not applied.");
         }
 
         return $stores->first();
@@ -154,6 +213,14 @@ final class ActivationService
             'revoked' => false,
             'chain_invalid' => false,
             'control_plane' => json_encode($bundle->controlPlane, JSON_THROW_ON_ERROR),
+            // A bundle starts a license afresh. Extensions and offline codes belong to one computer's certificates, so what an
+            // earlier one used (carried here by a restore) does not count against this one.
+            'extended_until' => null,
+            'extension_base_seq' => null,
+            'extensions_in_a_row' => 0,
+            'last_code_ordinal' => 0,
+            'pending_request_id' => null,
+            'last_renewal_error' => null,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -170,8 +237,12 @@ final class ActivationService
         ] + $extra);
     }
 
-    /** @return array{0: ActivationBundle, 1: Certificate} */
-    private function verified(string $bundleToken, DateTimeImmutable $now): array
+    /**
+     * @param  array{installation: string, public_key: string, secret_key: string}|null  $identity  the one the bundle must be made
+     *                                                                                              for; null = the one in use
+     * @return array{0: ActivationBundle, 1: Certificate}
+     */
+    private function verified(string $bundleToken, DateTimeImmutable $now, ?array $identity = null, ?string $otherComputer = null): array
     {
         $ring = app(LicenseGate::class)->keyRing();
         if ($ring->isEmpty()) {
@@ -185,14 +256,18 @@ final class ActivationService
             throw new ActivationRefused('The activation bundle is not valid ('.$e->reason.'). Ask your TindaFlow provider for a new one.');
         }
 
+        $forReplacement = $identity !== null;
         try {
-            $identity = $this->identity->load();
+            $identity ??= $this->identity->load();
         } catch (\RuntimeException $e) {
             throw new ActivationRefused($e->getMessage());
         }
+        if (! $forReplacement && $bundle->installation === ($this->identity->pending()['installation'] ?? null)) {
+            throw new ActivationRefused('This bundle answers the replacement request made here: apply it with --replace.');
+        }
 
         if ($bundle->installation !== $identity['installation'] || ! hash_equals($identity['public_key'], $bundle->installationKey)) {
-            throw new ActivationRefused('This bundle was made for a different computer. Send your own activation request to the provider.');
+            throw new ActivationRefused($otherComputer ?? 'This bundle was made for a different computer. Send your own activation request to the provider.');
         }
 
         if ($certificate->store !== $bundle->storeId || $certificate->installation !== $bundle->installation || $certificate->deployment !== $bundle->deployment
@@ -256,8 +331,11 @@ final class ActivationService
             throw new ActivationRefused('This installation holds a certificate this build no longer accepts. Ask your TindaFlow provider; nothing was changed.');
         }
 
-        if ($stored->installation !== $bundle->installation || $stored->store !== $bundle->storeId) {
+        if ($stored->store !== $bundle->storeId) {
             throw new ActivationRefused('This installation is already activated for a different store. Nothing was changed.');
+        }
+        if ($stored->installation !== $bundle->installation) {
+            throw new ActivationRefused('This shop is licensed to another computer. On a new or repaired computer, make a request with --replace.');
         }
 
         return new ActivationResult(Store::findOrFail($bundle->storeId), null, null, null, true, $stored);

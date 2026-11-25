@@ -122,9 +122,10 @@ Every way a shop can be refused a new shift, and its way back. "Drilled" means t
 | Clock behind the recorded time, with internet | Correct the clock; online renewal | **was broken for a day after each renewal**, fixed, drilled |
 | Clock behind the recorded time, no internet | Correct the clock; time-reset code | worked already, drilled |
 | Revoked | **None. It needs the owner's decision.** A revocation can now also arrive by file | unchanged |
-| Hardware changed (2 of 3 or more) | None yet: "replacing the PC" and approving a new baseline | not built |
+| Hardware changed (2 of 3 or more) | Replacing the computer (part 4) | built in part 4, drilled |
 | Chain forked (copy, or an old backup restored) | None yet: "re-chaining" | not built |
-| The build no longer accepts the stored certificate, or the identity file is lost | None yet: "rotating keys" and "replacing the PC" | not built |
+| The identity file is lost | Replacing the computer (part 4) | built in part 4 |
+| The build no longer accepts the stored certificate | None yet: "rotating keys" | not built |
 
 - **The defect.** The control plane answers a certificate under 24 hours old with that same certificate, and the client resets its trusted time only when it receives a new one. So an online renewal could not clear a clock lock until a day after the last certificate, although ADR-018 decision 3 says it does. A locked client now says so (`clock_locked`), and the control plane then issues a new certificate if the last one is over **1 hour** old (the length is an engineering choice, to bound how fast certificate numbers can grow).
 - **Renewal by file.** `tindaflow:license-renew --request` writes the renewal request signed with the installation's own key; `license:renew-file` on the control plane applies every rule of the machine API and writes the reply; `--apply` takes it with the same checks as an online answer. The provider may answer the same request again after the 72 hours, since a file is easily lost.
@@ -145,6 +146,17 @@ An existing store could not be licensed: activation refused its sales, and the c
 - **Order for an existing install** is in `docker/README.md`, "Licensing a shop that already trades": request on a keyless build, get the bundle, then install the keyed build and apply it at once. Between those two steps the shop cannot open a shift.
 
 **Limits:** the provider takes the store id on the shop's word. It unlocks nothing by itself, since the certificate binds one computer's key and hardware, but someone could register an id first and block the real shop, which the provider would have to sort out by hand. Nothing here has run on a real shop computer. **It does not make the pilot PC licensable:** its hardware check fails (a placeholder base board serial), which waits for certificate v3 (slice 6).
+
+## Slice 3, part 4, built 2026-11-25: replacing the computer
+
+- **The registry** keeps every computer a deployment has had, with one current; the database enforces the one. `license:replace-computer`, at the provider's console with a reason, registers the new one with a new identity key and its own hardware, and marks the old one `REPLACED`. A suspended or revoked deployment gets none, so it is not a way round either. A lost bundle is made again by running the same command.
+- **The old computer** is refused (`INSTALLATION_REPLACED`) online and by file, and each attempt is an alert (`REPLACED_COMPUTER_SEEN`). It is **not** sent a revocation: that would be permanent, and a replacement made by mistake could not be undone. The cost: run offline, it can sell until its last certificate ends. Offline codes are issued only to the current computer.
+- **The client:** `--request --replace` makes a second, pending identity and changes nothing else. `--bundle --replace` runs every activation check against the new hardware and writes the license, then puts the new identity in place; a power cut between the two is finished by applying again. Extensions, the offline code count and the pending request start afresh, since they belonged to the old computer. Trusted time only moves forward, as for any file.
+- **A request that names another computer** (the shop restored a backup older than its last replacement, or an old request file) is refused until the operator names the current one with `--replaces=`.
+- **Rolling the registry migration back** is refused once a computer has been replaced, rather than deleting history.
+- **Proven:** the cross-repository drill restores an adopted shop with a sale onto other hardware, replaces it changing nothing outside licensing, renews, takes a new offline code, and then switches the old computer back on and sees it refused. Two-process tests cover two replacements at once, the old computer renewing during one, and an offline code requested during one.
+
+**Not built:** approving a changed baseline for a computer that is otherwise the same (one changed value is tolerated but never becomes the baseline; two need a replacement); a limit on how often a computer may be replaced (each is the provider's decision, with a reason); anything for a hosted or multi-computer shop. Nothing has run on real hardware, and the README steps have not been run.
 
 ## Order of work
 

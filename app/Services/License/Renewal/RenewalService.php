@@ -207,6 +207,11 @@ final class RenewalService
 
         $status = $reply->json['status'] ?? null;
 
+        if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'INSTALLATION_REPLACED') {
+            // Not signed, so it changes nothing here; it only says why.
+            return $this->failed('The provider reports that this computer has been replaced by another and is not renewed any more (HTTP 403). Contact your TindaFlow provider.', $now);
+        }
+
         if ($reply->status === 409) {
             return $this->failed('The provider reports a forked certificate chain. Nothing was changed; contact your TindaFlow provider.', $now);
         }

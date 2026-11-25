@@ -6,13 +6,17 @@ use App\Domain\Exceptions\DomainException;
 use App\Models\Shift;
 use App\Models\Store;
 use App\Services\License\ActivationRefused;
+use App\Services\License\ActivationResult;
 use App\Services\License\ActivationService;
 use App\Services\License\Contract\Certificate;
 use App\Services\License\HostHardware;
 use App\Services\License\InstallationIdentity;
 use App\Services\License\LicenseGate;
 use App\Services\Terminal\TerminalSeats;
+use Closure;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -22,7 +26,8 @@ use Symfony\Component\Console\Output\OutputInterface;
  * creates the store, its first users, settings, stock location and till, and stores the first certificate, all or nothing.
  *
  * For a shop that already trades (ADR-019 slice 3), both take `--adopt`: the request then names the shop's own store, and applying
- * the bundle records the license for it and changes nothing else.
+ * the bundle records the license for it and changes nothing else. For a licensed shop on a new or repaired computer, both take
+ * `--replace`: the request carries a new identity, which takes over when the bundle is applied.
  */
 class Activate extends Command
 {
@@ -30,6 +35,7 @@ class Activate extends Command
         {--request : Make this PC\'s activation request for the provider (creates the identity file once; safe to repeat)}
         {--out= : With --request, write the request to this file instead of the screen}
         {--adopt : License the shop already on this computer, changing nothing else (with --request, and again with --bundle)}
+        {--replace : This is a new or repaired computer for a licensed shop (with --request, and again with --bundle)}
         {--bundle= : The provider\'s activation bundle file, to apply}
         {--admin-email= : With --bundle, the sign-in email of the break-glass administrator}
         {--admin-name=Store Administrator : With --bundle, the administrator\'s name}
@@ -46,30 +52,34 @@ class Activate extends Command
             return self::FAILURE;
         }
 
+        if ($this->option('adopt') && $this->option('replace')) {
+            $this->error('Give --adopt or --replace, not both: --adopt is for a shop never licensed, --replace for a licensed one on a new computer. Nothing was changed.');
+
+            return self::FAILURE;
+        }
+
         if ($this->option('request')) {
             return $this->request($identity, app(HostHardware::class));
         }
 
-        return $this->option('adopt') ? $this->adoptBundle($activation) : $this->applyBundle($activation);
+        return match (true) {
+            (bool) $this->option('adopt') => $this->licenseShopHere('--adopt', fn (string $bundle) => $activation->adopt($bundle)),
+            (bool) $this->option('replace') => $this->licenseShopHere('--replace', fn (string $bundle) => $activation->replace($bundle)),
+            default => $this->applyBundle($activation),
+        };
     }
 
     private function request(InstallationIdentity $identity, HostHardware $hardware): int
     {
         // Before anything is made: which shop this request is for, if one is already here.
         $stores = Store::query()->oldest('created_at')->get(['id', 'name']);
-        if ($this->option('adopt') && $stores->count() !== 1) {
-            $this->error($stores->isEmpty()
-                ? 'There is no shop to adopt here. For a new installation leave out --adopt. No request was made.'
-                : "This database holds {$stores->count()} stores, and a license covers one shop. No request was made; ask your TindaFlow provider.");
+        $problem = $this->requestProblem($stores);
+        if ($problem !== null) {
+            $this->error($problem.' No request was made.');
 
             return self::FAILURE;
         }
-        if (! $this->option('adopt') && $stores->isNotEmpty()) {
-            $this->error("This computer already has a shop ('{$stores->first()->name}'). To license it as it is, add --adopt. No request was made.");
-
-            return self::FAILURE;
-        }
-        $adopted = $this->option('adopt') ? ['id' => $stores->first()->id, 'name' => $stores->first()->name] : null;
+        $store = $this->option('adopt') || $this->option('replace') ? ['id' => $stores->first()->id, 'name' => $stores->first()->name] : null;
 
         // A certificate binds the three hardware hashes, so a request without them cannot be answered. Say so here, not after a round trip.
         $reading = $hardware->read();
@@ -79,7 +89,14 @@ class Activate extends Command
             return self::FAILURE;
         }
 
-        $json = json_encode($identity->request($reading->fingerprint, $adopted), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        if ($this->option('replace')) {
+            // Read before the new identity is made: what this shop last held, or what this computer was, for the provider to check.
+            $replaces = ActivationService::licensedInstallation() ?? ($identity->exists() ? $identity->load()['installation'] : null);
+            $document = $identity->request($reading->fingerprint, $store, $identity->ensurePending()) + ['replaces' => $replaces];
+        } else {
+            $document = $identity->request($reading->fingerprint, $store);
+        }
+        $json = json_encode($document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
         if ($this->option('out') !== null) {
             file_put_contents((string) $this->option('out'), $json."\n");
@@ -94,7 +111,44 @@ class Activate extends Command
         return self::SUCCESS;
     }
 
-    private function adoptBundle(ActivationService $activation): int
+    /** @param  Collection<int, Store>  $stores */
+    private function requestProblem(Collection $stores): ?string
+    {
+        $licensed = $stores->isNotEmpty() && ActivationService::licensedInstallation() !== null;
+
+        if (! $this->option('adopt') && ! $this->option('replace')) {
+            if ($stores->isEmpty()) {
+                return null;
+            }
+
+            return "This computer already has a shop ('{$stores->first()->name}'). ".($licensed
+                ? 'It has a license: on a new or repaired computer, add --replace.'
+                : 'To license it as it is, add --adopt.');
+        }
+        if ($stores->isEmpty()) {
+            return $this->option('replace')
+                ? 'There is no shop here yet. Restore it first (docker/README.md, "Restoring a whole shop").'
+                : 'There is no shop to adopt here. For a new installation leave out --adopt.';
+        }
+        if ($stores->count() > 1) {
+            return "This database holds {$stores->count()} stores, and a license covers one shop. Ask your TindaFlow provider.";
+        }
+        if ($this->option('adopt') && $licensed) {
+            return 'This shop is already licensed. On a new or repaired computer use --replace instead of --adopt.';
+        }
+        if ($this->option('replace') && DB::table('license_state')->where('id', 1)->value('revoked')) {
+            return "This shop's license has been revoked, and replacing the computer does not undo that.";
+        }
+
+        return null;
+    }
+
+    /**
+     * --adopt and --replace: the license for the shop that is here, and nothing else.
+     *
+     * @param  Closure(string): ActivationResult  $license
+     */
+    private function licenseShopHere(string $option, Closure $license): int
     {
         $file = (string) $this->option('bundle');
         if (! is_file($file)) {
@@ -103,13 +157,13 @@ class Activate extends Command
             return self::FAILURE;
         }
         if ($this->option('admin-email') !== null || $this->option('manager-email') !== null) {
-            $this->error('--adopt creates no user: the shop keeps the ones it has. Leave out --admin-email and --manager-email. Nothing was changed.');
+            $this->error("{$option} creates no user: the shop keeps the ones it has. Leave out --admin-email and --manager-email. Nothing was changed.");
 
             return self::FAILURE;
         }
 
         try {
-            $result = $activation->adopt((string) file_get_contents($file));
+            $result = $license((string) file_get_contents($file));
         } catch (ActivationRefused $refused) {
             $this->error($refused->getMessage().' Nothing was changed.');
 
@@ -123,8 +177,22 @@ class Activate extends Command
         }
 
         $certificate = $result->certificate;
-        $this->info("Adopted '{$result->store->name}' (deployment {$certificate->deployment}); certificate valid until ".$certificate->exp->format('Y-m-d H:i').'.');
+        $until = $certificate->exp->format('Y-m-d H:i');
+        $this->info($option === '--adopt'
+            ? "Adopted '{$result->store->name}' (deployment {$certificate->deployment}); certificate valid until {$until}."
+            : "'{$result->store->name}' is now licensed to this computer (deployment {$certificate->deployment}); certificate valid until {$until}.");
         $this->line('Nothing else in the shop was changed: its users, settings, tills and sales are as they were.');
+        if ($option === '--replace') {
+            $this->line('The old computer is not renewed any more. If it still works, switch it off.');
+        }
+        $this->reportLicense($certificate);
+
+        return self::SUCCESS;
+    }
+
+    /** What the person at the keyboard should know about the license just applied. */
+    private function reportLicense(Certificate $certificate): void
+    {
         if ($certificate->mode === Certificate::MODE_REPORT) {
             $this->line('This certificate is in report mode: nothing is refused, and what would be refused is logged.');
         }
@@ -139,8 +207,6 @@ class Activate extends Command
         if ($refusal !== null) {
             $this->warn("A new shift would be refused ({$refusal->value}). Run tindaflow:license-status and tell your TindaFlow provider.");
         }
-
-        return self::SUCCESS;
     }
 
     private function applyBundle(ActivationService $activation): int

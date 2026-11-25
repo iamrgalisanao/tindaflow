@@ -396,6 +396,55 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         $this->assertSame(LicenseState::Active, $this->licenseState());
     }
 
+    // Replacing the computer (ADR-019 slice 3). The shop is restored onto new hardware with its database and identity file, which
+    // locks it; the provider licenses the new computer and retires the old one.
+
+    public function test_a_shop_restored_onto_a_new_computer_is_replaced_with_only_licensing_changes_and_the_old_one_is_refused(): void
+    {
+        $this->tradingShopBeforeAnyLicense();
+        $this->assertSame(0, Artisan::call('tindaflow:activate', ['--bundle' => $this->adoptionBundle(), '--adopt' => true]), Artisan::output());
+        // The old computer has used an offline code, which the new one's count must not inherit.
+        $this->artisanThere(['license:extension-code', $this->deploymentCode, '--reason=Outage']);
+        $this->assertSame(0, Artisan::call('tindaflow:license-code', ['code' => [$this->latestOfflineCode()]]), Artisan::output());
+        $oldIdentity = (string) file_get_contents((string) config('tindaflow.license.installation_file'));
+        $oldLicense = (array) DB::table('license_state')->where('id', 1)->first();
+
+        $newHardware = ['smbios_uuid' => str_repeat('d', 64), 'board_serial' => str_repeat('e', 64), 'bios_serial' => str_repeat('f', 64)];
+        $this->fakeHostHardware($newHardware);
+        $this->assertSame(RefusalReason::FingerprintMismatch, app(LicenseGate::class)->check()->verdict->shiftOpenRefusal(), 'restored onto other hardware, it is locked');
+
+        $bundle = $this->replacementBundle();
+        $this->assertOnlyLicensingChanges(fn () => $this->assertSame(0, Artisan::call('tindaflow:activate', ['--bundle' => $bundle, '--replace' => true]), Artisan::output()));
+        $this->assertTradingAgain();
+
+        $this->ageLatestCertificate();
+        $this->assertRenewal(0, 'Renewed: certificate 2');
+        $this->artisanThere(['license:extension-code', $this->deploymentCode, '--reason=Another outage']);
+        $this->assertSame(0, Artisan::call('tindaflow:license-code', ['code' => [$this->latestOfflineCode()]]), Artisan::output());
+        $this->assertSame(1, (int) DB::table('license_state')->value('last_code_ordinal'), 'the new computer counts its codes from the start');
+
+        // The old computer is switched on again, exactly as it was.
+        file_put_contents((string) config('tindaflow.license.installation_file'), $oldIdentity);
+        DB::table('license_state')->where('id', 1)->update($oldLicense);
+        $this->fakeHostHardware();
+        $this->ageLatestCertificate();
+
+        $this->assertRenewal(1, 'has been replaced');
+        $this->assertSame(1, $this->registryEvents('REPLACED_COMPUTER_SEEN'));
+        $this->assertSame(0, $this->registryEvents('CHAIN_FORKED'));
+    }
+
+    private function replacementBundle(): string
+    {
+        $request = $this->workDirectory.'/replacement-request.json';
+        $bundle = $this->workDirectory.'/replacement-bundle.txt';
+
+        $this->assertSame(0, Artisan::call('tindaflow:activate', ['--request' => true, '--replace' => true, '--out' => $request]), Artisan::output());
+        $this->artisanThere(['license:replace-computer', $this->deploymentCode, $request, '--reason=The old computer died', '--out='.$bundle]);
+
+        return $bundle;
+    }
+
     private function tradingShopBeforeAnyLicense(): Store
     {
         Sale::factory()->create();
@@ -510,7 +559,8 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
     /** The code as the registry holds it; license:codes prints this same text. */
     private function latestOfflineCode(): string
     {
-        $code = (string) $this->registry()->query('select code from offline_codes order by ordinal desc limit 1')->fetchColumn();
+        // Newest by id (time-ordered), not by ordinal: each computer counts its codes from 1.
+        $code = (string) $this->registry()->query('select code from offline_codes order by id desc limit 1')->fetchColumn();
         $this->assertStringContainsString($code, $this->artisanThere(['license:codes', $this->deploymentCode]));
 
         return $code;
