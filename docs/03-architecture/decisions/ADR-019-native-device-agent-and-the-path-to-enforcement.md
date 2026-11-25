@@ -70,7 +70,7 @@ Written test first: each defect had a test that failed before its fix, except wh
 | 2 | A renewal never changes the approved hashes; the registry and every certificate keep them. Two of three is accepted and recorded once per distinct set reported (`FINGERPRINT_CHANGED`: component names and a digest, no values). A changed component no longer forces an early certificate. |
 | 3 | One method decides which stored certificate counts, for the gate, the License screen and offline codes: signature accepted, installation equal to this computer's identity file, and a store in the database with the certificate's store id. No identity file counts as none. |
 | 4 | A first activation needs a fresh hardware file matching at least two of the certificate's three hashes. Running it again on an activated install does not. |
-| 5 | A nonce is read and deleted under a lock that does not wait. The test shows only that a held lock refuses a second consumer; real concurrency is proven in slice 2. |
+| 5 | A nonce is read and deleted under a lock that does not wait. Its test here showed only that a held lock refuses a second consumer; slice 2 has the real two-process test. |
 | 6 | A hardware file stamped more than 1 hour ahead is `INVALID`: no fingerprint, and the heartbeat ignores it. |
 | 7 | The identity file is created under `umask 0077`, never into an existing file. This also exposed and fixes a second fault: `docker compose exec app php artisan tindaflow:activate` runs as root, so the file was readable by root only and the web workers and scheduler (`www-data`) could not use it. When root writes it, it is now given to the owner of `storage/app`. The earlier code already ended with the same file mode, so the test guards the new method (nothing sets the mode afterwards) and does not fail on the old one. File-mode tests run on Linux only, and the change of owner has **not been run as root in a container**. |
 
@@ -81,6 +81,22 @@ The key guard test now also fails on a committed `code_keys` or `revoked_code_ke
 - A shop that loses an answer and then stays offline more than 72 hours, or has one hardware value change in between, is reported as forked and needs the provider. **There is no re-chain tool until slice 3.**
 - A PC with one replaced part keeps working on two of three, but a second change refuses renewal. **Approving a new baseline is not built until slice 3.**
 - The check of defect 3 does not stop a copy of the whole installation, identity file included, and asks only that the licensed store exists, not that no other store does.
+
+## Slice 2, built 2026-11-25: the control plane on PostgreSQL
+
+The control plane's tests now run on PostgreSQL as well as SQLite, in a CI job whose server is deliberately on a zone other than UTC. The cross-repository test keeps the registry in a PostgreSQL database of its own. Both refuse to wipe any database not named `tindaflow_cp..._test`; ending in `_test` is not enough, since a developer's everyday database may.
+
+**SQLite had hidden these defects**, now fixed:
+
+- **Stored times were wrong.** The control plane did not set its database session's time zone, so on a server not set to UTC every stored instant was off by the server's offset (8 hours here). That moved the 24-hour renewal window, the 72-hour replay window and activation code expiry. Signed certificates were not affected. The client already set this.
+- **Two computers activating one deployment together:** one got a server error instead of "already activated".
+- **A revocation could complete in the middle of an activation**, which then issued a 30-day certificate afterwards. Activation now locks the deployment row, as suspension and revocation do.
+- **A malformed key id on a signed request** caused a server error instead of the usual 401.
+- Client details longer than their columns, and a computer already registered to another deployment (the latter also failed on SQLite), now get a refusal instead of an error.
+
+**What is now proven**, with two real processes made to collide on a held database lock: a computer and its copy renewing together get one successor between them; one request sent twice gets one certificate; a renewal queued behind a revocation is answered with it; one activation code serves one computer, and gives the same computer the same bundle; one computer activates a deployment; offline codes keep the per-certificate limit and distinct numbers; and one nonce is accepted once, which closes the gap left under slice 1's defect 5. Removing the renewal, activation code, offline code or nonce protection makes its tests fail; the two activation tests failed before their fix.
+
+**Not proven:** more than two at once, other pairs of operations, load, any PostgreSQL version but 17, and a production server. The registry's "append-only by database privilege" is still only a comment.
 
 ## Order of work
 
