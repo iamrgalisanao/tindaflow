@@ -141,8 +141,10 @@ class EndOfDayMealTypeTest extends PostgresSchemaTestCase
     /** @param  array<string, mixed>  $sale */
     private function refundLine(array $w, array $sale, int $line, string $quantity, string $amount, string $method = 'CASH'): void
     {
+        // By line number, not by position: the sale's items come back in no promised order.
+        $item = collect($sale['items'])->firstWhere('line_number', $line + 1);
         $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$sale['id']}/refunds", [
-            'items' => [['sale_item_id' => $sale['items'][$line]['id'], 'quantity' => $quantity, 'disposition' => 'RETURN_TO_STOCK']],
+            'items' => [['sale_item_id' => $item['id'], 'quantity' => $quantity, 'disposition' => 'RETURN_TO_STOCK']],
             'settlements' => [['payment_method' => $method, 'amount' => $amount]],
             'reason' => 'Customer returned it',
         ], $this->key())->assertStatus(201);
