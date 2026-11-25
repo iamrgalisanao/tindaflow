@@ -232,3 +232,37 @@ that switch needs its own decision before one is installed.
 **Where the reviews differed:** the operations review would have built the surface split and read-only screens now, and
 the security review would have allowed everything but signing to be built on a development computer. They are on hold
 because of the order of priorities and the designs still missing, not because development builds would be unsafe.
+
+## Amendment, 2026-11-25: the planned host
+
+**Owner decision:** the licensing service, and the admin screens when they are built, are planned for a **rented virtual
+server** that the owner already has with a commercial hosting company. This **replaces**, in ADR-018 decision 8, "hosted
+locally in the Philippines on the provider's own server". The company and plan are not named here, because this repository
+is public.
+
+It is a choice of host only. It approves no deployment, no real client data, no production key and no real use, and every
+list above still applies.
+
+**What follows from it**
+
+- **Location.** No Philippine location was found among the company's published ones, and this server's location is not yet
+  confirmed. ADR-018 expected local hosting to avoid a cross-border transfer of the provider's own personal data (IP
+  addresses, client contact details, fingerprint hashes and, with screens, operator records). Before real client
+  information is stored, counsel confirms what a transfer requires, together with the privacy notice and the provider's
+  role.
+- **Signing keys: open.** ADR-018 decision 8 expects a hardware security module, or a key held encrypted and unlocked by a
+  hardware token, and ADR-019 expects production keys held in hardware. A rented virtual server normally gives no way to
+  attach either. **Those requirements stand until the owner decides otherwise**, so no production key is created. The
+  choices to be assessed:
+  1. keys in software on the server: simplest and weakest, because whoever takes over the server could copy them;
+  2. a separate signing computer that the provider controls: better control of the keys, but renewals then depend on
+     that computer and its connection;
+  3. an outside key service: its support for the signature type, its security, location and cost are not yet checked.
+
+  The signer design in the review amendment applies to whichever is chosen.
+- **Continuity.** ADR-018's duties to keep the service reachable still apply. Whatever the company backs up, the service
+  also needs its own frequent backups stored somewhere else, a restore drill, and a documented way to rebuild.
+- **Screens on the same server** are acceptable for testing. The admin surface is reachable only through a VPN. Separate
+  users and settings do not protect against someone with full control of the server.
+- **To confirm before anything is deployed:** what else runs on the server, its location, who maintains it, and a target
+  date. Screens still wait for who runs it and a target date.
