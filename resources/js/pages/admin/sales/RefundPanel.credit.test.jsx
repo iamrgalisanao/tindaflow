@@ -50,7 +50,7 @@ describe('RefundPanel for a credit sale', () => {
 
         const method = await screen.findByLabelText('Method');
         expect(method.value).toBe('CASH');
-        expect([...method.options].map((option) => option.value)).toEqual(['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER']);
+        expect([...method.options].map((option) => option.value)).toEqual(['CASH', 'GCASH', 'MAYA', 'BANK_TRANSFER', 'CARD', 'OTHER']);
         expect(screen.getByText(/Cash comes out of the drawer/)).toBeTruthy();
     });
 });

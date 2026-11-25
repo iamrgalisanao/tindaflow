@@ -55,7 +55,7 @@ final class InvoiceSnapshotV2Renderer extends InvoiceSnapshotRenderer
 
         $lines = [];
         foreach ($payments as $payment) {
-            $lines[] = $this->row(strtoupper((string) ($payment['method'] ?? '')), $this->money((string) ($payment['amount'] ?? '0.00')));
+            $lines[] = $this->row(strtoupper(str_replace('_', ' ', (string) ($payment['method'] ?? ''))), $this->money((string) ($payment['amount'] ?? '0.00')));
         }
         if ($this->positive((string) ($snapshot['change'] ?? '0.00'))) {
             $lines[] = $this->row('Change', $this->money((string) $snapshot['change']));

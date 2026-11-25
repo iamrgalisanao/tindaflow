@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { RETURN_KEY, request } from '../catalog/catalogApi';
 import { formatMoney } from '../reports/formatters';
+import { methodText } from '../../../lib/paymentMethods';
 
 export const fieldClass =
     'min-h-11 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 lg:min-h-0';
@@ -119,7 +120,7 @@ export function PaymentBreakdown({ breakdown }) {
                 {rows.map(([method, amount]) => (
                     <tr key={method}>
                         <th scope="row" className="py-1 pr-4 font-normal text-slate-400">
-                            {method}
+                            {methodText(method)}
                         </th>
                         <td className="py-1 text-right font-mono tabular-nums text-slate-100">{formatMoney(amount)}</td>
                     </tr>

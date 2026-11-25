@@ -9,13 +9,13 @@ export default {
     steps: [
         {
             title: 'Choose the payment method',
-            body: 'The row of buttons above the amount box lists **Cash**, **GCash**, **Maya**, **Card** and **Other**. Tap the one the customer is using. For a single non-cash payment the full total is filled in for you, so there is no change to give.',
+            body: 'The buttons above the amount box are **Cash**, **GCash**, **Maya**, **Bank transfer**, **Card** and **Other**. Tap the one the customer is using. For a single non-cash payment the full total is filled in for you, so there is no change to give.',
             figure: {
                 shot: 'till-tender',
                 alt: 'The Payment screen with five payment method buttons.',
-                marks: [{ type: 'click', target: 'methods', label: 'Choose the method', detail: 'Tap Cash, GCash, Maya, Card or Other.' }],
+                marks: [{ type: 'click', target: 'methods', label: 'Choose the method', detail: 'Tap Cash, GCash, Maya, Bank transfer, Card or Other.' }],
             },
-            tip: 'Confirm that the payment has really arrived in your GCash or Maya app, or that the card machine approved it, before you click Complete sale.',
+            tip: 'Confirm that the payment has really arrived in your GCash, Maya or bank app, or that the card machine approved it, before you click Complete sale. TindaFlow does not check. For GCash, Maya or a bank transfer you can also type the reference number; it is never required.',
         },
         {
             title: 'For a mixed payment, set the first part',

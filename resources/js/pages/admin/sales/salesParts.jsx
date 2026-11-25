@@ -21,7 +21,7 @@ export function StatusBadge({ status }) {
 
 // What a sale can be paid with (the history filter), and what a refund can be paid back with: credit is a payment but never a way of
 // paying money out (a sale charged to an employee is refunded to credit by RefundPanel itself, and only such a sale is).
-export const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'CARD', 'OTHER', 'CREDIT'];
+export const PAYMENT_METHODS = ['CASH', 'GCASH', 'MAYA', 'BANK_TRANSFER', 'CARD', 'OTHER', 'CREDIT'];
 export const REFUND_METHODS = PAYMENT_METHODS.filter((method) => method !== 'CREDIT');
 
 export const DISPOSITIONS = [

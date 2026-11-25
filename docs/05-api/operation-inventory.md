@@ -665,7 +665,7 @@ none is invented or renamed for API convenience.
 | `SaleStatus` | Stage 2 `sale.status` (domain-model.md §2.7) | `COMPLETED`, `VOIDED`, `PARTIALLY_REFUNDED`, `REFUNDED` — no `DRAFT`, matching Stage 2's explicit removal |
 | `RefundDisposition` | Stage 2 `refund_item.disposition` (§2.9) | `RETURN_TO_STOCK`, `DAMAGED`, `EXPIRED`, `DISPOSED` |
 | `StockMovementType` | Stage 2 `stock_movement.movement_type` (§2.4) | `OPENING_STOCK`, `PURCHASE_RECEIPT`, `SALE`, `SALE_RETURN`, `STOCK_ADJUSTMENT_IN`, `STOCK_ADJUSTMENT_OUT`, `DAMAGE`, `EXPIRED`, `TRANSFER_IN`, `TRANSFER_OUT` |
-| `PaymentMethod` | Stage 2 `payment.method` / `refund_settlement.payment_method` (§2.7/§2.9) | `CASH`, `GCASH`, `MAYA`, `CARD`, `OTHER`, `CREDIT` (ADR-016 slice 3.2; `BANK_TRANSFER` is slice 2.1, not built) |
+| `PaymentMethod` | Stage 2 `payment.method` / `refund_settlement.payment_method` (§2.7/§2.9) | `CASH`, `GCASH`, `MAYA`, `BANK_TRANSFER`, `CARD`, `OTHER`, `CREDIT` (`CREDIT` ADR-016 slice 3.2; `BANK_TRANSFER` slice 2.1, built 2026-11-25; `saleFinalize`'s `payments.*.external_reference` is limited to 255 characters, as the refund one already was) |
 | `TaxClassification` | Stage 2 `product.tax_class` / `sale_item.tax_classification_snapshot` (§2.3/§2.7) | `VATABLE`, `VAT_EXEMPT`, `ZERO_RATED`, `NON_VAT` |
 | `TaxRegistrationType` | Stage 2 `tax_registration.registration_type` (§2.1) | `VAT`, `NON_VAT` |
 | `TerminalStatus` | Stage 2 `terminal.status` (§2.1) | `ACTIVE`, `INACTIVE`, `DECOMMISSIONED` |

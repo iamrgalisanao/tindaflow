@@ -1,4 +1,5 @@
 import { formatMoney } from '../admin/reports/formatters';
+import { methodText } from '../../lib/paymentMethods';
 
 /**
  * The interim (X) reading, taken from the till itself (openapi.yaml shiftXReadingCreate).
@@ -88,7 +89,7 @@ export default function XReadingPanel({ readings, latest, cashVisible, busy, err
                         <Row label="Cash sales" value={totals.cash_sales} withheld={!cashVisible} />
                         <Row label="Non-cash sales" value={totals.non_cash_sales} />
                         {breakdown.map(([method, amount]) => (
-                            <Row key={method} label={method} value={amount} indent />
+                            <Row key={method} label={methodText(method)} value={amount} indent />
                         ))}
                         {!cashVisible && <Row label="CASH" withheld indent />}
                         <Row label="Refunds" value={totals.refunds_total} withheld={!cashVisible} />

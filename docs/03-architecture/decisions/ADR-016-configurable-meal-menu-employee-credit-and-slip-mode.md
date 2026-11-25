@@ -44,6 +44,8 @@ Renaming or hiding a dish, or changing a price, therefore cannot alter any past 
 ### 4. Payment methods
 `payments.method` and `refund_settlements.payment_method` CHECK constraints gain `BANK_TRANSFER` and `CREDIT`. Bank transfer by QR is an ordinary non-cash tender (the cashier photographs the customer's phone outside the system). `payments.reference_note` already exists and checkout already accepts `external_reference`; the only work is showing an **optional** reference field for BANK_TRANSFER, GCASH and MAYA in `TenderPanel`. Never mandatory.
 
+**Built 2026-11-25 (slice 2.1).** `BANK_TRANSFER` is accepted for sales and refunds. The reference stays optional. TindaFlow does not check that the money arrived.
+
 ### 5. Employees and credit
 **Employees** (`employees`, mutable lifecycle table): `store_id`, `employee_type` DIRECT|SUBCONTRACTOR, `employee_code` (system generated), `name`, `billing_party_id`, `active`. `employee_code` = `TSC` + 5 digits for DIRECT, `SUB` + 5 digits for SUBCONTRACTOR, from a per-store per-type counter row locked FOR UPDATE (`employee_code_sequences`), never reused, UNIQUE(store_id, employee_code), immutable (column-level GRANT leaves it out of the app role's UPDATE list). The QR value is the code itself; the code carries no personal data. Lookup is by scanner (keyboard-wedge text) or typed reference number, exact match. New capability `EMPLOYEE_MANAGE` (create, edit, deactivate, bulk CSV import, card print) is granted to ADMIN only (see the 2026-10-26 amendment: MANAGER now holds it too, and the bulk import moved to a new ADMIN-only capability); the cashier has only the lookup that returns name, code, type, active and credit status. There is no create path from the till.
 

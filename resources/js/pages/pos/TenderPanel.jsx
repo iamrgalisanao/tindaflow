@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { clampedDiscountCents, lineCents, moneyText, pesos, toCents } from './posMoney';
 import MoneyInput from '../../components/MoneyInput';
+import { REFERENCE_MAX_LENGTH, REFERENCE_METHODS } from '../../lib/paymentMethods';
 import { mealDetailLines } from './mealMenu';
 
-const METHOD_LABELS = { CASH: 'Cash', GCASH: 'GCash', MAYA: 'Maya', CARD: 'Card', OTHER: 'Other' };
+const METHOD_LABELS = { CASH: 'Cash', GCASH: 'GCash', MAYA: 'Maya', BANK_TRANSFER: 'Bank transfer', CARD: 'Card', OTHER: 'Other' };
 const QUICK_CASH = [20, 50, 100, 200, 500, 1000];
 const MAX_CENTS = 10n ** 12n; // the keypad's limit of ten whole digits
 const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '00', '.'];
@@ -12,10 +13,11 @@ const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '00', '.'];
  * The payment step: what is being charged, how it is being paid, and the change or the balance still owed. All figures
  * are a preview in whole cents; the server checks each payment and works out the change when the sale is finalised.
  *
- * `payments` is a list of `{method, amount}` rows -- normally one, covering the whole total (the common case: switching
+ * `payments` is a list of `{method, amount, reference}` rows -- normally one, covering the whole total (the common case: switching
  * method away from CASH fills the exact total automatically, matching the old single-payment flow exactly). "Split
  * payment" adds a second row for a genuinely mixed tender (part cash, part GCash); each row keeps its own amount, and
- * the keypad/method chips/quick-cash chips always act on whichever row is currently selected.
+ * the keypad/method chips/quick-cash chips always act on whichever row is currently selected. A GCash, Maya or bank transfer
+ * row may carry the reference number the customer's phone shows (ADR-016 section 4); it is never required.
  */
 export default function TenderPanel({ cart, totalCents, methods, payments, onPayments, busy, onBack, onComplete }) {
     const [activeIndex, setActiveIndex] = useState(0);
@@ -45,13 +47,15 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
     }
 
     function setActiveMethod(method) {
+        // A reference belongs to the payment it was typed for, so changing the method drops it.
+        const reference = method === activeMethod ? (active?.reference ?? '') : '';
         // A single-row sale keeps the old behaviour exactly: any non-cash method is charged the whole total, no
         // typing needed. Once there is more than one row, an amount must be entered -- the total is already split.
         if (payments.length === 1 && method !== 'CASH') {
-            updateActive(() => ({ method, amount: moneyText(totalCents), source: 'prefill' }));
+            updateActive(() => ({ method, reference, amount: moneyText(totalCents), source: 'prefill' }));
             return;
         }
-        updateActive(() => ({ method }));
+        updateActive(() => ({ method, reference }));
     }
 
     function applyExact() {
@@ -182,7 +186,7 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
                     </ul>
                 )}
 
-                <div role="radiogroup" aria-label="Payment method" className="grid grid-cols-5 gap-2">
+                <div role="radiogroup" aria-label="Payment method" className="grid grid-cols-3 gap-2 sm:grid-cols-6">
                     {methods.map((option) => (
                         <button
                             key={option}
@@ -217,6 +221,28 @@ export default function TenderPanel({ cart, totalCents, methods, payments, onPay
                         />
                     </div>
                 </div>
+
+                {REFERENCE_METHODS.includes(activeMethod) && (
+                    <div>
+                        <label htmlFor="payment_reference" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                            Reference number (optional)
+                        </label>
+                        <input
+                            id="payment_reference"
+                            type="text"
+                            autoComplete="off"
+                            maxLength={REFERENCE_MAX_LENGTH}
+                            value={active?.reference ?? ''}
+                            onChange={(event) => {
+                                const reference = event.target.value;
+                                updateActive(() => ({ reference }));
+                            }}
+                            // A scanner or a habit ends with Enter; that must not complete the sale from this box.
+                            onKeyDown={(event) => event.key === 'Enter' && event.preventDefault()}
+                            className="min-h-12 w-full rounded border border-slate-700 bg-slate-950 px-3 font-mono text-sm text-slate-100"
+                        />
+                    </div>
+                )}
 
                 {activeMethod === 'CASH' && (
                     <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">

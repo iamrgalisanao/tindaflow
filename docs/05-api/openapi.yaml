@@ -5308,7 +5308,7 @@ components:
       enum: [VAT, NON_VAT]
     PaymentMethod:
       type: string
-      enum: [CASH, GCASH, MAYA, CARD, OTHER, CREDIT]
+      enum: [CASH, GCASH, MAYA, BANK_TRANSFER, CARD, OTHER, CREDIT]
       description: 'CREDIT (ADR-016 slice 3.2) is a whole-sale tender charged to an employee: it is the sale''s ONLY payment, equals its grand total, and the request names the employee (employee_id). It is never cash: it adds nothing to the drawer, expected cash or change. As a refund settlement it is accepted ONLY for a sale that was paid with credit (and a credit sale accepts nothing else).'
     SaleStatus:
       type: string
