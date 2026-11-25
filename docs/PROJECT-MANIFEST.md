@@ -44,7 +44,7 @@ sections after it, up to "At the 2026-09-27 snapshot", are the build record as w
 - **Licensing is not in effect anywhere.** ADR-019 sets what has to pass before any shop is enforced, including recovery
   drills, a period on real hardware, and an activated report-only install with no false refusal. Its five owner
   confirmations are open.
-- The provider's licensing admin screens are designed and not built ([ADR-020](03-architecture/decisions/ADR-020-provider-licensing-admin-screens.md)); the provider's service is run by console commands.
+- The provider's licensing admin screens are on hold and not built; the provider's service is run by console commands. Before the first production key, with or without screens, ADR-020's amendment requires among other things a longest certificate life, a limit on time-reset codes and spare public keys ([ADR-020](03-architecture/decisions/ADR-020-provider-licensing-admin-screens.md)).
 - The native device agent has not been built. ADR-019 requires a hardware spike with a written go or no-go first.
 - Image-only delivery from a private registry (ADR-018 decision 11) is not in place: `docker/compose.yaml` still builds the
   web, app and backup images from source.
@@ -1215,3 +1215,5 @@ exhaustively closing every PARTIAL invariant.
 - **2026-11-25** — Bank transfer as a payment method, with an optional reference for GCash, Maya and bank transfer (40); slip numbers in four reports for stores that use slips (41); one red in the interface, and documents no longer feed the CSS build (43); a sale's items returned in line order (42).
 - **2026-11-25** — **This manifest brought up to date**, and its role narrowed: it records what is built and why; live status moved to the development tracker.
 - **2026-11-25** — **ADR-020 accepted (design only): web screens for the provider's licensing administration.** The provider manages licensing and clients online; each shop keeps its own `ADMIN`; the VPN-only admin screens may request signatures with safeguards, which replaces one sentence of ADR-018 decision 8.
+- **2026-11-25** — **ADR-020 amended after an engineering review:** the admin screens are on hold, signing from them is not approved for building (ADR-018 decision 8 stands as written), the risk the owner had accepted was understated, and gates were added for the first production key and for real use.
+- **2026-11-25** — **Planned host for the licensing service recorded (ADR-020):** a rented virtual server replaces ADR-018's own server in the Philippines. How signing keys are protected there is open, and nothing is deployed.

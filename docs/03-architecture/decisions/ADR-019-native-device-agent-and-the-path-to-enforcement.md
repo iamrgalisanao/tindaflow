@@ -269,7 +269,7 @@ Each slice is a small change that can be merged alone and has an exit test.
 
 **Not to be built yet:** the React admin portal; attestation; a multi-product licensing abstraction (no second product has been named); a standby cluster; reinstatement of a revoked PC (needs a decision); the production agent and its installer before the spike says go.
 
-**Pointer, 2026-11-25:** [ADR-020](ADR-020-provider-licensing-admin-screens.md) allows server-rendered licensing admin screens in the control plane. The React portal stays deferred, ADR-019's gates are unchanged, and owner confirmation 5 below stays open.
+**Pointer, 2026-11-25:** [ADR-020](ADR-020-provider-licensing-admin-screens.md) records server-rendered licensing admin screens, **on hold** after an engineering review. Its amendment also lists what is needed before the first production key (among them a longest certificate life, a limit on time resets and spare public keys) and before real use. The React portal stays deferred, these gates are unchanged, and owner confirmation 5 below stays open.
 
 ## The existing pilot install
 

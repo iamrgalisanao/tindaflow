@@ -5,6 +5,9 @@
 Accepted — 2026-11-25. The owner answered the questions under "Owner decisions" and approved the build plan the same day.
 **Design only: no code accompanies this ADR.**
 
+**Amended the same day after an engineering review (end of this record): building the screens is on hold, and signing
+from them is not approved for building. Where the amendment differs from the text below, the amendment wins.**
+
 It amends one sentence of ADR-018 decision 8 (who may ask for a signature) and revisits, for licensing screens only, what
 ADR-019 listed as not to be built yet. It changes nothing in ADR-014 or in ADR-018 decisions 9 and 10.
 
@@ -78,6 +81,8 @@ staff or customers stays true.
 
 ### 4. Signing from the admin screens
 
+**On hold: see the amendment. The risk below is understated.**
+
 **Amends ADR-018 decision 8.** The sentence "the signing service accepts calls from that API only" is replaced: signatures
 may be requested by the machine API and, with these safeguards, by the admin screens.
 
@@ -105,6 +110,8 @@ hosts, holds the keys and supports shops) **stays open**.
 
 ## Build order
 
+**Replaced by the amendment's "Revised order".**
+
 Separate from ADR-019's slices, and it satisfies none of ADR-019's gates. Each slice is merged on the owner's approval.
 
 0. This record.
@@ -129,3 +136,133 @@ Separate from ADR-019's slices, and it satisfies none of ADR-019's gates. Each s
   while planning, so these screens do not provide them.
 - Reconnection and hardware approval still cannot tell a shop from a copy of it (ADR-019). Easier buttons make a careless
   approval easier; how the provider verifies a shop's owner remains an owner decision.
+
+## Amendment, 2026-11-25: after an engineering review
+
+The owner asked for an engineering review the same day. Separate security, architecture and operations reviews read this
+record, the build plan and the service's code; the owner then approved these changes. **Where this amendment differs from
+the text above, this amendment wins.** Still design only.
+
+### A correction: what taking over the admin surface could do
+
+The owner approved signing from the screens after the risk was **understated**.
+
+- With signing keys held in the process's settings, as the code does today, whoever runs code in that process can **copy the
+  keys**, not only ask for signatures. A fresh one-time code, the signing switch, the pause and the audit trail do not
+  stop that. A fresh code still helps against a stolen session or a forged request.
+- **Turning signing off is not enough.** The machine API signs according to what the registry says. A process that can
+  write the registry, which the screens without keys must also do, can cause the machine API to sign, including the
+  revocation of a shop, which cannot be undone once delivered.
+- Hardware-held keys would stop a copy being taken, but without limits on what may be signed, a taken-over process could
+  still obtain documents that stay valid for far longer than any licence should.
+
+### What changes
+
+1. **Building the screens is on hold.** Licensing is dormant, nothing is hosted, and the screens advance none of ADR-019's
+   gates. The pilot PC (ADR-019 slice 0, and copying its backup, `.env` and certificates off it if it holds real sales),
+   the canteen go-live, the restore drill and the off-machine backup come first. Work on the screens starts again when the
+   owner has chosen the hosting, who runs it (ADR-019 owner confirmation 5) and a target date.
+2. **Signing from the screens is not approved for building.** Section 4 is on hold, and ADR-018 decision 8's sentence "the
+   signing service accepts calls from that API only" **stands**. Signing stays with the machine API and the console
+   commands, as it works today. Taking it up again needs the signer design below, certificate format 3, and the owner's
+   fresh approval.
+3. **The signer to be designed:** its own server user with no connection from the internet, the only thing that can reach
+   the key hardware. It accepts named operations, never raw bytes, and enforces limits itself: the longest life of a
+   certificate, the control-plane addresses, till counts, offline codes (time resets above all) and daily volume. It keeps
+   its own log off the host. It cannot trust what the registry says, so its limits and the alerts are the bound. A
+   revocation asked for from the web is not delivered until it is confirmed at the console, or is delayed with an alert.
+4. **Sign-in before real use must resist phishing:** passkeys or security keys (WebAuthn, with the user verified), two of
+   them for each operator, recovered at the console, through a maintained library and never hand-written. Naming that
+   library needs the owner's approval of a new dependency. If one-time codes are used as well, prefer a maintained library
+   to the in-house version in section 3; settle it when sign-in is designed. A passkey does not protect a taken-over server.
+5. **Server-rendered pages and one operator role stay.** A second approval by the same person would add nothing; alerts
+   that leave the server, and the limits above, make up for it.
+
+### Needed before the first production key, with or without screens
+
+- The shop application's certificate reader refuses a certificate that lives longer than a set limit. Today it requires
+  only that it ends after it starts. The limit is to be chosen from the 30-day offline tolerance, and goes into the shared
+  contract in both repositories.
+- A time-reset code gets a limit on how far back its time may reach. No such limit was found. Test the case of a wrong
+  server clock at the same time; the reviews raised it and it is **not verified**.
+- Builds carry spare public keys for both key families, with the private halves kept offline, so that replacing a key does
+  not wait for every shop to update.
+- The registry's history is append-only **by database privilege** and copied off the host. Today a comment says so and
+  nothing in the repository enforces it.
+- An offline activation or replacement request is not signed: compare a key or hardware reference with the shop through
+  another channel before issuing.
+
+### Needed before real use, console commands included
+
+- Backups with a recovery target, a restore drill, and an off-host record of every change of state, because a restore
+  relies on later changes being applied again.
+- Alerts that leave the server (forks, hardware changes, refused keys, revocations, sign-ins, signing) and watching of the
+  machine API, backups, the clock and certificate expiry. The registry only records alerts today.
+- A kept-correct server clock.
+- A way to carry on if the one operator, their device or the server is lost, rehearsed.
+- Before two processes or two copies of the service run: the pause is held in the database and checked where signing
+  happens. Today it is a per-process setting that only the machine API's middleware enforces.
+- Before operators exist: a restore must lock operators out even if `license:after-restore` is never run, for example with
+  a marker kept outside the database.
+- Exact trusted-proxy addresses if a proxy is used, and separate release or cache folders if two processes run from one
+  machine.
+
+### Revised order
+
+This replaces "Build order" above.
+
+1. **First:** the pilot PC, then the canteen go-live with its restore drill and off-machine backup.
+2. **Small licensing work worth doing now,** one change at a time, none delaying step 1: make a lost offline activation
+   file re-issuable (the same computer and key, an active deployment, never under a compromised key, recorded) and make
+   `license:issue-bundle` fail when it cannot write the file; a console command that lists every client with its licence
+   status, expiry and when it was last seen; stop `DatabaseSeeder` creating a login; remove the welcome page.
+3. **Before real keys:** the two lists above, certificate format 3, the signer design, and the hosting design (moved here
+   from the end of the plan).
+4. **Screens, once the start conditions are met:** separate the surfaces, operators with the operator's name on each
+   event, and read-only screens; then stop and reassess. After that, one action per change: register, till limit,
+   suspend, resume, revoke. Reconnecting a chain waits for how the owner of a shop is verified. Hardware approval,
+   activation and replacement screens wait for certificate format 3. Signing screens wait for decision 2 above.
+
+Shared services are extracted when the first screen needs them, not before.
+
+**Gaps against "manage clients centrally":** nothing can edit a client, add a second store to a client, set a term end
+date or switch a shop from report-only to enforcing. ADR-019 expects a report-only installation before enforcement, so
+that switch needs its own decision before one is installed.
+
+**Where the reviews differed:** the operations review would have built the surface split and read-only screens now, and
+the security review would have allowed everything but signing to be built on a development computer. They are on hold
+because of the order of priorities and the designs still missing, not because development builds would be unsafe.
+
+## Amendment, 2026-11-25: the planned host
+
+**Owner decision:** the licensing service, and the admin screens when they are built, are planned for a **rented virtual
+server** that the owner already has with a commercial hosting company. This **replaces**, in ADR-018 decision 8, "hosted
+locally in the Philippines on the provider's own server". The company and plan are not named here, because this repository
+is public.
+
+It is a choice of host only. It approves no deployment, no real client data, no production key and no real use, and every
+list above still applies.
+
+**What follows from it**
+
+- **Location.** No Philippine location was found among the company's published ones, and this server's location is not yet
+  confirmed. ADR-018 expected local hosting to avoid a cross-border transfer of the provider's own personal data (IP
+  addresses, client contact details, fingerprint hashes and, with screens, operator records). Before real client
+  information is stored, counsel confirms what a transfer requires, together with the privacy notice and the provider's
+  role.
+- **Signing keys: open.** ADR-018 decision 8 expects a hardware security module, or a key held encrypted and unlocked by a
+  hardware token, and ADR-019 expects production keys held in hardware. A rented virtual server normally gives no way to
+  attach either. **Those requirements stand until the owner decides otherwise**, so no production key is created. The
+  choices to be assessed:
+  1. keys in software on the server: simplest and weakest, because whoever takes over the server could copy them;
+  2. a separate signing computer that the provider controls: better control of the keys, but renewals then depend on
+     that computer and its connection;
+  3. an outside key service: its support for the signature type, its security, location and cost are not yet checked.
+
+  The signer design in the review amendment applies to whichever is chosen.
+- **Continuity.** ADR-018's duties to keep the service reachable still apply. Whatever the company backs up, the service
+  also needs its own frequent backups stored somewhere else, a restore drill, and a documented way to rebuild.
+- **Screens on the same server** are acceptable for testing. The admin surface is reachable only through a VPN. Separate
+  users and settings do not protect against someone with full control of the server.
+- **To confirm before anything is deployed:** what else runs on the server, its location, who maintains it, and a target
+  date. Screens still wait for who runs it and a target date.
