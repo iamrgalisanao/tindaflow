@@ -10,6 +10,7 @@ import { ConfirmDialog } from './admin/catalog/CatalogParts';
 import NotFound from './NotFound';
 import CartPanel from './pos/CartPanel';
 import CreditConfirmPanel from './pos/CreditConfirmPanel';
+import LicenseBanner from './pos/LicenseBanner';
 import PayerStrip from './pos/PayerStrip';
 import SaleStart, { EmployeeBox } from './pos/SaleStart';
 import CatalogPanel from './pos/CatalogPanel';
@@ -875,6 +876,7 @@ export default function Pos() {
                 onView={goToView}
                 onLeave={cart.length > 0 ? setPendingExit : undefined}
             />
+            <LicenseBanner step={step} />
 
             {pendingExit !== null && (
                 <ConfirmDialog

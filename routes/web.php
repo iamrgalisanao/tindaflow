@@ -356,6 +356,11 @@ Route::prefix('api/v1')->middleware('throttle:api')->group(function () {
         Route::put('/credit-policies/{employeeType}', [EmployeeController::class, 'creditPolicySetLimit']);
     });
 
+    // The till's license warning (ADR-019): any signed-in user on an enrolled terminal, like shifts/current. It says only what is
+    // about to be refused, and is never gated by the license itself.
+    Route::get('/license/till-notice', [LicenseController::class, 'tillNotice'])
+        ->middleware(['auth', EnsureUserIsActive::class, ResolveTerminalContext::class, ComposeAuthoritativeContext::class]);
+
     // License (ADR-018 decision 10): the Manager area's license screen. LICENSE_MANAGE (MANAGER and ADMIN; a cashier gets 403), a session and no
     // terminal. These three are never gated by the license itself: a lapsed or locked installation is exactly when they are needed. "Check now"
     // reaches the provider and code entry changes the license, so each is limited per user (the 429 is RATE_LIMITED).

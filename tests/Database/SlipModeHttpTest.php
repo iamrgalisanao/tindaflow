@@ -161,12 +161,14 @@ class SlipModeHttpTest extends PostgresSchemaTestCase
     {
         $w = $this->world();
         $this->slipMode($w);
+        // A name the page must escape. The factory's random names sometimes carry an apostrophe, so this is fixed rather than left to chance.
+        $w['cashier']->forceFill(['name' => "Aurelio O'Hara"])->save();
         $sale = $this->ringAt($w);
 
         $html = $this->asUser($w['cashier'])->getJson("/api/v1/sale-slips/{$sale['slip']['id']}")->assertOk()->json('render_html');
 
         foreach (['Canteen One', 'T-01-000001', $w['cashier']->name, '200.00', 'TOTAL', 'Cash'] as $expected) {
-            $this->assertStringContainsString($expected, $html);
+            $this->assertStringContainsString(e($expected), $html);
         }
         $this->assertStringNotContainsStringIgnoringCase('invoice', $html);
         $this->assertStringNotContainsStringIgnoringCase('official receipt', $html);

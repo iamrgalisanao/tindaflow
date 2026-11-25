@@ -92,7 +92,10 @@ final class LicenseGate
         $publicKey = (string) config('tindaflow.license.public_key');
         $legacyLicensePresent = ($row->certificate ?? null) === null && $publicKey !== '' && $this->entitlement->verifiedPayload($publicKey) !== null;
 
-        return new LicenseCheck($this->evaluator->evaluate($certificate, $facts, true, $legacyLicensePresent), $facts->trustedNow(), $certificate?->seats);
+        // The later of the certificate's expiry and an offline extension's, as the evaluator judges it.
+        $validUntil = $certificate !== null && $extendedUntil !== null && $extendedUntil > $certificate->exp ? $extendedUntil : $certificate?->exp;
+
+        return new LicenseCheck($this->evaluator->evaluate($certificate, $facts, true, $legacyLicensePresent), $facts->trustedNow(), $certificate?->seats, $validUntil);
     }
 
     /**
