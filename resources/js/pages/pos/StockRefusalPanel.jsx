@@ -17,13 +17,13 @@ export default function StockRefusalPanel({ refusal, cart, busy, onApproved, onF
     const items = cart.flatMap((line) => requestItems(line, 0n));
 
     return (
-        <section role="alert" aria-label="Not enough stock" className="mx-4 mt-3 rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+        <section role="alert" aria-label="Not enough stock" className="mx-4 mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">
             <p className="font-semibold">Not enough stock, so this sale was not made. Nothing was charged.</p>
-            <ul aria-label="Items short of stock" className="mt-2 divide-y divide-red-500/20 rounded border border-red-500/20 bg-slate-950/40">
+            <ul aria-label="Items short of stock" className="mt-2 divide-y divide-rose-500/20 rounded border border-rose-500/20 bg-slate-950/40">
                 {lines.map((line) => (
                     <li key={`${line.productId}:${line.stockDate ?? ''}`} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-                        <span className="min-w-0 break-words font-medium text-red-100">{line.name}</span>
-                        <span className="font-mono text-xs text-red-200">
+                        <span className="min-w-0 break-words font-medium text-rose-100">{line.name}</span>
+                        <span className="font-mono text-xs text-rose-200">
                             {line.kind === 'DISH'
                                 ? `needs ${line.required} portions, ${Number(line.available) > 0 ? `only ${line.available} left today` : 'none left today'}`
                                 : `needs ${line.required}, ${Number(line.available) > 0 ? `only ${line.available} in stock` : 'no stock'}`}
@@ -33,14 +33,14 @@ export default function StockRefusalPanel({ refusal, cart, busy, onApproved, onF
                             onClick={() => onRemoveItem(line)}
                             disabled={busy}
                             aria-label={`Remove ${line.name} from the cart`}
-                            className="min-h-11 rounded border border-red-400/60 px-3 text-xs font-bold uppercase tracking-wide text-red-100 hover:bg-red-500/20 disabled:opacity-50"
+                            className="min-h-11 rounded border border-rose-400/60 px-3 text-xs font-bold uppercase tracking-wide text-rose-100 hover:bg-rose-500/20 disabled:opacity-50"
                         >
                             Remove item
                         </button>
                     </li>
                 ))}
             </ul>
-            <p className="mt-2 text-xs text-red-300/90">
+            <p className="mt-2 text-xs text-rose-300/90">
                 Change the quantity or remove the item, or ask a manager to enter the stock{refusal.overrideAvailable ? ' or to approve this sale' : ''}.
             </p>
 

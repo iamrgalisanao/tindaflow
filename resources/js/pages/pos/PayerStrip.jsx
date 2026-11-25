@@ -45,7 +45,7 @@ export default function PayerStrip({ payer, totalCents, onChangeEmployee, onUseC
                     {after !== null && totalCents > 0n && (
                         <>
                             {' '}
-                            &middot; after this sale <strong className={`font-mono ${after < 0n ? 'text-red-400' : 'text-slate-100'}`}>{`₱${pesos(after)}`}</strong>
+                            &middot; after this sale <strong className={`font-mono ${after < 0n ? 'text-rose-400' : 'text-slate-100'}`}>{`₱${pesos(after)}`}</strong>
                         </>
                     )}
                 </p>

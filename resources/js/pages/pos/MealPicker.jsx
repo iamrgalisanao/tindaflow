@@ -126,7 +126,7 @@ export default function MealPicker({ meal, categories, onAdd, onCancel, stock = 
                                                 >
                                                     {option.label}
                                                     {available && (
-                                                        <span data-stock={available.soldOut ? 'out' : 'ok'} className={`mt-0.5 block font-mono text-[11px] font-bold ${available.soldOut ? 'text-red-300' : 'text-slate-500'}`}>
+                                                        <span data-stock={available.soldOut ? 'out' : 'ok'} className={`mt-0.5 block font-mono text-[11px] font-bold ${available.soldOut ? 'text-rose-300' : 'text-slate-500'}`}>
                                                             {available.text}
                                                         </span>
                                                     )}

@@ -53,7 +53,7 @@ export default function CreditConfirmPanel({ cart, totalCents, payer, busy, refu
                     {[
                         ['Remaining now', money(employee.credit.remaining), 'text-slate-100'],
                         ['This sale', `₱${pesos(totalCents)}`, 'text-slate-100'],
-                        ['Left after', after === null ? '—' : `${after < 0n ? '-' : ''}₱${pesos(after < 0n ? -after : after)}`, after !== null && after < 0n ? 'text-red-400' : 'text-emerald-400'],
+                        ['Left after', after === null ? '—' : `${after < 0n ? '-' : ''}₱${pesos(after < 0n ? -after : after)}`, after !== null && after < 0n ? 'text-rose-400' : 'text-emerald-400'],
                     ].map(([label, value, tone]) => (
                         <div key={label} className="rounded bg-slate-950 px-2 py-2">
                             <dt className="text-[11px] uppercase tracking-wide text-slate-400">{label}</dt>
@@ -64,7 +64,7 @@ export default function CreditConfirmPanel({ cart, totalCents, payer, busy, refu
             </section>
 
             {refusal && (
-                <section role="alert" aria-label="Credit limit exceeded" className="rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+                <section role="alert" aria-label="Credit limit exceeded" className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">
                     <p className="font-semibold">This sale is over {employee.name}&apos;s credit limit, so it was not charged.</p>
                     <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs sm:grid-cols-4">
                         {[
@@ -74,12 +74,12 @@ export default function CreditConfirmPanel({ cart, totalCents, payer, busy, refu
                             ['This sale', refusal.requested],
                         ].map(([label, value]) => (
                             <div key={label}>
-                                <dt className="text-red-300/80">{label}</dt>
-                                <dd className="text-sm font-bold text-red-100">{money(value)}</dd>
+                                <dt className="text-rose-300/80">{label}</dt>
+                                <dd className="text-sm font-bold text-rose-100">{money(value)}</dd>
                             </div>
                         ))}
                     </dl>
-                    <p className="mt-2 text-xs text-red-300/90">
+                    <p className="mt-2 text-xs text-rose-300/90">
                         Period {periodText(refusal.periodStart, refusal.periodEnd)}. Remove items to bring the sale within what is left, take cash instead, or ask a manager to approve this sale.
                     </p>
                     {!asking && onApproved && (

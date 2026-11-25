@@ -88,7 +88,7 @@ export default function DailyStockEditor({ canEnterDirectly, onSaved = () => {} 
 
     if (grid === null) {
         return (
-            <p role={loadError ? 'alert' : 'status'} className={`py-8 text-center text-sm ${loadError ? 'text-red-300' : 'text-slate-400'}`}>
+            <p role={loadError ? 'alert' : 'status'} className={`py-8 text-center text-sm ${loadError ? 'text-rose-300' : 'text-slate-400'}`}>
                 {loadError ?? "Loading today's stock…"}
             </p>
         );
@@ -161,7 +161,7 @@ export default function DailyStockEditor({ canEnterDirectly, onSaved = () => {} 
                                             />
                                         </td>
                                         <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-300">{Number(row.sold)}</td>
-                                        <td className={`px-3 py-2 text-right font-mono font-bold tabular-nums ${left < 0n ? 'text-red-300' : left === 0n ? 'text-amber-300' : 'text-emerald-300'}`}>{Number(row.remaining)}</td>
+                                        <td className={`px-3 py-2 text-right font-mono font-bold tabular-nums ${left < 0n ? 'text-rose-300' : left === 0n ? 'text-amber-300' : 'text-emerald-300'}`}>{Number(row.remaining)}</td>
                                         <td className="px-3 py-2 text-right">
                                             <div className="flex items-center justify-end gap-1">
                                                 {[5, 10].map((n) => (
@@ -207,7 +207,7 @@ export default function DailyStockEditor({ canEnterDirectly, onSaved = () => {} 
             )}
 
             {message && (
-                <p role={message.tone === 'error' ? 'alert' : 'status'} className={`rounded px-3 py-2 text-sm ${message.tone === 'error' ? 'bg-red-500/10 text-red-300' : 'bg-emerald-500/10 text-emerald-300'}`}>
+                <p role={message.tone === 'error' ? 'alert' : 'status'} className={`rounded px-3 py-2 text-sm ${message.tone === 'error' ? 'bg-rose-500/10 text-rose-300' : 'bg-emerald-500/10 text-emerald-300'}`}>
                     {message.text}
                 </p>
             )}

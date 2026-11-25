@@ -107,12 +107,12 @@ export function DoDont({ dos = [], donts = [] }) {
                 </div>
             )}
             {donts.length > 0 && (
-                <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2.5">
-                    <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-red-300">Don&apos;t</p>
+                <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2.5">
+                    <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-rose-300">Don&apos;t</p>
                     <ul className="space-y-1.5">
                         {donts.map((item) => (
                             <li key={item} className="flex gap-2 text-sm leading-snug text-slate-300">
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 shrink-0 text-red-400">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 shrink-0 text-rose-400">
                                     <path d="M6 6l12 12M18 6L6 18" />
                                 </svg>
                                 <span>
