@@ -396,6 +396,59 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         $this->assertSame(LicenseState::Active, $this->licenseState());
     }
 
+    // Reconnecting a certificate chain (ADR-019 slice 3): a backup older than the latest certificate is a fork until the provider,
+    // having checked with the owner, approves the certificate number the shop holds.
+
+    public function test_a_shop_restored_from_an_old_backup_is_reconnected_with_only_licensing_changes_and_the_other_copy_is_refused(): void
+    {
+        $this->activateAndTrade();
+        $backup = (array) DB::table('license_state')->where('id', 1)->first();
+        foreach ([2, 3] as $seq) {
+            $this->ageLatestCertificate();
+            $this->assertRenewal(0, "Renewed: certificate {$seq}");
+        }
+        $later = (array) DB::table('license_state')->where('id', 1)->first();
+
+        DB::table('license_state')->where('id', 1)->update($backup);
+        $this->assertRenewal(1, 'this computer holds certificate 1');
+        $output = $this->artisanThere(['license:rechain', $this->deploymentCode, '--seq=1', '--reason=Owner confirmed a restore']);
+        $this->assertStringContainsString('presented certificate 1', $output, 'the provider sees what was refused');
+
+        $this->assertOnlyLicensingChanges(fn () => $this->assertRenewal(0, 'Renewed: certificate 4'));
+
+        $this->assertTradingAgain();
+        $this->assertTrue($this->lastRenewalAudit()['chain_gap']);
+        $this->ageLatestCertificate();
+        $this->assertRenewal(0, 'Renewed: certificate 5');
+
+        // Whoever still holds what the shop had before the restore is now the copy.
+        DB::table('license_state')->where('id', 1)->update($later);
+        $this->assertRenewal(1, 'forked');
+        $this->assertSame(3, $this->heldSeq());
+    }
+
+    public function test_a_restored_shop_with_no_internet_is_reconnected_by_file(): void
+    {
+        $this->activateAndTrade();
+        $backup = (array) DB::table('license_state')->where('id', 1)->first();
+        $this->ageLatestCertificate();
+        $this->assertRenewal(0, 'Renewed: certificate 2');
+        DB::table('license_state')->where('id', 1)->update($backup);
+
+        $request = $this->workDirectory.'/renewal-request.txt';
+        $this->assertSame(0, Artisan::call('tindaflow:license-renew', ['--request' => true, '--out' => $request]), Artisan::output());
+        $this->assertStringContainsString('chain', $this->artisanThere(['license:renew-file', $request, '--out='.$request.'.reply'], expectedExit: 1));
+        $this->artisanThere(['license:rechain', $this->deploymentCode, '--seq=1', '--reason=Owner confirmed a restore']);
+
+        $this->assertOnlyLicensingChanges(function () use ($request) {
+            $this->artisanThere(['license:renew-file', $request, '--out='.$request.'.reply']);
+            $this->assertSame(0, Artisan::call('tindaflow:license-renew', ['--apply' => $request.'.reply']), Artisan::output());
+        });
+
+        $this->assertSame(3, $this->heldSeq());
+        $this->assertSame(LicenseState::Active, $this->licenseState());
+    }
+
     // Replacing the computer (ADR-019 slice 3). The shop is restored onto new hardware with its database and identity file, which
     // locks it; the provider licenses the new computer and retires the old one.
 

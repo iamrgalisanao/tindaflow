@@ -157,7 +157,8 @@ This applies only to a build that carries a vendor key. Today no build does, so 
   The request holds no secret key, but it does hold the license and the hardware hashes. It needs the host helper's file to be current. If the reply is lost, send the same request again. **Apply the reply before it runs out** (it is good for about 30 days from when the provider made it).
 - **Locked because of the clock** (`CLOCK_ROLLBACK`): first set the computer's date and time correctly. If it is still locked, the computer's clock was once ahead. Online, renew as above; if the last renewal was under an hour ago, wait and try again. Offline, ask your provider for a time-reset code and type it on the License screen. A reply file never unlocks a clock lock, on purpose.
 - **Locked because the hardware changed:** replace the computer (below), even if it is the same computer after a repair.
-- **A forked chain, or a revocation:** there is no way back yet. Contact your TindaFlow provider.
+- **A forked chain** (the message says the provider reports one): usually a restored backup older than the latest license. Tell your TindaFlow provider what happened and the **certificate number** this computer holds (the License screen, or `license-status`). The provider checks with the shop's owner and approves that number (`license:rechain`); within 7 days, renew as above, online or by file. The approval works once, and any other computer holding a later license is refused from then on, so say if one exists.
+- **A revocation:** there is no way back. Contact your TindaFlow provider.
 
 ## Backups
 
@@ -258,7 +259,7 @@ The commands below are written to work in PowerShell and in bash. Run them from 
 
 **The tills** stay enrolled, with nothing to re-enter, as long as the server answers at the same address with the same certificate and `APP_KEY`. If the new computer has another name or IP address, set `APP_URL`, make a certificate for the new address, and enroll the tills again. A public host name needs `tls/letsencrypt.sh issue` again.
 
-**On a different computer a license sees different hardware** and locks. After restoring, follow "Replacing the shop's computer". Builds with no vendor key, which is every build today, are not affected.
+**On a different computer a license sees different hardware** and locks. After restoring, follow "Replacing the shop's computer". On the same computer, a backup older than the latest license makes the next renewal report a forked chain; "A license that has run out, or a clock lock" says what to do. Builds with no vendor key, which is every build today, are not affected.
 
 **What is tested.** `scripts/drill-whole-shop-restore.sh` runs these steps in CI on Linux on every change: it builds a shop, sells, destroys it, restores it from the two files and compares every record. The steps have **not** been run on Windows. Practise them on a spare Windows computer before relying on them.
 

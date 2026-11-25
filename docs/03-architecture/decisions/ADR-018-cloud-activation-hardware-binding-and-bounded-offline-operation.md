@@ -154,6 +154,11 @@ ADR-019, "Slice 3, part 4", has the reasons and the limits.
 - **A replaced installation** is answered `403 INSTALLATION_REPLACED`, never a certificate and never a revocation.
 - **Apply:** `--bundle --replace` writes the license state afresh (extensions, code ordinal and pending request cleared), moves trusted time only forward, and swaps in the pending identity.
 
+### Amendment, 2026-11-25: the re-chain action of decision 5 (ADR-019 slice 3)
+ADR-019, "Slice 3, part 5", has the detail and the limits.
+- `license:rechain` approves one certificate number for 7 days and one use; only the exact certificate issued under it continues the chain, from above every number issued. No wire format changes.
+- The owner-held re-sync code that decision 5 requires before a third client is **still not built**.
+
 ## What this does and does not guarantee
 - **Guarantees:** a copy of the images and volumes moved to another PC **without** the host helper's output fails the fingerprint check at activation and renewal. If a determined copier also copies `hardware.json` (it is unsigned and can be copied with the stack), only fork detection and certificate expiry limit the copy: two copies of one chain that both renew expose a fork, and the first to renew wins, but a fork is undetected if the original stops renewing. An unattended copy stops opening shifts within 30 to under 31 days. The provider holds evidence (a signed check-in log, fork records, the deployment watermark of stage-23 addendum 10, the audit trail) for a license dispute.
 - **Does not guarantee:** it cannot stop a determined host administrator. TindaFlow is self-hosted, offline-capable PHP; any client-side check can be patched by someone who edits the code, rebuilds the image or mounts replacement files. The strength is Medium on purpose (D5): deter and detect. The 30-day life weakens the deterrent compared with the original 7 days: an unattended copy can trade for up to about 31 days, and a revocation or suspension reaches an offline client only after its certificate runs out. The enforceable protection remains the license agreement and copyright law. A copy started later with its clock set to the copy date still trades for the rest of its certificate plus one 18-hour shift, and can apply the same extension as the original.
