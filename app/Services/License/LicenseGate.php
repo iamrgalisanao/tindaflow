@@ -40,6 +40,11 @@ final class LicenseGate
         }
 
         $row = DB::table('license_state')->where('id', 1)->first();
+        $certificate = $this->certificate($ring, $row->certificate ?? null);
+        // An extension belongs to the one certificate it was made for; a renewal replaces that certificate and so drops it.
+        $extendedUntil = $certificate !== null && ($row->extended_until ?? null) !== null && (int) $row->extension_base_seq === $certificate->seq
+            ? new DateTimeImmutable($row->extended_until)
+            : null;
         $facts = new LocalFacts(
             wallNow: $wallNow,
             trustedTimeHwm: ($row->trusted_time_hwm ?? null) === null ? null : new DateTimeImmutable($row->trusted_time_hwm),
@@ -47,12 +52,13 @@ final class LicenseGate
             observedFingerprint: $this->hardware->read($wallNow)->fingerprint,
             revoked: (bool) ($row->revoked ?? false),
             chainInvalid: (bool) ($row->chain_invalid ?? false),
+            extendedUntil: $extendedUntil,
         );
 
         $publicKey = (string) config('tindaflow.license.public_key');
         $legacyLicensePresent = $publicKey !== '' && $this->entitlement->verifiedPayload($publicKey) !== null;
 
-        return new LicenseCheck($this->evaluator->evaluate($this->certificate($ring, $row->certificate ?? null), $facts, true, $legacyLicensePresent), $facts->trustedNow());
+        return new LicenseCheck($this->evaluator->evaluate($certificate, $facts, true, $legacyLicensePresent), $facts->trustedNow());
     }
 
     private function certificate(KeyRing $ring, ?string $token): ?Certificate

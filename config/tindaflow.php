@@ -81,6 +81,11 @@ return [
         'vendor_keys' => [],
         'revoked_kids' => [],
 
+        // ADR-018 decisions 1 and 6: the SECOND key family, which signs only offline extension and time-reset codes. Numbered 1 to 255
+        // (a code has one byte for the number), constants in code like the keys above. Empty = this build accepts no offline code.
+        'code_keys' => [],
+        'revoked_code_keys' => [],
+
         // ADR-018: this PC's own identity (a UUID and an Ed25519 key pair made by `tindaflow:activate --request`), on the persistent app volume.
         'installation_file' => storage_path('app/license/installation.json'),
 

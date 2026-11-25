@@ -4,11 +4,14 @@ namespace Tests\CrossRepo;
 
 use App\Models\AuditEvent;
 use App\Models\Store;
+use App\Services\License\Contract\Base64Url;
 use App\Services\License\InstallationIdentity;
 use App\Services\License\LicenseGate;
 use App\Services\License\LicenseState;
 use App\Services\License\RefusalReason;
 use App\Support\DeploymentId;
+use Carbon\CarbonImmutable;
+use DateTimeImmutable;
 use GuzzleHttp\Client;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
@@ -78,8 +81,10 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         $this->environment = $this->controlPlaneEnvironment();
 
         config([
+            'app.timezone' => 'Asia/Manila',
             'tindaflow.license.installation_file' => $this->workDirectory.'/installation.json',
             'tindaflow.license.vendor_keys' => ['test-2026-01' => self::testPublicKeyBase64()],
+            'tindaflow.license.code_keys' => [1 => self::testCodePublicKeyBase64()],
         ]);
         $this->fakeHostHardware();
 
@@ -192,6 +197,59 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
         $this->assertStringContainsString('cannot be resumed', $refusal, 'the provider knows the client cannot be unlocked');
     }
 
+    public function test_an_extension_code_from_the_control_plane_keeps_an_offline_client_trading(): void
+    {
+        $this->activate();
+        $certificate = app(LicenseGate::class);
+        $expiry = new DateTimeImmutable((string) json_decode((string) Base64Url::decode(explode('.', (string) DB::table('license_state')->value('certificate'))[0]), true)['exp']);
+
+        // The provider makes the code now; the shop is still offline a day after its certificate ran out.
+        $this->artisanThere(['license:extension-code', $this->deploymentCode, '--reason=Fibre cut', '--base-seq=1']);
+        $code = $this->latestOfflineCode();
+
+        $this->travelTo(CarbonImmutable::instance($expiry)->addDay());
+        $this->fakeHostHardware(generatedAt: CarbonImmutable::now()->format('Y-m-d\TH:i:sP'));
+        $this->assertSame(LicenseState::Expired, $certificate->check()->verdict->state);
+
+        $this->assertSame(0, Artisan::call('tindaflow:license-code', ['code' => [$code]]), Artisan::output());
+        $this->assertSame(LicenseState::Active, $certificate->check()->verdict->state);
+
+        // Back online, a renewal replaces the certificate and drops the extension.
+        $this->travelBack();
+        $this->fakeHostHardware();
+        $this->ageLatestCertificate();
+        $this->assertRenewal(0, 'Renewed: certificate 2');
+        $this->assertNull(DB::table('license_state')->value('extended_until'));
+    }
+
+    public function test_a_time_reset_code_from_the_control_plane_unlocks_a_clock_once_set_ahead(): void
+    {
+        $this->activate();
+
+        // The clock is set two months ahead while the system runs, then corrected: the recorded time stays ahead and the PC locks.
+        $this->travelTo(CarbonImmutable::now()->addDays(60));
+        $this->fakeHostHardware(generatedAt: CarbonImmutable::now()->format('Y-m-d\TH:i:sP'));
+        Artisan::call('tindaflow:license-heartbeat');
+        $this->travelBack();
+        $this->assertSame(RefusalReason::ClockRollback, app(LicenseGate::class)->check()->verdict->shiftOpenRefusal());
+
+        $this->artisanThere(['license:time-reset-code', $this->deploymentCode, '--reason=Clock was set ahead']);
+        $this->assertSame(0, Artisan::call('tindaflow:license-code', ['code' => [$this->latestOfflineCode()]]), Artisan::output());
+
+        // The heartbeat must not take the wrongly stamped hardware file as the time again.
+        Artisan::call('tindaflow:license-heartbeat');
+        $this->assertSame(LicenseState::Active, $this->licenseState());
+    }
+
+    /** The code as the registry holds it; license:codes prints this same text. */
+    private function latestOfflineCode(): string
+    {
+        $code = (string) $this->registry()->query('select code from offline_codes order by ordinal desc limit 1')->fetchColumn();
+        $this->assertStringContainsString($code, $this->artisanThere(['license:codes', $this->deploymentCode]));
+
+        return $code;
+    }
+
     /** The offline path end to end, through the real commands: the client's request, the provider's bundle, the client applying it. */
     private function activate(): void
     {
@@ -274,6 +332,8 @@ class ControlPlaneContractTest extends PostgresSchemaTestCase
             'LOG_CHANNEL' => 'stderr',
             'LICENSING_SIGNING_KID' => 'test-2026-01',
             'LICENSING_SIGNING_KEY' => base64_encode(sodium_crypto_sign_secretkey(self::testKeyPair())),
+            'LICENSING_CODE_KEY_ID' => '1',
+            'LICENSING_CODE_SIGNING_KEY' => base64_encode(sodium_crypto_sign_secretkey(self::testKeyPair('tindaflow-code-test-only'))),
             'LICENSING_CONTROL_PLANE_URLS' => self::PRIMARY.','.self::STANDBY,
             'LICENSING_TIMEZONE' => 'Asia/Manila',
         ];

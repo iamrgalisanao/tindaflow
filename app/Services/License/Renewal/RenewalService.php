@@ -152,11 +152,15 @@ final class RenewalService
         $linksCleanly = ChainRules::linksCleanly($currentToken, $current, $candidate);
 
         DB::transaction(function () use ($token, $current, $candidate, $linksCleanly, $reply, $now) {
-            $previousMark = $this->clock->rebaseline($candidate->iat);
+            $previousMark = $this->clock->rebaseline($candidate->iat, $this->hardware->read($now)->generatedAt);
 
             DB::table('license_state')->where('id', 1)->update([
                 'certificate' => $token,
                 'certificate_seq' => $candidate->seq,
+                // A new certificate discards any extension of the old one and starts the count of codes in a row again (ADR-018 decision 6).
+                'extended_until' => null,
+                'extension_base_seq' => null,
+                'extensions_in_a_row' => 0,
                 'pending_request_id' => null,
                 'last_renewal_error' => null,
                 'last_renewed_at' => $this->stamp($now),

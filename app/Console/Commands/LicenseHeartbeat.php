@@ -29,8 +29,7 @@ class LicenseHeartbeat extends Command
 
         // The host helper stamps its file with the Windows clock: a second clock beside the container's (ADR-018 decision 4). It can only move the mark forward.
         $reading = $hardware->read();
-        if ($reading->isFresh()) {
-            $clock->advanceTo($reading->generatedAt);
+        if ($reading->isFresh() && $clock->advanceToHostClock($reading->generatedAt)) {
             $mark = max($mark, $reading->generatedAt);
         }
 

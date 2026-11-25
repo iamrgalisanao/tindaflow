@@ -198,5 +198,53 @@
         "iat": "2026-11-24T09:00:00+08:00",
         "exp": "2026-12-25T05:00:00+08:00",
         "jti": "0123456789abcdef0123456789abcdef"
+    },
+    "offline_codes": {
+        "seed_label": "tindaflow-code-test-only",
+        "public_key_base64": "ctKKFdtmE//qQKQGzh8lBZ72V7vfDr+k1crf9q1Uz4w=",
+        "accepted": [
+            {
+                "name": "a 30 day extension",
+                "type": 1,
+                "key_id": 1,
+                "deployment": "A1B2C3D4",
+                "installation": "7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40",
+                "base_seq": 42,
+                "days": 30,
+                "ordinal": 1,
+                "iat": 1795482000,
+                "payload_hex": "0101a1b2c3d45070be954a0a0000002a1e00016b04e190",
+                "code_length": 169,
+                "code_sha256": "25bf40a3a004695bc39b564eb35d255171b8b4ea03b5da7593e5a30593ab58bd"
+            },
+            {
+                "name": "a time reset",
+                "type": 2,
+                "key_id": 1,
+                "deployment": "A1B2C3D4",
+                "installation": "7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40",
+                "base_seq": 42,
+                "days": 0,
+                "ordinal": 2,
+                "iat": 1795482000,
+                "payload_hex": "0201a1b2c3d45070be954a0a0000002a0000026b04e190",
+                "code_length": 169,
+                "code_sha256": "af24aaa8b86e4f5abd763b0c6743cfb516a5bf3c2c3eaa05792b0485965bc9a4"
+            },
+            {
+                "name": "the largest values every field holds",
+                "type": 1,
+                "key_id": 255,
+                "deployment": "FFFFFFFF",
+                "installation": "7f3c9e2a-4b1d-4e8f-9a06-2d5b8c1e7f40",
+                "base_seq": 4294967295,
+                "days": 30,
+                "ordinal": 65535,
+                "iat": 4294967295,
+                "payload_hex": "01ffffffffff5070be954a0affffffff1effffffffffff",
+                "code_length": 169,
+                "code_sha256": "4101277198c1b483097a36519f4bdc553b3c7a568ac86338ac3eddab6b400615"
+            }
+        ]
     }
 }

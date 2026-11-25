@@ -5,10 +5,14 @@ namespace App\Console\Commands;
 use App\Services\License\Entitlement;
 use App\Services\License\HostHardware;
 use App\Services\License\LicenseGate;
+use App\Services\License\OfflineCodeService;
 use App\Services\License\Time\TrustedClock;
 use App\Services\Terminal\TerminalSeats;
 use App\Support\DeploymentId;
+use DateTimeImmutable;
+use DateTimeZone;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 
 /** ADR-014: what the license on this installation allows, and how much of it is used. Also how the vendor learns the deployment code to sign for. */
 class LicenseStatus extends Command
@@ -56,6 +60,15 @@ class LicenseStatus extends Command
         $reading = $hardware->read();
 
         $this->line('Activation: '.$state->state->value.($state->enforcing ? '' : ' (report mode: nothing is refused)').'.');
+
+        // The provider needs the certificate number to make an offline code.
+        $row = DB::table('license_state')->where('id', 1)->first();
+        if ($row !== null && $row->certificate_seq !== null) {
+            $this->line("Certificate: {$row->certificate_seq}.");
+            if ($row->extended_until !== null && (int) $row->extension_base_seq === (int) $row->certificate_seq) {
+                $this->line('Extended offline until '.(new DateTimeImmutable($row->extended_until))->setTimezone(new DateTimeZone((string) config('app.timezone')))->format('Y-m-d H:i')." ({$row->extensions_in_a_row} of ".OfflineCodeService::MAX_EXTENSIONS_IN_A_ROW.' in a row).');
+            }
+        }
         $this->line('Trusted time mark: '.($mark?->format('Y-m-d H:i:sP') ?? '(none yet; the heartbeat has not run)'));
         $this->line('Hardware file: '.strtolower($reading->status).($reading->generatedAt !== null ? ', written '.$reading->generatedAt->format('Y-m-d H:i:sP') : '').($reading->isFresh() ? '.' : ' (activation and renewal need a file under 26 hours old).'));
     }
