@@ -97,3 +97,32 @@ server is mission-critical and asked for the test to run on it. **This is the go
 does not require off-server backups to be confirmed first; this replaces that requirement here and in the service's
 instructions. Without confirmed backups, damage to an application or its data may not be recoverable. Checking that the
 applications work before and after, comparing the other containers, and stopping on any problem still apply.
+
+## Result, 2026-11-26
+
+The service ran from its repository's commit `5148e4b` on the planned host, with the throwaway test shop on a development
+computer using a **simulated hardware file**. The owner ran the server steps and checked the applications.
+
+**Passed:**
+
+- the build, the start and every route check;
+- activation by offline file; an online renewal through the SSH tunnel; a second certificate after the till limit changed;
+- renewal refused while suspended, and working again after resumption;
+- an encrypted backup that passed the restore check, and an off-server copy whose checksum matched;
+- revocation: the shop reported itself locked, and the service then refused to resume it. A sale was not attempted.
+
+**The other applications:** the owner reported that those in use, the demonstration one checked, and the test shop on the
+server worked after the run. Of the other containers, the comparison showed changes only in two that were already
+restarting about hourly before anything was built. The shared database image was unchanged. Neither check proves that
+nothing else was affected.
+
+**Found during the run:**
+
+- while suspended, the shop shows only an unexpected-answer error with HTTP 403;
+- the instructions given to the owner showed the stop command, meant for problems only, as a block to copy; it was run
+  twice, and the service was started again each time;
+- the backup was once reported as passed when no backup file existed. The copy step showed this; the backup and restore
+  check were then run and their output read.
+
+**Still open:** the service and the test shop have **not been removed yet**; removal on the server has not been tried.
+Everything under "What this run does not show" still stands, and **no gate of ADR-019 or ADR-020 is met by this run**.
