@@ -124,5 +124,11 @@ nothing else was affected.
 - the backup was once reported as passed when no backup file existed. The copy step showed this; the backup and restore
   check were then run and their output read.
 
-**Still open:** the service and the test shop have **not been removed yet**; removal on the server has not been tried.
+**Removed the same day**, at the owner's request, well before 15 December. On the server the test's containers, images,
+volume, networks and files are gone. After the containers were removed, the owner reported that the five applications
+checked still worked, and the comparison again showed only the two restarting containers, with the shared database image
+unchanged. The comparison files went with the test's files, so no later comparison was made. Docker's build cache was left
+on purpose. On the development computer the test shop, its database and the test files were deleted; the encrypted backup
+was kept for the owner to move or delete.
+
 Everything under "What this run does not show" still stands, and **no gate of ADR-019 or ADR-020 is met by this run**.
