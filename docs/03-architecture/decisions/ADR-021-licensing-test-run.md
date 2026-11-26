@@ -66,3 +66,28 @@ earlier report said the command could report success after a failed write. **It 
 an error, but only after the computer had been registered, so that computer's one first bundle was lost. The change for
 this run checks the file before registering and shows the bundle if the final write fails. Re-issuing a lost first bundle
 is still not possible and is not part of this run.
+
+## Amendment, 2026-11-26: what else the server runs
+
+The owner ran read-only checks and listed what is in use. **This corrects the description above:** besides the test shop,
+the planned host runs several other applications, **some of them in regular use** and some for demonstration, behind a web
+router that reads Docker. They are not named here, because this repository is public. Where this amendment differs from
+the text above, this amendment wins.
+
+**The risk is wider than the one accepted above.** The statement that sharing is acceptable because the keys and data are
+discarded covers only the licensing keys and data. It does not cover the other applications: a mistake during the test,
+or the load of building it, could disturb them, and removing the test later does not undo that.
+
+**Added before the first run** (in the service's repository):
+
+- the test's containers are closed to the web router, are the first ended if memory runs out, and the image is built
+  one compile job at a time;
+- every other container is compared before and after: recreated, restarted, stopped or changed health;
+- the instructions cover every application that matters, stop on a problem in any of them, and forbid rebooting,
+  upgrading or restarting the container engine as part of the test.
+
+These lower the risk and do not remove it. A matching comparison does not show that an application works.
+
+**Still required before the run:** a recent backup stored off the server for each application in use, the test shop
+included; a way to check that each one works; and **the owner's go-ahead to run the test on this server**, knowing the
+risk above. The go-ahead has not been given yet.
