@@ -91,3 +91,9 @@ These lower the risk and do not remove it. A matching comparison does not show t
 **Still required before the run:** a recent backup stored off the server for each application in use, the test shop
 included; a way to check that each one works; and **the owner's go-ahead to run the test on this server**, knowing the
 risk above. The go-ahead has not been given yet.
+
+**Owner's go-ahead, 2026-11-26.** After being told the risk above, the owner stated that none of the applications on the
+server is mission-critical and asked for the test to run on it. **This is the go-ahead.** For this test only, the owner
+does not require off-server backups to be confirmed first; this replaces that requirement here and in the service's
+instructions. Without confirmed backups, damage to an application or its data may not be recoverable. Checking that the
+applications work before and after, comparing the other containers, and stopping on any problem still apply.
