@@ -66,3 +66,69 @@ earlier report said the command could report success after a failed write. **It 
 an error, but only after the computer had been registered, so that computer's one first bundle was lost. The change for
 this run checks the file before registering and shows the bundle if the final write fails. Re-issuing a lost first bundle
 is still not possible and is not part of this run.
+
+## Amendment, 2026-11-26: what else the server runs
+
+The owner ran read-only checks and listed what is in use. **This corrects the description above:** besides the test shop,
+the planned host runs several other applications, **some of them in regular use** and some for demonstration, behind a web
+router that reads Docker. They are not named here, because this repository is public. Where this amendment differs from
+the text above, this amendment wins.
+
+**The risk is wider than the one accepted above.** The statement that sharing is acceptable because the keys and data are
+discarded covers only the licensing keys and data. It does not cover the other applications: a mistake during the test,
+or the load of building it, could disturb them, and removing the test later does not undo that.
+
+**Added before the first run** (in the service's repository):
+
+- the test's containers are closed to the web router, are the first ended if memory runs out, and the image is built
+  one compile job at a time;
+- every other container is compared before and after: recreated, restarted, stopped or changed health;
+- the instructions cover every application that matters, stop on a problem in any of them, and forbid rebooting,
+  upgrading or restarting the container engine as part of the test.
+
+These lower the risk and do not remove it. A matching comparison does not show that an application works.
+
+**Still required before the run:** a recent backup stored off the server for each application in use, the test shop
+included; a way to check that each one works; and **the owner's go-ahead to run the test on this server**, knowing the
+risk above. The go-ahead has not been given yet.
+
+**Owner's go-ahead, 2026-11-26.** After being told the risk above, the owner stated that none of the applications on the
+server is mission-critical and asked for the test to run on it. **This is the go-ahead.** For this test only, the owner
+does not require off-server backups to be confirmed first; this replaces that requirement here and in the service's
+instructions. Without confirmed backups, damage to an application or its data may not be recoverable. Checking that the
+applications work before and after, comparing the other containers, and stopping on any problem still apply.
+
+## Result, 2026-11-26
+
+The service ran from its repository's commit `5148e4b` on the planned host, with the throwaway test shop on a development
+computer using a **simulated hardware file**. The owner ran the server steps and checked the applications.
+
+**Passed:**
+
+- the build, the start and every route check;
+- activation by offline file; an online renewal through the SSH tunnel; a second certificate after the till limit changed;
+- renewal refused while suspended, and working again after resumption;
+- an encrypted backup that passed the restore check, and an off-server copy whose checksum matched;
+- revocation: the shop reported itself locked, and the service then refused to resume it. A sale was not attempted.
+
+**The other applications:** the owner reported that those in use, the demonstration one checked, and the test shop on the
+server worked after the run. Of the other containers, the comparison showed changes only in two that were already
+restarting about hourly before anything was built. The shared database image was unchanged. Neither check proves that
+nothing else was affected.
+
+**Found during the run:**
+
+- while suspended, the shop shows only an unexpected-answer error with HTTP 403;
+- the instructions given to the owner showed the stop command, meant for problems only, as a block to copy; it was run
+  twice, and the service was started again each time;
+- the backup was once reported as passed when no backup file existed. The copy step showed this; the backup and restore
+  check were then run and their output read.
+
+**Removed the same day**, at the owner's request, well before 15 December. On the server the test's containers, images,
+volume, networks and files are gone. After the containers were removed, the owner reported that the five applications
+checked still worked, and the comparison again showed only the two restarting containers, with the shared database image
+unchanged. The comparison files went with the test's files, so no later comparison was made. Docker's build cache was left
+on purpose. On the development computer the test shop, its database and the test files were deleted; the encrypted backup
+was kept for the owner to move or delete.
+
+Everything under "What this run does not show" still stands, and **no gate of ADR-019 or ADR-020 is met by this run**.
