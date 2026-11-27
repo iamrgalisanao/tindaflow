@@ -283,8 +283,9 @@ Written when the slice was built, not part of the 2026-09-27 audit above.
 ## Addendum 2026-11-27 — invariants 82 to 99
 
 Same method and verdicts as above, applied to `main` at `c3bbf29`. Three reviewers each read the rules, the enforcing code and
-schema, and the assertions of the candidate tests; **no test was run or mutated**. Items marked **verified** were re-checked by
-hand afterwards; the rest are the reviewers' reading. Documentation only: no code, test or schema was changed.
+schema, and the assertions of the candidate tests, without running anything. A second pass the same day then **ran** the four
+code findings and eight of the claimed gaps (below); items marked **reproduced** or **confirmed by removal** come from it, and
+everything else is the reviewers' reading. Documentation only: no code, test or schema was changed.
 
 | Verdict | Rules | Count |
 |---|---|---|
@@ -295,17 +296,20 @@ hand afterwards; the rest are the reviewers' reading. Documentation only: no cod
 
 Ranked by consequence.
 
-1. **Product reports show a renamed meal or add-on under its new name for past sales (#82). Verified.** Renaming a meal or
+1. **Product reports show a renamed meal or add-on under its new name for past sales (#82).** Renaming a meal or
    add-on renames its hidden backing product (`MenuBackingProducts::rename`), and `salesByProduct`, `grossProfitByProduct`
    and `productVelocity` in `ReportQueryService` show the live `products.name` beside past sales. The sale lines themselves
-   keep their snapshots. No test checks the product name in these reports after a rename.
-2. **The daily-stock report labels past movements with today's dish and category names (#82).** `DailyStockQuery`. Whether
-   an inventory report is within the rule's scope is an owner or design call.
-3. **An override code can become equal to the account password (#93). Verified.** The two are compared only when the code is
-   set. Changing the password later (`UserService`, `ResetUserPassword`) neither checks nor clears the code.
-4. **Not every override attempt is audited (#92). Verified for the first case.** A grant requested for an unknown or inactive
-   employee is refused before anything writes `CREDIT_OVERRIDE_REFUSED`. Throttled and malformed requests write nothing
-   either; whether those count as attempts is a matter of wording.
+   keep their snapshots. **Reproduced:** after renaming, a sale of "Standard Meal - Beef nilaga" with "Whole rice" appears
+   in the sales and gross-profit reports as "Regular Meal" and "Big rice". No test checks the product name in these reports after a rename.
+2. **The daily-stock report labels past movements with today's dish and category names (#82).** `DailyStockQuery`.
+   **Reproduced** for a dish rename. Whether an inventory report is within the rule's scope is an owner or design call.
+3. **An override code can become equal to the account password (#93).** The two are compared only when the code is set.
+   Changing the password later (`UserService`, `ResetUserPassword`) neither checks nor clears the code. **Reproduced**
+   through the user update; the reset command was only read.
+4. **Not every override attempt is audited (#92).** A grant requested for an unknown or inactive employee is refused before
+   anything writes `CREDIT_OVERRIDE_REFUSED`. **Reproduced**, with a right and a wrong code: the code is not checked on this
+   path, so both get the same answer and the wrong-code count does not move. Throttled and malformed requests, read only,
+   write nothing either; whether those count as attempts is a matter of wording.
 
 ### Per-invariant results
 
@@ -330,9 +334,23 @@ Ranked by consequence.
 | 98 | BILL-004 saved run immutable | COVERED | Minor: no test recomputes the hash independently |
 | 99 | BILL-005 gap-free run numbers | PARTIAL | No save fails after its number was taken, so rollback of the counter is unproven |
 
+### Confirmed by removal
+
+Each protection below was removed or weakened and the whole `tests/Database` suite run: the only failures were the two
+`ResetUserPasswordCommandTest` cases that also fail on that Windows machine with the code unchanged. Seven were broken in one
+run and the charge-side `as_of` filter in another, so that disabled reconciliation checks could not hide it. For the three
+locks and counters, one passing run shows that no test reliably catches the loss; it does not show what a race would do.
+
+- #89: a credit sale's refund accepted with only one of its settlements as credit.
+- #93: the row lock taken while an override code is checked.
+- #94: the statement-against-ledger comparison, the cut-off period comparison, and the adjustment-lines check.
+- #96: the shared store lock taken when a shift opens.
+- #97: the `as_of` limit on the charges of a statement.
+- #99: the run number taken in a transaction of its own, before the one that saves the run.
+
 ### Tests that could pass although what they check is broken
 
-Found by reading; none was mutated.
+Found by reading, except as listed above.
 
 - `MealCheckoutHttpTest` (the report part of the rename test) never compares `product_name`, so it passes with finding 1.
 - `BillingStatementHttpTest`: renaming the "Snacks" menu group checks nothing, as the test's only sale has no such line; "a
