@@ -212,6 +212,8 @@ const OVERRIDE_REASONS = {
     APPROVER_INACTIVE: 'the manager is inactive',
     APPROVER_LACKS_CAPABILITY: 'that user cannot approve',
     NO_CODE: 'the manager has no code',
+    EMPLOYEE_NOT_FOUND: 'no such employee',
+    EMPLOYEE_INACTIVE: 'the employee is inactive',
     TOKEN_UNKNOWN: 'unknown approval',
     WRONG_TERMINAL: 'approval was for another till',
     WRONG_EMPLOYEE: 'approval was for another employee',

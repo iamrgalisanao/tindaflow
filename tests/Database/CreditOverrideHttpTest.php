@@ -12,6 +12,7 @@ use App\Services\Overrides\OverrideCodeService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
 use Tests\Database\Concerns\BuildsSalesScenario;
@@ -388,6 +389,41 @@ class CreditOverrideHttpTest extends PostgresSchemaTestCase
     }
 
     // ------------------------------------------------------------------ the lockout
+
+    public function test_an_approval_asked_for_an_unknown_or_inactive_employee_is_audited_and_tries_no_code(): void
+    {
+        $w = $this->world();
+        $this->setCode($w['manager']);
+        $inactive = $this->employee($w, ['active' => false]);
+        $foreign = $this->employee(['storeId' => Store::factory()->create()->id]);
+        $asked = [
+            ['EMPLOYEE_INACTIVE', $inactive->id, 409, $inactive->employee_code],
+            ['EMPLOYEE_NOT_FOUND', $foreign->id, 404, null], // another store's employee: nothing about them is recorded
+            ['EMPLOYEE_NOT_FOUND', (string) Str::uuid(), 404, null],
+        ];
+
+        foreach ($asked as [$reason, $employeeId, $status, $employeeCode]) {
+            foreach ([self::CODE, '000111'] as $code) {
+                $before = AuditEvent::where('event_type', 'CREDIT_OVERRIDE_REFUSED')->pluck('id')->all();
+
+                $this->grant($w, $w['manager']->id, $code, $employeeId)->assertStatus($status)->assertJsonPath('error.code', $reason);
+
+                // Exactly the one row this request added, never an earlier one of the same employee.
+                $event = AuditEvent::where('event_type', 'CREDIT_OVERRIDE_REFUSED')->whereNotIn('id', $before)->sole();
+                $this->assertSame($employeeId, $event->after_metadata['employee_id']);
+                $this->assertSame($reason, $event->reason);
+                $this->assertSame($w['cashier']->id, $event->actor_user_id);
+                $this->assertSame($w['t1']->id, $event->terminal_id);
+                $this->assertSame($w['manager']->id, $event->after_metadata['approver_id']);
+                $this->assertSame('200.00', $event->after_metadata['amount']);
+                $this->assertSame($employeeCode, $event->after_metadata['employee_code'] ?? null);
+                $this->assertStringNotContainsString($code, json_encode($event->after_metadata));
+            }
+        }
+
+        $this->assertSame(0, $this->counter($w['manager']), 'no code was tried, so none counts as wrong');
+        $this->assertSame(0, CreditOverrideGrant::count());
+    }
 
     public function test_five_wrong_codes_lock_the_approver_for_fifteen_minutes_even_for_the_right_code_and_the_lock_then_expires(): void
     {

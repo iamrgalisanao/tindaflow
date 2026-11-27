@@ -21,6 +21,8 @@ describe('credit override audit events', () => {
         expect(describeAudit({ event_type: 'CREDIT_OVERRIDE_REFUSED', reason: 'WRONG_CODE', after_metadata: { employee_code: 'TSC00012' } })).toBe('A manager approval was refused (wrong code) for TSC00012');
         expect(describeAudit({ event_type: 'CREDIT_OVERRIDE_REFUSED', reason: 'ALREADY_USED', after_metadata: {} })).toBe('A manager approval was refused (approval already used)');
         expect(describeAudit({ event_type: 'CREDIT_OVERRIDE_REFUSED', reason: 'SOMETHING_NEW', after_metadata: {} })).toContain('SOMETHING_NEW');
+        expect(describeAudit({ event_type: 'CREDIT_OVERRIDE_REFUSED', reason: 'EMPLOYEE_INACTIVE', after_metadata: { employee_code: 'TSC00001' } }))
+            .toBe('A manager approval was refused (the employee is inactive) for TSC00001');
         expect(describeAudit({ event_type: 'CREDIT_OVERRIDE_LOCKED', after_metadata: { locked_minutes: 15 } })).toBe('A manager was locked out of approving for 15 minutes after too many wrong codes');
     });
 
