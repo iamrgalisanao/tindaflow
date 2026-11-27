@@ -167,6 +167,21 @@ final class CreditOverrideService
         $this->refuse($storeId, $cashierId, $terminalId, $refusal->reason, $refusal->auditContext + ['stage' => 'CHECKOUT']);
     }
 
+    /**
+     * The audit line for a checkout that brought an approval and was refused for its employee. Names the approval and its approver
+     * when the token is one of this store's; the token itself is never recorded, and nothing is consumed.
+     */
+    public function recordCheckoutEmployeeRefusal(string $reason, string $token, string $employeeId, string $storeId, string $cashierId, string $terminalId): void
+    {
+        $grant = CreditOverrideGrant::where('store_id', $storeId)->where('token_hash', CreditOverrideGrant::hashToken($token))->first();
+        $employee = Employee::where('store_id', $storeId)->find($employeeId);
+
+        $this->refuse($storeId, $cashierId, $terminalId, $reason, ['employee_id' => $employeeId]
+            + ($employee === null ? [] : ['employee_code' => $employee->employee_code])
+            + ($grant === null ? [] : ['grant_id' => $grant->id, 'approver_id' => $grant->approver_id])
+            + ['stage' => 'CHECKOUT']);
+    }
+
     /** @param  array<string, mixed>  $context */
     private function refuse(string $storeId, string $cashierId, string $terminalId, string $reason, array $context): void
     {
