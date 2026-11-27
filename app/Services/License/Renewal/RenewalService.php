@@ -14,6 +14,7 @@ use App\Services\License\FingerprintMatcher;
 use App\Services\License\HostHardware;
 use App\Services\License\InstallationIdentity;
 use App\Services\License\LicenseGate;
+use App\Services\License\LicenseState;
 use App\Services\License\RefusalReason;
 use App\Services\License\Time\TrustedClock;
 use Carbon\CarbonImmutable;
@@ -221,6 +222,11 @@ final class RenewalService
             return $this->failed('The provider reports that this computer has been replaced by another and is not renewed any more (HTTP 403). Contact your TindaFlow provider.', $now);
         }
 
+        if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'DEPLOYMENT_SUSPENDED') {
+            // Suspended, or past its term: the provider's answer does not say which. Kept short enough to be stored whole.
+            return $this->failed('The provider is not renewing this license at the moment (HTTP 403). '.$this->heldValidity($now).' Contact your TindaFlow provider. Nothing was changed.', $now);
+        }
+
         if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'FINGERPRINT_MISMATCH') {
             // Kept short enough to be stored whole. The provider approves changed hardware by this reference (ADR-019 slice 3).
             $reference = FingerprintMatcher::reference($request['fingerprint']);
@@ -246,6 +252,22 @@ final class RenewalService
         }
 
         return $this->failed("Unexpected answer from the control plane (HTTP {$reply->status}).", $now);
+    }
+
+    /**
+     * How long the license held runs, as the gate judges it, an offline extension included. A date is promised only while the
+     * license is usable: a lock, or a certificate this build no longer accepts, comes before any date.
+     */
+    private function heldValidity(DateTimeImmutable $now): string
+    {
+        $check = $this->gate->check($now);
+        $state = $check->verdict->state;
+        if ($check->validUntil === null || $state === LicenseState::Locked || $state === LicenseState::NotActivated) {
+            return 'The license held here is not usable now; the license status says why.';
+        }
+        $when = CarbonImmutable::instance($check->validUntil)->setTimezone((string) config('app.timezone'))->format('Y-m-d H:i');
+
+        return $state === LicenseState::Expired ? "The license held here ran out on {$when}." : "The license held here is valid until {$when}.";
     }
 
     /** @param  string|null  $url  where the answer came from just now, or null when it came as a file */
