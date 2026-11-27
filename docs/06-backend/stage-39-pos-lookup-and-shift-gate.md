@@ -71,3 +71,9 @@ number still finds its sale.
 
 Item count and tender columns in the list, partial-number search, e-receipt resend, supervisor PIN, and any cashier
 scoping change to `shiftCurrentGet`.
+
+## Addendum 2026-11-27: lines, tender and partial numbers
+
+The first two points about the lookup above no longer hold. `saleList` rows now carry `item_count` (lines, not units) and
+`payment_methods`, and the till shows both. The search box sends `number_contains`, which finds any part of the
+transaction, invoice or slip number, ignoring letter case.

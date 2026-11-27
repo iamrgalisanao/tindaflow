@@ -86,12 +86,15 @@ class SalesHistoryHttpTest extends PostgresSchemaTestCase
         $w = $this->world();
         $first = $this->ring($w);
         $second = $this->ring($w);
-        $this->ring($this->world()); // another store, whose numbers must never be found
+        $stranger = $this->ring($this->world()); // another store, whose numbers must never be found
 
         // The end of a transaction number, in either letter case.
         $tail = substr($first['transaction_number'], -10);
         $this->assertSame([$first['id']], $this->ids($w, '?number_contains='.$tail));
         $this->assertSame([$first['id']], $this->ids($w, '?number_contains='.strtolower($tail)));
+        // An invoice number, which the other store has issued too: still only this store's sale.
+        $this->assertSame($stranger['invoice_number'], $first['invoice_number'], 'both stores number from the same start');
+        $this->assertSame([$first['id']], $this->ids($w, '?number_contains='.$first['invoice_number']));
         // Part of an invoice number.
         $this->assertContains($second['id'], $this->ids($w, '?number_contains='.substr($second['invoice_number'], -3)));
         // Every transaction number starts with "T-": only this store's two sales.
@@ -110,9 +113,10 @@ class SalesHistoryHttpTest extends PostgresSchemaTestCase
         $mine = $this->ring($w);
         $other = User::factory()->create(['store_id' => $w['cashier']->store_id]);
 
-        $theirs = $this->asUser($other)->getJson('/api/v1/sales?number_contains=T-')->assertOk()->json('data');
-
-        $this->assertSame([], $theirs);
+        // By each kind of number: the cashier rule has to hold over all of them together.
+        foreach (['T-', $mine['invoice_number']] as $text) {
+            $this->assertSame([], $this->asUser($other)->getJson('/api/v1/sales?number_contains='.$text)->assertOk()->json('data'), $text);
+        }
         $this->assertSame([$mine['id']], $this->ids($w, '?number_contains=T-'));
     }
 

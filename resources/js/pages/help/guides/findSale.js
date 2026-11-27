@@ -9,13 +9,13 @@ export default {
     steps: [
         {
             title: 'Open Lookup',
-            body: 'Click **Lookup** at the top. Today’s transactions are listed with the newest first. Each row shows the transaction number, invoice number, time, status and total. Type a transaction or invoice number in the search box to find a particular one.',
+            body: 'Click **Lookup** at the top. Today’s transactions are listed with the newest first. Each row shows the transaction number, invoice or slip number, time, how many lines were sold, how it was paid, status and total. Type any part of a transaction, invoice or slip number in the search box to find a particular one. To search earlier days, turn **Today** off.',
             figure: {
                 shot: 'till-lookup',
                 alt: 'The Lookup screen with a search box and a list of recent transactions.',
                 marks: [
                     { type: 'click', target: 'tabs', label: 'Click Lookup', detail: 'Click Lookup in the top buttons.' },
-                    { type: 'type', target: 'search', label: 'Search', detail: 'Type an invoice or transaction number to find one:', text: '000003' },
+                    { type: 'type', target: 'search', label: 'Search', detail: 'Type all or part of a sale’s number to find it:', text: '000003' },
                     { type: 'look', target: 'list', label: 'Recent sales', detail: 'A cashier sees their own sales. A manager can look up everyone’s.' },
                 ],
             },
