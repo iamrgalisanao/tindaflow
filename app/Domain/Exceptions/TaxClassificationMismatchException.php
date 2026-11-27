@@ -33,13 +33,20 @@ final class TaxClassificationMismatchException extends DomainException
         );
     }
 
-    public function forItem(string $productId, string $productName): self
+    /**
+     * @param  bool  $fromMenu  a meal or add-on line: its hidden backing product got its tax class from the store's registration
+     *                          on the day it was made, and no screen changes it, so the message must not ask for that.
+     */
+    public function forItem(string $productId, string $productName, bool $fromMenu): self
     {
+        $remedy = $fromMenu
+            ? "The product screens cannot change a meal or add-on's tax class: ask your administrator to check the store's tax ".
+                'registration, or contact your system provider.'
+            : "Ask a manager or administrator to check the item's tax class and the store's tax registration.";
         $store = $this->taxRegistrationType === 'VAT' ? 'VAT-registered' : 'non-VAT';
 
         return new self(
-            "\"{$productName}\" has the tax class {$this->taxClassification}, which a {$store} store cannot sell. Nothing was sold. ".
-            "Ask a manager or administrator to check the item's tax class and the store's tax registration.",
+            "\"{$productName}\" has the tax class {$this->taxClassification}, which a {$store} store cannot sell. Nothing was sold. {$remedy}",
             ['product_id' => $productId, 'product_name' => $productName] + $this->details,
             $this->lineNumber,
             $this->taxClassification,

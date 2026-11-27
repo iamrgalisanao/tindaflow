@@ -17,7 +17,7 @@ use Illuminate\Testing\TestResponse;
  * read-only, non-authoritative aggregate across the four checkout-time
  * resolver prerequisites, so the POS screen can show a blocked state
  * instead of letting a cashier attempt a checkout guaranteed to fail
- * with a setup-defect 500 (the exact bug hit during Stage 7 pass 2's
+ * on incomplete setup (the exact bug hit during Stage 7 pass 2's
  * browser verification).
  */
 class StoreSetupReadinessHttpTest extends PostgresSchemaTestCase

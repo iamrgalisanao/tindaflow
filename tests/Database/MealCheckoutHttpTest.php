@@ -237,6 +237,8 @@ class MealCheckoutHttpTest extends PostgresSchemaTestCase
 
         $this->assertStringContainsString('rice', strtolower($response->json('error.details.product_name')));
         $this->assertStringNotContainsString('nilaga', strtolower($response->json('error.details.product_name')));
+        $this->assertStringContainsString('product screens cannot change', $response->json('error.message'));
+        $this->assertStringNotContainsString("check the item's tax class", $response->json('error.message'));
         $this->assertDatabaseCount('sales', 0);
     }
 

@@ -19,26 +19,42 @@ namespace App\Domain\Exceptions;
  * This is that check's ambiguous-data half. The interval is inclusive at
  * both ends, unlike a fiscal installation's: see TaxRegistrationResolver.
  *
- * The message reaches the till, so it carries no internal id.
+ * The message reaches the till, so it carries no internal id. The store is
+ * named in the server log instead ({@see context()}).
  */
 final class TaxRegistrationResolutionException extends DomainException
 {
-    public static function noActiveRegistrationForStore(string $soldAtDate): self
+    private ?string $storeId = null;
+
+    public static function noActiveRegistrationForStore(string $storeId, string $soldAtDate): self
     {
-        return new self(
+        return (new self(
             "This store has no tax registration in effect on {$soldAtDate}, so the sale cannot be completed. Nothing was sold. ".
             "Ask your administrator to check the store's tax registration.",
             ['reason' => 'NONE', 'date' => $soldAtDate],
-        );
+        ))->forStore($storeId);
     }
 
-    public static function ambiguousRegistrationForStore(string $soldAtDate, int $matchCount): self
+    public static function ambiguousRegistrationForStore(string $storeId, string $soldAtDate, int $matchCount): self
     {
-        return new self(
+        return (new self(
             "This store has {$matchCount} tax registrations in effect on {$soldAtDate}, so the sale cannot be completed. Nothing was sold. ".
             "Ask your administrator to check the store's tax registration.",
             ['reason' => 'OVERLAPPING', 'date' => $soldAtDate],
-        );
+        ))->forStore($storeId);
+    }
+
+    /** @return array{store_id: ?string} added to the log entry by the exception handler */
+    public function context(): array
+    {
+        return ['store_id' => $this->storeId];
+    }
+
+    private function forStore(string $storeId): self
+    {
+        $this->storeId = $storeId;
+
+        return $this;
     }
 
     public function errorCode(): string

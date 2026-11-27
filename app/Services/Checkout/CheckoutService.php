@@ -344,7 +344,7 @@ final class CheckoutService
             // Sale line numbers are these specs' positions plus one. Say which item it is.
             $spec = $specs[$mismatch->lineNumber - 1];
 
-            throw $mismatch->forItem($spec['product']->id, $spec['name']);
+            throw $mismatch->forItem($spec['product']->id, $spec['name'], $spec['meal'] !== null);
         }
 
         // A discount -- line or order-level -- may only be applied by a user holding DISCOUNT_OVERRIDE

@@ -61,6 +61,7 @@ class MoneyAndAccessRulesTest extends PostgresSchemaTestCase
 
         $this->assertStringContainsString('no tax registration', $response->json('error.message'));
         $this->assertStringNotContainsString($w['storeId'], $response->getContent(), 'no internal ids in what the till shows');
+        $this->assertSame(['store_id' => $w['storeId']], $response->exception->context(), 'the log still says which store');
         $this->assertSame($before, $this->saleRecords(), 'no sale, and no invoice number used up');
     }
 
@@ -103,12 +104,11 @@ class MoneyAndAccessRulesTest extends PostgresSchemaTestCase
             ]);
 
         $this->assertStringContainsString($item->name, $response->json('error.message'));
+        $this->assertStringContainsString("check the item's tax class", $response->json('error.message'));
         $this->assertSame($before, $this->saleRecords());
 
         $item->update(['tax_class' => 'VATABLE']);
         $ringTheItem()->assertStatus(201); // the refusal stored nothing under the key
-        $item->update(['tax_class' => 'NON_VAT']);
-        $before = $this->saleRecords();
         $this->attemptSale($w, $w['product'])->assertStatus(201); // the till itself is fine
     }
 

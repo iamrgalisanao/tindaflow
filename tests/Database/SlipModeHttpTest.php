@@ -15,6 +15,7 @@ use App\Services\Menu\MealService;
 use App\Services\Menu\MenuPriceService;
 use App\Services\StoreSetup\FiscalConfigurationLock;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Tests\Database\Concerns\BuildsSalesScenario;
 
@@ -66,6 +67,29 @@ class SlipModeHttpTest extends PostgresSchemaTestCase
             'items' => array_map(fn (array $line) => ['product_id' => $line[0]->id, 'quantity' => $line[1]], $lines),
             'payments' => [['method' => $method, 'amount' => $total]],
         ], $this->key())->assertStatus(201)->json();
+    }
+
+    public function test_a_slip_sale_under_two_tax_registrations_at_once_is_refused(): void
+    {
+        $w = $this->world();
+        $this->slipMode($w);
+        // Two closed periods that both cover today. No registration at all is fine in slip mode; two are not.
+        DB::table('tax_registrations')->where('store_id', $w['storeId'])->update(['effective_to' => now()->toDateString()]);
+        DB::table('tax_registrations')->insert([
+            'id' => (string) Str::uuid(), 'store_id' => $w['storeId'], 'registration_type' => 'NON_VAT',
+            'effective_from' => now()->subMonth()->toDateString(), 'effective_to' => now()->addMonth()->toDateString(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
+            'items' => [['product_id' => $w['product']->id, 'quantity' => '1']],
+            'payments' => [['method' => 'CASH', 'amount' => bcadd((string) $w['product']->selling_price, '0', 2)]],
+        ], $this->key())->assertStatus(409)
+            ->assertJsonPath('error.code', 'TAX_REGISTRATION_UNRESOLVED')
+            ->assertJsonPath('error.details.reason', 'OVERLAPPING');
+
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('sale_slips', 0);
     }
 
     public function test_a_slip_sale_uses_no_invoice_number_and_writes_no_invoice_or_journal_entry(): void

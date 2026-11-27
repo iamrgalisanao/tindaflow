@@ -377,7 +377,11 @@ classification is incompatible with that registration by throwing
 error-catalog.md's public API codes, and this condition is a
 configuration defect upstream of checkout, not a customer-facing
 outcome; a command handler that reaches it should log/alert
-deliberately rather than translate it into an HTTP error), and for a
+deliberately rather than translate it into an HTTP error; **no longer
+true since 2026-11-27**: a shop can save such an item, so that refusal is
+now `TaxClassificationMismatchException`, 409
+`TAX_CLASSIFICATION_MISMATCH`, and `InvalidTaxConfigurationException` is
+left for an unknown registration type), and for a
 `NON_VAT` registration returns `taxableSales = vatExemptSales =
 zeroRatedSales = vatAmount = Money::zero()` with `nonVatSales` equal to
 the sum of every line's `net_line_amount` (= `grandTotal`, per
@@ -568,7 +572,8 @@ amendment; `FinancialCalculator` now takes an explicit
 `$taxRegistrationType` and maps `NON_VAT` lines to `sale.non_vat_sales`
 for a `NON_VAT`-registered store, while still rejecting (via
 `InvalidTaxConfigurationException`, not silent reinterpretation) any
-registration/classification pairing the domain rule forbids.
+registration/classification pairing the domain rule forbids (the exception
+for that pairing was renamed on 2026-11-27; see the note above).
 
 ### 8. Whether any frozen-corpus amendment is required
 
