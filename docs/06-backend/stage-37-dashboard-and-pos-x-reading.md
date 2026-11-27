@@ -75,3 +75,7 @@ A dedicated screen listing every X-reading a shift has taken with its full figur
 latest one in full and earlier ones as a timestamp-only list, matching `shiftXReadingList`'s own existing
 scope). A dashboard date-range picker ("Today so far" is always the current calendar day; a different
 range is available through the Daily Sales Summary report it links to).
+
+## Addendum 2026-11-27: dashboard date range
+
+The dashboard now has a date-range picker for its sales figures. "Needs attention" still shows what is waiting now.

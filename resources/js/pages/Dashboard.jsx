@@ -4,9 +4,9 @@ import AdminLayout from './admin/AdminLayout';
 import LicenseNotice from './admin/license/LicenseNotice';
 import { ErrorAlert } from './admin/catalog/CatalogParts';
 import { failureMessage } from './admin/catalog/catalogApi';
-import { useLoad, useSignIn } from './admin/records/historyParts';
+import { useLoad } from './admin/records/historyParts';
+import DashboardSales from './DashboardSales';
 import { SummaryCards } from './admin/reports/ReportParts';
-import { datePreset, formatMoney } from './admin/reports/formatters';
 
 /**
  * The authenticated landing page (docs/06-ui/sitemap.md /back-office/dashboard), kept as a route
@@ -17,27 +17,22 @@ import { datePreset, formatMoney } from './admin/reports/formatters';
  * Every figure here is read from an endpoint the actor's own capabilities already allow, and each
  * block is skipped entirely when they hold no capability for it -- a cashier sees the till and their
  * own sales history, never an empty metric grid. Nothing is computed client-side beyond adding the
- * two pending-approval counts together.
+ * two pending-approval counts together and the sales block's count of transactions.
+ *
+ * The sales figures follow a chosen date range ({@see DashboardSales}); "Needs attention" is always
+ * what is waiting now.
  */
 export default function Dashboard() {
     const { user } = useAuth();
-    const signIn = useSignIn();
     const holds = (capability) => user.capabilities.includes(capability);
 
     const canReport = holds('REPORT_VIEW');
     const canApprove = holds('SALE_VOID_APPROVE') || holds('SALE_REFUND_APPROVE');
     const canStock = holds('STOCK_ADJUST');
 
-    // One calendar day, resolved in the browser's own timezone the same way every report filter is.
-    const today = datePreset('today');
-    const sales = useLoad(canReport ? `/api/v1/reports/daily-sales-summary?from=${today.from}&to=${today.to}` : null);
     const voids = useLoad(canApprove ? '/api/v1/voids?status=REQUESTED&per_page=1' : null);
     const refunds = useLoad(canApprove ? '/api/v1/refunds?status=REQUESTED&per_page=1' : null);
     const lowStock = useLoad(canStock ? '/api/v1/inventory/low-stock?per_page=1' : null);
-
-    // A day with no sales yet returns no row at all, which is a legitimate zero -- not a failure.
-    const summary = sales.data?.summary ?? null;
-    const todayRow = sales.data?.rows?.[0] ?? null;
 
     const pendingVoids = voids.data?.meta?.total ?? null;
     const pendingRefunds = refunds.data?.meta?.total ?? null;
@@ -107,47 +102,7 @@ export default function Dashboard() {
 
             <LicenseNotice allowed={holds('LICENSE_MANAGE')} />
 
-            {canReport && (
-                <section className="mb-2" aria-label="Today's sales">
-                    <div className="mb-2 flex items-baseline justify-between gap-3">
-                        <h3 className="font-mono text-[11px] uppercase tracking-wider text-slate-500">Today so far</h3>
-                        <Link to="/admin/reports/daily-sales-summary" className="text-xs text-emerald-400 hover:underline">
-                            Daily sales summary →
-                        </Link>
-                    </div>
-
-                    {sales.failure && (
-                        <ErrorAlert
-                            message={failureMessage(sales.failure, "Today's sales could not be loaded.")}
-                            onRetry={sales.failure.status === 401 || sales.failure.status === 403 ? undefined : sales.reload}
-                            onSignIn={sales.failure.status === 401 ? signIn : undefined}
-                        />
-                    )}
-
-                    {sales.loading && !sales.data && !sales.failure && (
-                        <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4" aria-busy="true" aria-label="Loading today's sales">
-                            {[0, 1, 2, 3].map((n) => (
-                                <div key={n} className="h-[74px] animate-pulse rounded-lg bg-slate-900" />
-                            ))}
-                        </div>
-                    )}
-
-                    {sales.data && (
-                        <SummaryCards
-                            items={[
-                                { label: 'Transactions', node: (todayRow?.transaction_count ?? 0).toLocaleString('en-US') },
-                                { label: 'Gross sales', node: formatMoney(summary?.gross_sales ?? '0.00') },
-                                { label: 'Discounts', node: formatMoney(summary?.discount_total ?? '0.00') },
-                                { label: 'Grand total', node: formatMoney(summary?.grand_total ?? '0.00'), tone: 'emerald' },
-                            ]}
-                        />
-                    )}
-
-                    {sales.data && todayRow === null && (
-                        <p className="mb-3 text-xs text-slate-500">No sales have been finalised today yet. Voided sales are never counted here.</p>
-                    )}
-                </section>
-            )}
+            {canReport && <DashboardSales />}
 
             {attention.length > 0 && (
                 <section className="mb-2" aria-label="Needs attention">
