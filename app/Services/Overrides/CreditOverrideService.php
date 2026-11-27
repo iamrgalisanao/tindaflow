@@ -52,8 +52,15 @@ final class CreditOverrideService
     public function grant(User $cashier, Terminal $terminal, string $approverId, string $code, string $employeeId, Money $amount): array
     {
         $storeId = $terminal->store_id;
-        $employee = Employee::where('store_id', $storeId)->find($employeeId) ?? throw EmployeeNotFoundException::forId($employeeId);
+        // OVR-001: an approval asked for is audited even when the employee rules it out, before any code is looked at.
+        $asked = ['approver_id' => $approverId, 'employee_id' => $employeeId, 'amount' => $amount->toApiString()];
+        $employee = Employee::where('store_id', $storeId)->find($employeeId);
+        if ($employee === null) {
+            $this->auditor->refused($storeId, $cashier->id, $terminal->id, 'EMPLOYEE_NOT_FOUND', $asked);
+            throw EmployeeNotFoundException::forId($employeeId);
+        }
         if (! $employee->active) {
+            $this->auditor->refused($storeId, $cashier->id, $terminal->id, 'EMPLOYEE_INACTIVE', $asked + ['employee_code' => $employee->employee_code]);
             throw EmployeeInactiveException::forCode($employee->employee_code);
         }
 
