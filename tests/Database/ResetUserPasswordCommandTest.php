@@ -23,7 +23,8 @@ class ResetUserPasswordCommandTest extends PostgresSchemaTestCase
     {
         $status = Artisan::call('tindaflow:reset-password', ['email' => $email] + $options);
         $output = Artisan::output();
-        preg_match('/New password \(shown once, not stored anywhere\): (.+)$/m', $output, $found);
+        // A console line ends with a carriage return too on Windows, which is no part of the password.
+        preg_match('/New password \(shown once, not stored anywhere\): (.+?)\r?$/m', $output, $found);
 
         return ['status' => $status, 'output' => $output, 'password' => $found[1] ?? null];
     }
