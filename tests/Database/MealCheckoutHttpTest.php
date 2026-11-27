@@ -455,6 +455,71 @@ class MealCheckoutHttpTest extends PostgresSchemaTestCase
         $figures = fn (array $report) => array_map(fn ($row) => [$row['sku'], $row['quantity_sold'], $row['gross_sales'], $row['net_sales']], $report['rows']);
         $this->assertSame($figures($reportBefore), $figures($reportAfter));
         $this->assertStringNotContainsString('Beef tapa', json_encode($reportAfter));
+        $this->assertSame($reportBefore['rows'], $reportAfter['rows'], 'names included');
+    }
+
+    /** @return array<string, list<array<string, mixed>>> report => the rows of the products named in $of */
+    private function productReports(array $w, array $of): array
+    {
+        $day = now()->toDateString();
+        $reports = [];
+        foreach (['sales-by-product', 'gross-profit-by-product', 'product-velocity'] as $report) {
+            $rows = $this->asUser($w['manager'])->getJson("/api/v1/reports/{$report}?from={$day}&to={$day}")->assertOk()->json('rows');
+            $reports[$report] = array_values(array_filter($rows, fn (array $row) => in_array($row['product_id'], $of, true)));
+        }
+
+        return $reports;
+    }
+
+    /** @return list<string> "name x quantity", in a fixed order */
+    private function namedQuantities(array $rows): array
+    {
+        $named = array_map(fn (array $row) => $row['product_name'].' x '.(float) $row['quantity_sold'], $rows);
+        sort($named);
+
+        return $named;
+    }
+
+    public function test_product_reports_name_a_meal_and_its_add_on_as_they_were_sold(): void
+    {
+        // Each call signs in again; past the sign-in limit the manager is refused and the last user's session answers instead.
+        config(['tindaflow.login_throttle.max_attempts' => 100000]);
+        $w = $this->world();
+        $m = $this->menu($w);
+        $this->sell($w, [$this->mealItem($m, $m['nilagaOption'], $m['wholeRice'])], '83.00')->assertStatus(201);
+        $backing = [$m['standard']->fresh()->backing_product_id, $m['wholeRice']->fresh()->addon_product_id];
+        $before = $this->productReports($w, $backing);
+
+        app(MealService::class)->update($w['admin'], $m['standard']->id, ['name' => 'Regular Meal']);
+        app(MealOptionService::class)->update($w['admin'], $m['wholeRice']->id, ['label' => 'Big rice']);
+
+        $after = $this->productReports($w, $backing);
+        foreach (['sales-by-product', 'gross-profit-by-product', 'product-velocity'] as $report) {
+            $this->assertSame(['Standard Meal x 1', 'Whole rice x 1'], $this->namedQuantities($after[$report]), $report);
+            $this->assertEquals($before[$report], $after[$report], $report);
+        }
+
+        // Sold again under the new names: each name keeps its own sales, so nothing is relabelled.
+        $this->sell($w, [$this->mealItem($m, $m['nilagaOption'], $m['wholeRice'])], '83.00')->assertStatus(201);
+
+        foreach ($this->productReports($w, $backing) as $report => $rows) {
+            $this->assertSame(['Big rice x 1', 'Regular Meal x 1', 'Standard Meal x 1', 'Whole rice x 1'], $this->namedQuantities($rows), $report);
+        }
+    }
+
+    public function test_product_velocity_lists_an_unsold_meal_once_under_its_current_name(): void
+    {
+        $w = $this->world();
+        $m = $this->menu($w);
+        $this->sell($w, [$this->mealItem($m, $m['nilagaOption'])], '68.00')->assertStatus(201);
+        app(MealService::class)->update($w['admin'], $m['standard']->id, ['name' => 'Regular Meal']);
+        $this->travel(2)->days();
+
+        // The only sale lies outside the window: it names nothing there and adds no second row.
+        $rows = $this->productReports($w, [$m['standard']->fresh()->backing_product_id])['product-velocity'];
+
+        $this->assertSame(['Regular Meal x 0'], $this->namedQuantities($rows));
+        $this->assertSame(0, $rows[0]['transaction_count']);
     }
 
     public function test_repricing_mid_day_applies_to_the_next_sale_only(): void
