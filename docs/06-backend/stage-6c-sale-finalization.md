@@ -137,6 +137,8 @@ Every gap from the original initialization was ruled on by the owner before impl
 
 The frozen error catalog has no code for: "no default inventory location configured" (`InventoryLocationResolutionException`), "no/ambiguous active tax registration" (`TaxRegistrationResolutionException`), or the terminal/fiscal-installation setup-defect cases (`FiscalInstallationResolutionException`). All three currently surface as unhandled `RuntimeException`s rather than stable HTTP error envelopes — intentional per the rulings above (no new code invented unilaterally), but a real gap the eventual HTTP layer and/or a Stage 4 amendment must close before production use.
 
+**Update 2026-11-27**: the tax registration gap is closed. `TaxRegistrationResolutionException` is now a `DomainException` (`TAX_REGISTRATION_UNRESOLVED`, 409), and a line whose tax class does not fit the registration, which had also answered 500, is `TaxClassificationMismatchException` (`TAX_CLASSIFICATION_MISMATCH`, 409). Stage 6A had treated the latter as unreachable from a configured catalog; nothing prevents saving a product with such a class, so a shop can reach it. `CheckoutService` changes only to name the item in that refusal. The inventory location and fiscal installation gaps remain. See the governance note in `error-catalog.md`.
+
 ---
 
 ## 6. Acceptance criteria

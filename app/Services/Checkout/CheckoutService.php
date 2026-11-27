@@ -15,6 +15,7 @@ use App\Domain\Exceptions\ProductInactiveException;
 use App\Domain\Exceptions\ProductNotFoundException;
 use App\Domain\Exceptions\ShiftRequiredException;
 use App\Domain\Exceptions\StockOverrideException;
+use App\Domain\Exceptions\TaxClassificationMismatchException;
 use App\Domain\Financial\FinancialCalculator;
 use App\Domain\Financial\SaleLineInput;
 use App\Domain\Financial\StatutoryDiscountCalculator;
@@ -337,7 +338,14 @@ final class CheckoutService
 
         $orderLevelDiscountAmount = Money::fromApiString((string) ($payload['order_level_discount_amount'] ?? '0.00'));
         $this->assertTheOrderDiscountHasALineToLandOn($lines, $orderLevelDiscountAmount, 'order_level_discount_amount');
-        $calculation = $this->financialCalculator->calculateSale($lines, $orderLevelDiscountAmount, $taxRegistrationType);
+        try {
+            $calculation = $this->financialCalculator->calculateSale($lines, $orderLevelDiscountAmount, $taxRegistrationType);
+        } catch (TaxClassificationMismatchException $mismatch) {
+            // Sale line numbers are these specs' positions plus one. Say which item it is.
+            $spec = $specs[$mismatch->lineNumber - 1];
+
+            throw $mismatch->forItem($spec['product']->id, $spec['name'], $spec['meal'] !== null);
+        }
 
         // A discount -- line or order-level -- may only be applied by a user holding DISCOUNT_OVERRIDE
         // (RoleCapabilityCatalog grants it to MANAGER/ADMIN only, never CASHIER; openapi.yaml's own

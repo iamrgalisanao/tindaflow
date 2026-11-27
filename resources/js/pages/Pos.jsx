@@ -160,8 +160,8 @@ export default function Pos() {
     // Non-authoritative pre-check (StoreSetupReadinessService mirrors, but
     // never calls, CheckoutService's own resolvers) -- lets a cashier see
     // a clear blocked state instead of attempting a checkout that is
-    // guaranteed to fail with a setup-defect 500 (the exact bug a freshly
-    // seeded store hit during this feature's own verification).
+    // guaranteed to fail on incomplete setup (a freshly seeded store hit
+    // this during this feature's own verification).
     const checkReadiness = useCallback(async () => {
         const { ok, body } = await apiFetch('/api/v1/store-setup/readiness');
         if (ok && body.document_mode) {

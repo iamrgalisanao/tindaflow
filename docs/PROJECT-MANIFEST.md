@@ -1068,7 +1068,7 @@ is real-store evidence, not more features. Ranked workstreams (autonomous unless
 1. **Checkout retry safety (frontend): done 2026-09-27**, see the revision log.
 2. **Fiscal-attribution and reading fixes** (first slice, report windows and stale-day notice, done 2026-09-27): reports filter by business day (invariant #9); the Z-reading's accumulated
    total is derived from sales, not the prior snapshot (#40); write `SHIFT_OPENED` to the journal (#49); map
-   `TaxRegistrationResolutionException` to a catalogued error instead of a 500 (#54). Also check whether a fiscal day left
+   `TaxRegistrationResolutionException` to a catalogued error instead of a 500 (#54; done 2026-11-27). Also check whether a fiscal day left
    open keeps taking sales (inferred from a grep, not verified). Changing what an invariant says needs an owner exception.
 3. **Invariant test hardening**, alongside 2: the 3 defective tests, discount eligibility, multi-line void/refund,
    fault injection at more finalization steps, reading reproducibility.

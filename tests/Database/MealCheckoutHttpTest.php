@@ -222,6 +222,26 @@ class MealCheckoutHttpTest extends PostgresSchemaTestCase
         $this->assertDatabaseCount('sales', 0);
     }
 
+    public function test_a_tax_class_refusal_names_the_add_on_that_has_the_wrong_class(): void
+    {
+        $w = $this->world();
+        $m = $this->menu($w);
+        // The add-on is the second sale line of one cart item, so the name must follow the sale line, not the cart position.
+        $addOn = Product::findOrFail($m['wholeRice']->fresh()->addonProduct->id);
+        $addOn->forceFill(['tax_class' => 'NON_VAT'])->save();
+
+        $response = $this->sell($w, [$this->mealItem($m, $m['nilagaOption'], $m['wholeRice'])], '83.00')
+            ->assertStatus(409)
+            ->assertJsonPath('error.code', 'TAX_CLASSIFICATION_MISMATCH')
+            ->assertJsonPath('error.details.product_id', $addOn->id);
+
+        $this->assertStringContainsString('rice', strtolower($response->json('error.details.product_name')));
+        $this->assertStringNotContainsString('nilaga', strtolower($response->json('error.details.product_name')));
+        $this->assertStringContainsString('product screens cannot change', $response->json('error.message'));
+        $this->assertStringNotContainsString("check the item's tax class", $response->json('error.message'));
+        $this->assertDatabaseCount('sales', 0);
+    }
+
     public function test_a_meal_needs_its_required_group_and_respects_the_maximum(): void
     {
         $w = $this->world();

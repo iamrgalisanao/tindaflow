@@ -3,6 +3,7 @@
 namespace Tests\Unit\Domain\Financial;
 
 use App\Domain\Exceptions\InvalidTaxConfigurationException;
+use App\Domain\Exceptions\TaxClassificationMismatchException;
 use App\Domain\Financial\FinancialCalculator;
 use App\Domain\Financial\SaleLineInput;
 use App\Domain\Money;
@@ -239,8 +240,7 @@ class FinancialCalculatorTest extends TestCase
      */
     public function test_vat_registration_with_non_vat_line_is_rejected(): void
     {
-        $this->expectException(InvalidTaxConfigurationException::class);
-        $this->expectExceptionMessageMatches('/incompatible/');
+        $this->expectException(TaxClassificationMismatchException::class);
 
         $this->calculator->calculateSale(
             [$this->line(1, '1.000', '100.00', taxClassification: 'NON_VAT')],
@@ -256,8 +256,7 @@ class FinancialCalculatorTest extends TestCase
      */
     public function test_non_vat_registration_with_vatable_line_is_rejected(): void
     {
-        $this->expectException(InvalidTaxConfigurationException::class);
-        $this->expectExceptionMessageMatches('/incompatible/');
+        $this->expectException(TaxClassificationMismatchException::class);
 
         $this->calculator->calculateSale(
             [$this->line(1, '1.000', '100.00', taxClassification: 'VATABLE')],
