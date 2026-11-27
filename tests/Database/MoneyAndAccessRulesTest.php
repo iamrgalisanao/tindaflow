@@ -2,6 +2,8 @@
 
 namespace Tests\Database;
 
+use App\Domain\Exceptions\InvalidTaxConfigurationException;
+use App\Domain\Exceptions\TaxRegistrationResolutionException;
 use App\Models\AuditEvent;
 use App\Models\Product;
 use Illuminate\Database\QueryException;
@@ -54,8 +56,10 @@ class MoneyAndAccessRulesTest extends PostgresSchemaTestCase
         $before = $this->saleRecords();
         DB::table('tax_registrations')->where('store_id', $w['storeId'])->delete();
 
-        // A setup defect with no code of its own in the error catalog yet, so it answers 500 (TaxRegistrationResolutionException).
-        $this->attemptSale($w, $w['product'])->assertStatus(500);
+        // A setup defect with no code of its own in the error catalog yet, so it answers 500. WHICH refusal matters: a status
+        // guessed in the missing one's place would also answer 500, from the tax check further on.
+        $response = $this->attemptSale($w, $w['product'])->assertStatus(500);
+        $this->assertInstanceOf(TaxRegistrationResolutionException::class, $response->exception);
 
         $this->assertSame($before, $this->saleRecords(), 'no sale, and no invoice number used up');
     }
@@ -66,7 +70,8 @@ class MoneyAndAccessRulesTest extends PostgresSchemaTestCase
         $item = Product::factory()->create(['store_id' => $w['storeId'], 'selling_price' => '40.00', 'tax_class' => 'NON_VAT']);
         $before = $this->saleRecords();
 
-        $this->attemptSale($w, $item)->assertStatus(500);
+        $response = $this->attemptSale($w, $item)->assertStatus(500);
+        $this->assertInstanceOf(InvalidTaxConfigurationException::class, $response->exception);
 
         $this->assertSame($before, $this->saleRecords());
         $this->attemptSale($w, $w['product'])->assertStatus(201); // the till itself is fine
@@ -134,6 +139,7 @@ class MoneyAndAccessRulesTest extends PostgresSchemaTestCase
         foreach ($operations as [$verb, $path]) {
             $response = $this->asUser($w['cashier'], $w['enroll1'])->json(strtoupper($verb), "/api/v1/{$path}", [], $this->key());
             $this->assertSame(403, $response->status(), "{$verb} {$path}: {$response->getContent()}");
+            $this->assertSame('AUTHORIZATION_DENIED', $response->json('error.code'), "refused by the capability gate: {$verb} {$path}");
         }
         $this->assertSame($movements, DB::table('stock_movements')->count());
     }
