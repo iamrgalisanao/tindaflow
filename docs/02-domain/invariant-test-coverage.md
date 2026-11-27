@@ -89,6 +89,8 @@ Ranked by consequence. Each is a real difference between what `invariants.md` pr
    fails loudly if it ever changes unnoticed.
 8. **A missing tax registration may surface as a 500 (#54). Unverified.** `TaxRegistrationResolutionException` extends
    `RuntimeException`; I found no mapping to an API error code.
+   **Fixed 2026-11-27**: it answers 409 `TAX_REGISTRATION_UNRESOLVED`, and the tax class refusal of #74 answers 409
+   `TAX_CLASSIFICATION_MISMATCH`.
 9. **A frontend float on money (#55).** `Pos.jsx:429` and `:480` send `Number(x).toFixed(2)` for the cash-movement
    amount and declared cash. The server re-validates the format, so this is low risk, but it is the one place a float
    touches a monetary input.
@@ -261,7 +263,7 @@ to #75 (NON_VAT through reports), #79/#80 (series installation checks), and the 
 > `MoneyAndAccessRulesTest`, each shown to fail when its protection is removed: #21 (the one-void index), #43 (a reading resets
 > nothing), #52 (every stock adjustment operation refused to a cashier; the void and refund request gates, read from the routes
 > since every role holds them), #54 and #74 (a sale with no tax registration, or of a non-VAT item in a VAT store, records
-> nothing; both still answer HTTP 500, as the error catalog has no code for them), and #70 (settlements checked again at
+> nothing; both answered HTTP 500 then, and since later the same day answer 409 with their own error codes), and #70 (settlements checked again at
 > approval). Other partial rows were left, as the manifest advises against chasing every one.
 
 ## What this audit did not do

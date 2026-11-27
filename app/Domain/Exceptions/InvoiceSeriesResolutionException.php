@@ -9,8 +9,7 @@ use RuntimeException;
  * defensively, more than one -- the
  * `invoice_series_one_active_per_installation` partial unique index
  * should make that DB-unreachable, but the allocator still asserts it).
- * Deliberately NOT a {@see DomainException} subclass, for the same
- * reason as {@see InvalidTaxConfigurationException}: this is a fiscal
+ * Deliberately NOT a {@see DomainException} subclass: this is a fiscal
  * installation setup defect a properly configured installation should
  * never reach, not a business outcome a checkout caller should receive
  * as a stable HTTP error. A command handler that reaches this should

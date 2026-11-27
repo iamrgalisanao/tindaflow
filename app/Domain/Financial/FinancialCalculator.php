@@ -3,6 +3,7 @@
 namespace App\Domain\Financial;
 
 use App\Domain\Exceptions\InvalidTaxConfigurationException;
+use App\Domain\Exceptions\TaxClassificationMismatchException;
 use App\Domain\Money;
 use InvalidArgumentException;
 
@@ -43,12 +44,9 @@ final class FinancialCalculator
 
         // TAX-NV-002/003: a VAT-registered store may only finalize
         // VATABLE/VAT_EXEMPT/ZERO_RATED lines; a NON_VAT-registered store
-        // may only finalize NON_VAT lines. This combination should be
-        // unreachable from valid configured products (a product's tax
-        // classification is expected to already match its store's
-        // registration before checkout ever reaches this calculator), so
-        // an explicit configuration exception here -- rather than a
-        // public API error code -- is the correct Stage 6A behavior.
+        // may only finalize NON_VAT lines. Nothing stops a product being
+        // saved with a class its store's registration does not allow, so a
+        // shop can reach this: the refusal has its own API error code.
         foreach ($lines as $line) {
             $compatible = match ($taxRegistrationType) {
                 'VAT' => in_array($line->taxClassification, ['VATABLE', 'VAT_EXEMPT', 'ZERO_RATED'], true),
@@ -56,7 +54,7 @@ final class FinancialCalculator
             };
 
             if (! $compatible) {
-                throw InvalidTaxConfigurationException::incompatibleClassification(
+                throw TaxClassificationMismatchException::forLine(
                     $line->lineNumber,
                     $line->taxClassification,
                     $taxRegistrationType,

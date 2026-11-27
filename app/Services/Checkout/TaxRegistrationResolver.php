@@ -33,9 +33,9 @@ final class TaxRegistrationResolver
         $matches = $this->activeRegistrationTypes($storeId, $soldAtDate);
 
         return match ($matches->count()) {
-            0 => throw TaxRegistrationResolutionException::noActiveRegistrationForStore($storeId, $soldAtDate),
+            0 => throw TaxRegistrationResolutionException::noActiveRegistrationForStore($soldAtDate),
             1 => $matches->first(),
-            default => throw TaxRegistrationResolutionException::ambiguousRegistrationForStore($storeId, $soldAtDate, $matches->count()),
+            default => throw TaxRegistrationResolutionException::ambiguousRegistrationForStore($soldAtDate, $matches->count()),
         };
     }
 
@@ -51,7 +51,7 @@ final class TaxRegistrationResolver
         return match ($matches->count()) {
             0 => null,
             1 => $matches->first(),
-            default => throw TaxRegistrationResolutionException::ambiguousRegistrationForStore($storeId, $soldAtDate, $matches->count()),
+            default => throw TaxRegistrationResolutionException::ambiguousRegistrationForStore($soldAtDate, $matches->count()),
         };
     }
 

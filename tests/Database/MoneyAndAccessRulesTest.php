@@ -2,8 +2,6 @@
 
 namespace Tests\Database;
 
-use App\Domain\Exceptions\InvalidTaxConfigurationException;
-use App\Domain\Exceptions\TaxRegistrationResolutionException;
 use App\Models\AuditEvent;
 use App\Models\Product;
 use Illuminate\Database\QueryException;
@@ -56,12 +54,33 @@ class MoneyAndAccessRulesTest extends PostgresSchemaTestCase
         $before = $this->saleRecords();
         DB::table('tax_registrations')->where('store_id', $w['storeId'])->delete();
 
-        // A setup defect with no code of its own in the error catalog yet, so it answers 500. WHICH refusal matters: a status
-        // guessed in the missing one's place would also answer 500, from the tax check further on.
-        $response = $this->attemptSale($w, $w['product'])->assertStatus(500);
-        $this->assertInstanceOf(TaxRegistrationResolutionException::class, $response->exception);
+        // WHICH refusal matters: a status guessed in the missing one's place would be refused by the tax class check instead.
+        $response = $this->attemptSale($w, $w['product'])->assertStatus(409)
+            ->assertJsonPath('error.code', 'TAX_REGISTRATION_UNRESOLVED')
+            ->assertJsonPath('error.details', ['reason' => 'NONE', 'date' => now()->toDateString()]);
 
+        $this->assertStringContainsString('no tax registration', $response->json('error.message'));
+        $this->assertStringNotContainsString($w['storeId'], $response->getContent(), 'no internal ids in what the till shows');
         $this->assertSame($before, $this->saleRecords(), 'no sale, and no invoice number used up');
+    }
+
+    public function test_a_sale_under_two_tax_registrations_at_once_is_refused_and_records_nothing(): void
+    {
+        $w = $this->world();
+        $before = $this->saleRecords();
+        // Two closed periods that both cover today; the one-current-registration index does not stop this.
+        DB::table('tax_registrations')->where('store_id', $w['storeId'])->update(['effective_to' => now()->toDateString()]);
+        DB::table('tax_registrations')->insert([
+            'id' => (string) Str::uuid(), 'store_id' => $w['storeId'], 'registration_type' => 'NON_VAT',
+            'effective_from' => now()->subMonth()->toDateString(), 'effective_to' => now()->addMonth()->toDateString(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->attemptSale($w, $w['product'])->assertStatus(409)
+            ->assertJsonPath('error.code', 'TAX_REGISTRATION_UNRESOLVED')
+            ->assertJsonPath('error.details', ['reason' => 'OVERLAPPING', 'date' => now()->toDateString()]);
+
+        $this->assertSame($before, $this->saleRecords());
     }
 
     public function test_a_vat_registered_store_refuses_to_sell_a_non_vat_item_and_records_nothing(): void
@@ -70,10 +89,26 @@ class MoneyAndAccessRulesTest extends PostgresSchemaTestCase
         $item = Product::factory()->create(['store_id' => $w['storeId'], 'selling_price' => '40.00', 'tax_class' => 'NON_VAT']);
         $before = $this->saleRecords();
 
-        $response = $this->attemptSale($w, $item)->assertStatus(500);
-        $this->assertInstanceOf(InvalidTaxConfigurationException::class, $response->exception);
+        $key = $this->key();
+        $ringTheItem = fn () => $this->asUser($w['cashier'], $w['enroll1'])->postJson('/api/v1/sales', [
+            'items' => [['product_id' => $item->id, 'quantity' => '1']],
+            'payments' => [['method' => 'CASH', 'amount' => '40.00']],
+        ], $key);
 
+        $response = $ringTheItem()->assertStatus(409)
+            ->assertJsonPath('error.code', 'TAX_CLASSIFICATION_MISMATCH')
+            ->assertJsonPath('error.details', [
+                'product_id' => $item->id, 'product_name' => $item->name,
+                'tax_classification' => 'NON_VAT', 'tax_registration_type' => 'VAT',
+            ]);
+
+        $this->assertStringContainsString($item->name, $response->json('error.message'));
         $this->assertSame($before, $this->saleRecords());
+
+        $item->update(['tax_class' => 'VATABLE']);
+        $ringTheItem()->assertStatus(201); // the refusal stored nothing under the key
+        $item->update(['tax_class' => 'NON_VAT']);
+        $before = $this->saleRecords();
         $this->attemptSale($w, $w['product'])->assertStatus(201); // the till itself is fine
     }
 

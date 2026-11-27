@@ -38,6 +38,15 @@ the store-setup rule above: every one belongs to a wholly new operation
 a gap in an already-frozen response and no reconstruction question arises.
 No `stage-*-baseline` tag moved.
 
+**Governance note (2026-11-27, tax setup refusals)**:
+`TAX_REGISTRATION_UNRESOLVED` and `TAX_CLASSIFICATION_MISMATCH` complete a
+gap in an already-frozen response (`saleFinalize`'s `409`), the case the
+2026-09-19 note says reopens the governance question. Both refusals already
+existed and answered an uncoded `500`. The owner approved the fix after being
+told it needs new API error codes; they are a plain forward commit, because
+reconstructing a baseline would still mean force-pushing the published `main`
+and tags. No `stage-*-baseline` tag moved.
+
 ## Standard error envelope
 
 ```json
@@ -103,6 +112,8 @@ with the envelope above.
 | `MEAL_NOT_AVAILABLE` | 409 | A meal line cannot be sold right now: the meal does not exist in this store, or it, its menu group, an option group, a chosen option, dish or dish category is hidden, or no price is in force for the choice. Nothing was recorded; the till re-reads `GET /menu` and the cashier chooses again. `details` names the meal and the option/dish/category | ADR-016 slice 1.3 (2026-10-25) |
 | `MEAL_SELECTION_INVALID` | 422 | A meal line's selection does not satisfy the meal's configuration (MENU-003): a group's pick count outside `min_select..max_select`, an option that is not the meal's or not offered under the group it was sent with, an option picked twice, or a quantity other than 1. `details` carries the group and the counts where they apply | ADR-016 slice 1.3 (2026-10-25) |
 | `BARCODE_NOT_FOUND` | 404 | No product matches the scanned barcode | Module D |
+| `TAX_REGISTRATION_UNRESOLVED` | 409 | `saleFinalize`: the store has no tax registration in effect on the sale date, or more than one, and the status is never guessed. In `SLIP` mode no registration is a normal state (the sale is computed as non-VAT) and only more than one is refused. `details` carries `reason` (`NONE` or `OVERLAPPING`) and `date`. Nothing is written | Stage 2 invariant #54; `tax_registrations` migration comment |
+| `TAX_CLASSIFICATION_MISMATCH` | 409 | `saleFinalize`: a line's tax class does not fit the store's registration (a VAT-registered store sells only `VATABLE`/`VAT_EXEMPT`/`ZERO_RATED` lines, a non-VAT store only `NON_VAT`). The line is never reclassified and the whole sale is refused; nothing is written. `details` carries `product_id` (for a meal or add-on line, its backing product), `product_name` (the name the line would be sold under), `tax_classification` and `tax_registration_type` | invariants.md TAX-NV-002/003 (rules 74, 75) |
 | `INSUFFICIENT_PAYMENT` | 422 | Sum of payments is less than the server-computed grand total | Stage 2 invariant #8 |
 | `INVALID_PAYMENT_TOTAL` | 422 | Payment total is structurally invalid (e.g. negative, zero with no credit-sale support) | Stage 2 §2.7 (no credit sales in V1) |
 | `IDEMPOTENCY_KEY_REQUIRED` | 400 | Header omitted on an operation that requires it | ADR-010 |

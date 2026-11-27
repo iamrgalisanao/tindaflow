@@ -2,13 +2,10 @@
 
 namespace App\Domain\Exceptions;
 
-use RuntimeException;
-
 /**
  * A store has zero (or, defensively, more than one) effective
- * `tax_registrations` mapping at a given point in time. Deliberately NOT
- * a {@see DomainException} subclass, for the same reason as
- * {@see FiscalInstallationResolutionException}.
+ * `tax_registrations` mapping at a given point in time: error-catalog.md
+ * TAX_REGISTRATION_UNRESOLVED.
  *
  * The frozen migration comment (2026_01_01_000060_create_tax_registrations_table.php)
  * states the "zero matches" case explicitly by name: "no active row =
@@ -19,30 +16,38 @@ use RuntimeException;
  * NOT prevent two overlapping *closed* historical intervals (the same
  * gap the migration's own comment discloses: "a genuinely overlapping
  * closed interval is a transactional/application concern (Stage 6)").
- * This is that check's ambiguous-data half. Resolution uses the same
- * inclusive-start, exclusive-end interval convention as
- * {@see FiscalInstallationResolver}: `[effective_from, effective_to)`.
+ * This is that check's ambiguous-data half. The interval is inclusive at
+ * both ends, unlike a fiscal installation's: see TaxRegistrationResolver.
  *
- * Disclosed contract gap (stage-6c-sale-finalization.md): the frozen
- * Stage 4 error catalog has no dedicated code for either condition.
+ * The message reaches the till, so it carries no internal id.
  */
-final class TaxRegistrationResolutionException extends RuntimeException
+final class TaxRegistrationResolutionException extends DomainException
 {
-    public static function noActiveRegistrationForStore(string $storeId, string $soldAt): self
+    public static function noActiveRegistrationForStore(string $soldAtDate): self
     {
         return new self(
-            "Store \"{$storeId}\" has no active tax_registration at {$soldAt}. Every store must have a current ".
-            'tax registration configured before a sale can ever be finalized against it -- this is a setup '.
-            'defect, not a runtime condition checkout should ever encounter.'
+            "This store has no tax registration in effect on {$soldAtDate}, so the sale cannot be completed. Nothing was sold. ".
+            "Ask your administrator to check the store's tax registration.",
+            ['reason' => 'NONE', 'date' => $soldAtDate],
         );
     }
 
-    public static function ambiguousRegistrationForStore(string $storeId, string $soldAt, int $matchCount): self
+    public static function ambiguousRegistrationForStore(string $soldAtDate, int $matchCount): self
     {
         return new self(
-            "Store \"{$storeId}\" has {$matchCount} effective tax_registrations at {$soldAt}. Overlapping ".
-            'effective-dated rows for the same store should never coexist -- this is a data-integrity problem '.
-            'to investigate and fix directly, never a normal application state to resolve by picking one.'
+            "This store has {$matchCount} tax registrations in effect on {$soldAtDate}, so the sale cannot be completed. Nothing was sold. ".
+            "Ask your administrator to check the store's tax registration.",
+            ['reason' => 'OVERLAPPING', 'date' => $soldAtDate],
         );
+    }
+
+    public function errorCode(): string
+    {
+        return 'TAX_REGISTRATION_UNRESOLVED';
+    }
+
+    public function httpStatus(): int
+    {
+        return 409;
     }
 }
