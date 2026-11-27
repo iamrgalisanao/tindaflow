@@ -40,6 +40,9 @@ class SaleSummaryResource extends JsonResource
                 'employee_code' => $this->resource->employee->employee_code,
                 'name' => $this->resource->employee->fullName(),
             ]),
+            // saleList only, which counts the lines: the `sale` inside a void or refund result reads exactly as before.
+            'item_count' => $this->whenCounted('items'),
+            'payment_methods' => $this->when($this->resource->items_count !== null, fn () => $this->resource->payments->pluck('method')->unique()->sort()->values()->all()),
         ];
     }
 }

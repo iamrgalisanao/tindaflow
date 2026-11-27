@@ -17,10 +17,9 @@ import { methodText } from '../../lib/paymentMethods';
  * have to leave the register. Until now the POS header sent them to /admin/sales, which drops them
  * into the back-office shell in a different visual mode.
  *
- * Scope is what `saleList`/`saleGet` actually expose. Two columns from the Stitch mockup are absent
- * on purpose: item count and tender method are not on SaleSummary, and fetching every row's detail to
- * show them would be a request per row -- both appear in the inspector, where the detail call already
- * provides them. The mockup's HOLD status is not a real sale status either (the enum is COMPLETED,
+ * Scope is what `saleList`/`saleGet` actually expose. A row shows how many lines the sale has and how
+ * it was paid, both from saleList itself, and the search box takes any part of the transaction, invoice
+ * or slip number. The mockup's HOLD status is not a real sale status either (the enum is COMPLETED,
  * VOIDED, PARTIALLY_REFUNDED, REFUNDED), and its hardware/e-receipt/CAS-log actions have no endpoints.
  *
  * Printing is delegated to the admin InvoicePanel (or SlipPanel, for a sale from a store on slip mode) rather than reimplemented: reprint semantics are
@@ -29,6 +28,7 @@ import { methodText } from '../../lib/paymentMethods';
  */
 
 const SEARCH_DEBOUNCE_MS = 250;
+const PAGE_SIZE = 25;
 
 const STATUSES = [
     { id: '', label: 'All' },
@@ -56,6 +56,21 @@ function timeOf(iso) {
     return Number.isNaN(date.getTime()) ? String(iso) : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+/** The time for a sale of today; an older one, which a search can now bring up, needs its date too. */
+function whenOf(iso) {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime()) || date.toDateString() === new Date().toDateString()) {
+        return timeOf(iso);
+    }
+    return `${date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} ${timeOf(iso)}`;
+}
+
+/** "3 lines · CASH + GCASH" */
+function summaryOf(sale) {
+    const lines = `${sale.item_count} line${sale.item_count === 1 ? '' : 's'}`;
+    return [lines, (sale.payment_methods ?? []).map(methodText).join(' + ')].filter(Boolean).join(' · ');
+}
+
 function StatusBadge({ status }) {
     return (
         <span className={`inline-block whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold ${STATUS_TONE[status] ?? 'border-slate-600 text-slate-300'}`}>
@@ -71,6 +86,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
     const [todayOnly, setTodayOnly] = useState(true);
 
     const [rows, setRows] = useState(null);
+    const [matches, setMatches] = useState(0);
     const [listFailure, setListFailure] = useState(null);
     const [loading, setLoading] = useState(true);
 
@@ -104,12 +120,10 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
         const run = async () => {
             setLoading(true);
             setListFailure(null);
-            const params = new URLSearchParams({ per_page: '25', sort: '-sold_at' });
+            const params = new URLSearchParams({ per_page: String(PAGE_SIZE), sort: '-sold_at' });
             if (term !== '') {
-                // transaction_number is "T-" + ULID (Stage 6C ruling); anything else is treated as the number on the paper --
-                // an invoice number, or in slip mode a slip number ("T-01-000004" also starts with T-, so it is asked as both).
-                // document_number matches either kind; transaction_number is an exact match on its own column.
-                params.set(/^t-[0-9a-z]{26}$/i.test(term) ? 'transaction_number' : 'document_number', term);
+                // Any part of whichever number the customer can read: transaction, invoice or slip.
+                params.set('number_contains', term);
             }
             if (status !== '') {
                 params.set('status', status);
@@ -124,6 +138,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
             }
             if (response.ok) {
                 setRows(response.body.data);
+                setMatches(response.body.meta?.total ?? response.body.data.length);
             } else {
                 setRows(null);
                 setListFailure(response);
@@ -177,7 +192,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                             type="text"
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Transaction, invoice or slip number"
+                            placeholder="Sale number or part of it"
                             aria-label="Search by transaction, invoice or slip number"
                             className="min-h-12 w-full rounded border border-slate-700 bg-slate-950 px-3 font-mono text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                         />
@@ -234,7 +249,9 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
 
                     {rows && rows.length === 0 && (
                         <p className="p-6 text-center text-sm text-slate-400">
-                            {search.trim() !== '' ? 'No transaction matches that number.' : todayOnly ? 'Nothing has been sold today yet.' : 'No transactions found.'}
+                            {search.trim() !== ''
+                                ? `No transaction matches that number.${todayOnly ? ' Turn off Today to search earlier days.' : ''}`
+                                : todayOnly ? 'Nothing has been sold today yet.' : 'No transactions found.'}
                         </p>
                     )}
 
@@ -255,8 +272,9 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                                             <span className="min-w-0 flex-1">
                                                 <span className="block truncate font-mono text-[12px] text-slate-100">{sale.transaction_number}</span>
                                                 <span className="block truncate font-mono text-[11px] text-slate-500">
-                                                    {documentReference(sale) ?? `no ${documentLabel(sale).toLowerCase()}`} · {timeOf(sale.sold_at)}
+                                                    {documentReference(sale) ?? `no ${documentLabel(sale).toLowerCase()}`} · {whenOf(sale.sold_at)}
                                                 </span>
+                                                <span className="block truncate font-mono text-[11px] text-slate-500">{summaryOf(sale)}</span>
                                             </span>
                                             <StatusBadge status={sale.status} />
                                             <span className="shrink-0 font-mono text-sm tabular-nums text-slate-100">{formatMoney(sale.grand_total)}</span>
@@ -265,6 +283,12 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                                 );
                             })}
                         </ul>
+                    )}
+
+                    {rows && matches > rows.length && (
+                        <p className="p-3 text-center text-[11px] text-slate-500">
+                            Showing the newest {rows.length} of {matches}. {search.trim() === '' ? 'Search by number to find an earlier one.' : 'Type more of the number.'}
+                        </p>
                     )}
                 </div>
             </section>
