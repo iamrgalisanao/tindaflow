@@ -279,3 +279,70 @@ Written when the slice was built, not part of the 2026-09-27 audit above.
 - **#107 STK-008** (pools and ala carte items): COVERED. `DailyStockAdminTest`.
 - **#105 STK-006** (shelf life is advisory): COVERED. `StockFreshnessHttpTest` (the exact calendar-day boundary at 23:59 and 00:00, a late-evening receipt, zero stock, never received, opening stock counts, a newer receipt clears it, transfer-in/return/adjustment do not count, no shelf life, the low-stock view and the filter, a constant query count for 3 or 30 products, the till flag, a sale is never blocked with blocking on, daily and untracked products never flagged, manager and admin can set and clear it and it is audited, a cashier cannot, validation, the database CHECK), `ProductCsvHttpTest` (export column, round trip, blank cell leaves it alone, bad values fail the row).
 - **#108 EOD-001** (end-of-day sales by meal type): COVERED. `EndOfDayMealTypeTest` (section net = gross_sales - refund_total through a void, a partial refund and a credit sale; the meal-type and item totals add up; Standard, Combo, rice, plain and Other items grouping; original equals copy; a rename or tampering after close changes nothing; an old day without the key; a day with no sales has no section; an invoice-mode snapshot keeps exactly its keys and its 80mm sheet; no line wider than the roll; the standalone report equals the printout, spans both tills, is store scoped and REPORT_VIEW gated; CSV; an Unallocated difference keeps the total), `BillingStatementHttpTest` (the shared classification).
+
+## Addendum 2026-11-27 — invariants 82 to 99
+
+Same method and verdicts as above, applied to `main` at `c3bbf29`. Three reviewers each read the rules, the enforcing code and
+schema, and the assertions of the candidate tests; **no test was run or mutated**. Items marked **verified** were re-checked by
+hand afterwards; the rest are the reviewers' reading. Documentation only: no code, test or schema was changed.
+
+| Verdict | Rules | Count |
+|---|---|---|
+| COVERED | 84, 86, 87, 88, 91, 95, 96, 98 | 8 |
+| PARTIAL | 82, 83, 85, 89, 90, 92, 93, 94, 97, 99 | 10 |
+
+### Where the code does not do what the rule says
+
+Ranked by consequence.
+
+1. **Product reports show a renamed meal or add-on under its new name for past sales (#82). Verified.** Renaming a meal or
+   add-on renames its hidden backing product (`MenuBackingProducts::rename`), and `salesByProduct`, `grossProfitByProduct`
+   and `productVelocity` in `ReportQueryService` show the live `products.name` beside past sales. The sale lines themselves
+   keep their snapshots. No test checks the product name in these reports after a rename.
+2. **The daily-stock report labels past movements with today's dish and category names (#82).** `DailyStockQuery`. Whether
+   an inventory report is within the rule's scope is an owner or design call.
+3. **An override code can become equal to the account password (#93). Verified.** The two are compared only when the code is
+   set. Changing the password later (`UserService`, `ResetUserPassword`) neither checks nor clears the code.
+4. **Not every override attempt is audited (#92). Verified for the first case.** A grant requested for an unknown or inactive
+   employee is refused before anything writes `CREDIT_OVERRIDE_REFUSED`. Throttled and malformed requests write nothing
+   either; whether those count as attempts is a matter of wording.
+
+### Per-invariant results
+
+| # | Invariant | Verdict | Gap |
+|---|---|---|---|
+| 82 | MENU-001 snapshot immutability | PARTIAL | No rename test for a meal slip reprint or the sales-by-meal-type report; see findings 1 and 2 |
+| 83 | MENU-002 server prices a meal | PARTIAL | No future-dated add-on price, so "the add-on price in force at `sold_at`" is unproven |
+| 84 | MENU-003 valid selection | COVERED | Minor: over-maximum untested on a non-pricing group; another meal's add-on id never sent |
+| 85 | MENU-004 price history append-only | PARTIAL | For add-on prices, neither ignoring later rows nor refusing a duplicate (option, effective from) is tested |
+| 86 | MENU-005 no hard delete | COVERED | At database-privilege level, so only where the hardening is applied |
+| 87 | EMP-001 system-generated code | COVERED | Minor: the per-store unique index is never exercised directly |
+| 88 | CREDIT-001 whole-sale tender | COVERED | No database constraint backs it; checkout is the only writer of payments |
+| 89 | CREDIT-002 never touches the drawer | PARTIAL | No split credit-and-cash refund is sent; drawer figures unasserted after voiding a credit sale; the Z-reading's credit and cash amounts unasserted |
+| 90 | CREDIT-003 limit holds unless overridden | PARTIAL | No sale is made to fail after its grant was consumed, so "same transaction" is unproven; subtracting reversals is pinned deterministically only by a test that skips without a role-creating database user |
+| 91 | CREDIT-004 ledger append-only | COVERED | "The balance is never stored" is structural; append-only rests on database privileges |
+| 92 | OVR-001 one sale, one approver, audited | PARTIAL | Finding 4; the rollback of a consumed grant is untested |
+| 93 | OVR-002 codes secret, locked out | PARTIAL | Finding 3; no race test of parallel wrong guesses, so the row lock that counts them is unpinned |
+| 94 | BILL-001 derived and reconciles | PARTIAL | Only the item-lines comparison has a refusal test; the ledger, period and adjustment checks could be removed unnoticed; no employee-rename test |
+| 95 | BILL-002 cheques and write-offs (with 006–009) | COVERED | Minor: a `0.00` allocation is never sent; "no stored balance" is structural |
+| 96 | SLIP-001 one document per sale | COVERED | Minor: the lock that stops a shift opening during a mode switch is unpinned |
+| 97 | BILL-003 reversal in the original period | PARTIAL | "As of ignores later entries" is proven for reversals, not for charges |
+| 98 | BILL-004 saved run immutable | COVERED | Minor: no test recomputes the hash independently |
+| 99 | BILL-005 gap-free run numbers | PARTIAL | No save fails after its number was taken, so rollback of the counter is unproven |
+
+### Tests that could pass although what they check is broken
+
+Found by reading; none was mutated.
+
+- `MealCheckoutHttpTest` (the report part of the rename test) never compares `product_name`, so it passes with finding 1.
+- `BillingStatementHttpTest`: renaming the "Snacks" menu group checks nothing, as the test's only sale has no such line; "a
+  refused request uses no run number" uses only refusals that never reach the counter.
+- `BillingWriteOffHttpTest`: the `0.00` reversal is refused by a foreign key even without the amount check, and any query
+  error is accepted; another assertion falls back to its expected value when the key is missing.
+- `MealMenuHttpTest`: one assertion turns an empty filtered history into the expected value.
+- `EndOfDayMealTypeTest`: the closed-day rename test reads the frozen section, so it cannot catch a live menu read.
+- `CreditOverrideCheckoutTest`: the "a failed sale leaves the grant unused" case fails before the grant is consumed.
+- `CreditSaleHttpTest`: the single-method refund refusals would still pass if one credit settlement among several were enough;
+  neither the ledger's amount check nor its entry-type check is pinned.
+- `CreditConcurrencyTest`: the race of a sale that needs the grant against one that does not would pass if the wrong sale
+  consumed it (the rule itself is pinned elsewhere).
