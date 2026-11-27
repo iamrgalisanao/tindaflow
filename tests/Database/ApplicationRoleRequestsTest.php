@@ -45,8 +45,9 @@ class ApplicationRoleRequestsTest extends PostgresSchemaTestCase
         DB::unprepared('RESET ROLE');
     }
 
-    public function test_in_the_mode_sessions_and_rate_limits_are_written_to_the_database_by_the_application_role(): void
+    public function test_with_the_stacks_drivers_the_application_role_writes_sessions_and_rate_limits(): void
     {
+        $this->useTheStacksDrivers();
         $this->handleRequestsAsTheApplicationRole();
         $user = User::factory()->create();
         $this->assertSame([0, 0], [DB::table('sessions')->count(), DB::table('cache')->count()]);
@@ -56,6 +57,20 @@ class ApplicationRoleRequestsTest extends PostgresSchemaTestCase
         $this->assertGreaterThan(0, DB::table('sessions')->count(), 'the session is a database row');
         $this->assertGreaterThan(0, DB::table('cache')->count(), 'so is the rate limiter\'s count');
         $this->assertSame([], RunsRequestsAsApplicationRole::$refusals);
+    }
+
+    public function test_the_application_role_may_do_everything_the_session_and_cache_drivers_do(): void
+    {
+        $this->artisan('tindaflow:harden-database', ['--password' => 'test-only-password'])->assertSuccessful();
+
+        foreach (['sessions', 'cache', 'cache_locks'] as $table) {
+            foreach (['SELECT', 'INSERT', 'UPDATE', 'DELETE'] as $privilege) {
+                $this->assertTrue(
+                    (bool) DB::selectOne("select has_table_privilege('tindaflow_app', ?, ?) as allowed", [$table, $privilege])->allowed,
+                    "{$privilege} on {$table}",
+                );
+            }
+        }
     }
 
     public function test_a_refusal_the_application_catches_and_answers_normally_is_still_remembered(): void

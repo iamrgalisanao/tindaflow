@@ -55,11 +55,14 @@ abstract class PostgresSchemaTestCase extends TestCase
 
     /**
      * With PGSQL_TEST_AS_APP_ROLE=1 the HTTP requests of this suite are handled as the restricted role the deployed application
-     * connects as, with sessions and cache in the database as the deployment keeps them, so a screen or API that needs a
-     * privilege the hardening takes away fails here. Fixtures and assertions stay the owner's: tests build, and some
-     * deliberately damage, rows the application itself may not change.
+     * connects as, so a screen or API that needs a privilege the hardening takes away fails here. Fixtures and assertions stay
+     * the owner's: tests build, and some deliberately damage, rows the application itself may not change.
      *
-     * NOT covered: the body of a streamed response (the CSV downloads, which only read), which is produced after the request;
+     * Sessions and cache stay in memory, unlike the deployment: kept in the database for the whole suite they break tests that
+     * share one session object or one transaction across requests. The role's use of those tables is instead tested with the
+     * real drivers ({@see useTheStacksDrivers()}) in AppendOnlyPrivilegesTest and ApplicationRoleRequestsTest, in every run.
+     *
+     * ALSO NOT covered: the body of a streamed response (the CSV downloads, which only read), which is produced after the request;
      * work a test does by calling a service or a command directly, the scheduler's commands among them; classes that do not
      * extend this one (those that commit for real: the concurrency, lockout and row-lock tests); and a refusal the
      * application catches around a savepoint of its own.
@@ -71,8 +74,6 @@ abstract class PostgresSchemaTestCase extends TestCase
 
     protected function handleRequestsAsTheApplicationRole(): void
     {
-        // So that the framework's own session and rate-limit writes are the role's too.
-        $this->useTheStacksDrivers();
 
         // The same provisioning the deployment runs as the table owner, undone with the test's own transaction.
         $exit = Artisan::call('tindaflow:harden-database', ['--password' => 'test-only-password']);
