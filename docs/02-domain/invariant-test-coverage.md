@@ -257,6 +257,13 @@ Still PARTIAL or open after this pass: #21 (the unique index is never exercised 
 absence not pinned), #53/#54/#76 (a registration change after a sale; the tax-registration 500), #58 (Money vs Quantity), #73
 to #75 (NON_VAT through reports), #79/#80 (series installation checks), and the HTTP error-code mappings for series exhaustion.
 
+> **Update 2026-11-27 (TF-46).** Six more gaps, chosen by what they protect (money and access), now have tests in
+> `MoneyAndAccessRulesTest`, each shown to fail when its protection is removed: #21 (the one-void index), #43 (a reading resets
+> nothing), #52 (every stock adjustment operation refused to a cashier; the void and refund request gates, read from the routes
+> since every role holds them), #54 and #74 (a sale with no tax registration, or of a non-VAT item in a VAT store, records
+> nothing; both still answer HTTP 500, as the error catalog has no code for them), and #70 (settlements checked again at
+> approval). Other partial rows were left, as the manifest advises against chasing every one.
+
 ## What this audit did not do
 
 - It did not run the tests. Verdicts come from reading them, so a test that reads well but is broken would be missed.
