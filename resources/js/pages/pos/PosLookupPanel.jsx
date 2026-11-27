@@ -192,7 +192,7 @@ export default function PosLookupPanel({ canSeeAllSales, capabilities }) {
                             type="text"
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Transaction, invoice or slip number, or part of it"
+                            placeholder="Sale number or part of it"
                             aria-label="Search by transaction, invoice or slip number"
                             className="min-h-12 w-full rounded border border-slate-700 bg-slate-950 px-3 font-mono text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                         />
