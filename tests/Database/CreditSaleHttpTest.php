@@ -367,6 +367,14 @@ class CreditSaleHttpTest extends PostgresSchemaTestCase
         $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$cash['id']}/refunds", $body, $this->key())
             ->assertStatus(422)->assertJsonPath('error.code', 'CREDIT_REFUND_SETTLEMENT_INVALID');
 
+        // Split in two, with one half right: part of a credit sale must not leave the drawer, nor part of a cash sale go on credit.
+        foreach ([[$credit, ['CREDIT', 'CASH']], [$credit, ['CASH', 'CREDIT']], [$cash, ['CASH', 'CREDIT']]] as [$sale, [$first, $second]]) {
+            [$body] = $this->refundBody($sale['items'][0]['id'], '1', $first, '60.00');
+            $body['settlements'][] = ['payment_method' => $second, 'amount' => '40.00'];
+            $this->asUser($w['manager'], $w['enroll2'])->postJson("/api/v1/sales/{$sale['id']}/refunds", $body, $this->key())
+                ->assertStatus(422)->assertJsonPath('error.code', 'CREDIT_REFUND_SETTLEMENT_INVALID');
+        }
+
         $this->assertSame(0, EmployeeCreditEntry::where('entry_type', 'REVERSAL')->count());
         $this->assertSame(0, DB::table('refunds')->count());
     }
@@ -417,17 +425,24 @@ class CreditSaleHttpTest extends PostgresSchemaTestCase
                 DB::rollBack();
             }
         }
-        foreach (['amount' => '0.00', 'entry_type' => 'OTHER'] as $column => $value) {
-            DB::beginTransaction();
-            try {
-                DB::table('employee_credit_entries')->insert([$column => $value] + $copy($charge));
-                $this->fail("{$column} must be constrained");
-            } catch (QueryException $e) {
-                $this->assertContains($e->getCode(), ['23514', '23505']);
-            } finally {
-                DB::rollBack();
-            }
+        // A zero charge on a sale that has none, so that only the amount check can refuse it (a copy would also be a second charge).
+        $uncharged = $this->ring($w);
+        DB::beginTransaction();
+        try {
+            DB::table('employee_credit_entries')->insert(['sale_id' => $uncharged['id'], 'amount' => '0.00'] + $copy($charge));
+            $this->fail('a zero amount must be refused');
+        } catch (QueryException $e) {
+            $this->assertStringContainsString('employee_credit_entries_amount_check', $e->getMessage());
+        } finally {
+            DB::rollBack();
         }
+        // An unknown entry type also breaks the reference check, which answers first, so no row can show the type check working on
+        // its own: its presence and what it allows are read from the database.
+        $definition = DB::selectOne("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'employee_credit_entries_type_check'")?->d;
+        $this->assertNotNull($definition, 'the entry type check exists');
+        $this->assertStringContainsString("'CHARGE'", $definition);
+        $this->assertStringContainsString("'REVERSAL'", $definition);
+        $this->assertSame(2, substr_count($definition, "'") / 2, 'and allows only those two');
     }
 
     // ------------------------------------------------------------------ lookup, status, history, documents

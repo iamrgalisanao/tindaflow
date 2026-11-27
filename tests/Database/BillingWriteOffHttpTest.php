@@ -245,7 +245,7 @@ class BillingWriteOffHttpTest extends PostgresSchemaTestCase
         $this->assertSame(['id' => $cheque['id'], 'cheque_number' => '0012345', 'bank' => 'BDO'], $data['cheque']);
         $period = $this->period($this->balance($w), '2026-10-01');
         $this->assertSame(['0.00', '500.00', 'WRITTEN_OFF', '0.00'], [$period['owed_amount'], $period['written_off_amount'], $period['status'], $period['received_amount']]);
-        $this->assertSame('500.00', $this->balance($w)['totals']['returned_cheques_amount'] ?? '500.00');
+        $this->assertSame('500.00', $this->balance($w)['totals']['returned_cheques_amount']);
         $list = $this->asUser($w['manager'])->getJson('/api/v1/billing-write-offs')->assertOk()->json('data');
         $this->assertSame('0012345', $list[0]['cheque']['cheque_number']);
     }
@@ -313,12 +313,13 @@ class BillingWriteOffHttpTest extends PostgresSchemaTestCase
     }
 
     /** The statement must fail with a database error; it runs in a savepoint so the test's transaction survives. */
-    private function refusedByTheDatabase(callable $statement): void
+    /** The statement must be refused by the NAMED constraint: any other database error is not the protection under test. */
+    private function refusedByTheDatabase(callable $statement, string $constraint): void
     {
         try {
             DB::transaction($statement);
-        } catch (QueryException) {
-            $this->addToAssertionCount(1);
+        } catch (QueryException $refusal) {
+            $this->assertStringContainsString($constraint, $refusal->getMessage());
 
             return;
         }
@@ -332,13 +333,15 @@ class BillingWriteOffHttpTest extends PostgresSchemaTestCase
         $base = ['id' => (string) Str::uuid(), 'store_id' => $w['storeId'], 'billing_party_id' => DB::table('billing_write_offs')->value('billing_party_id'), 'kind' => 'REVERSAL',
             'period_start' => '2026-10-01', 'period_end' => '2026-10-15', 'amount' => '200.00', 'reason' => 'x y z', 'reverses_write_off_id' => $row['id'], 'written_by' => $w['manager']->id];
 
-        $this->refusedByTheDatabase(fn () => DB::table('billing_write_offs')->insert(['amount' => '150.00'] + $base));
-        $this->refusedByTheDatabase(fn () => DB::table('billing_write_offs')->insert(['period_start' => '2026-10-16', 'period_end' => '2026-10-31'] + $base));
-        $this->refusedByTheDatabase(fn () => DB::table('billing_write_offs')->insert(['kind' => 'WRITE_OFF'] + $base));
-        $this->refusedByTheDatabase(fn () => DB::table('billing_write_offs')->insert(['reason' => '  '] + $base));
-        $this->refusedByTheDatabase(fn () => DB::table('billing_write_offs')->insert(['amount' => '0.00'] + $base));
+        $insert = fn (array $changes) => fn () => DB::table('billing_write_offs')->insert($changes + $base);
+        $this->refusedByTheDatabase($insert(['amount' => '150.00']), 'billing_write_offs_reverses_fk');
+        $this->refusedByTheDatabase($insert(['period_start' => '2026-10-16', 'period_end' => '2026-10-31']), 'billing_write_offs_reverses_fk');
+        $this->refusedByTheDatabase($insert(['kind' => 'WRITE_OFF']), 'billing_write_offs_reversal_check');
+        $this->refusedByTheDatabase($insert(['reason' => '  ']), 'billing_write_offs_reason_check');
+        // A write-off, not a reversal: a zero reversal would be stopped by the foreign key whether or not the amount were checked.
+        $this->refusedByTheDatabase($insert(['kind' => 'WRITE_OFF', 'reverses_write_off_id' => null, 'amount' => '0.00']), 'billing_write_offs_amount_check');
         DB::table('billing_write_offs')->insert($base);
-        $this->refusedByTheDatabase(fn () => DB::table('billing_write_offs')->insert(['id' => (string) Str::uuid()] + $base));
+        $this->refusedByTheDatabase($insert(['id' => (string) Str::uuid()]), 'billing_write_offs_reverses_write_off_id_unique');
     }
 
     // ------------------------------------------------------------------ interplay with cheques, refunds and as-of

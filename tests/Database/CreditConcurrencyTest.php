@@ -268,14 +268,11 @@ class CreditConcurrencyTest extends TestCase
         $jobs[1]['override_token'] = $token;
         $outcomes = $this->race($jobs);
 
-        // Whichever sale got the lock first: the small one is within the limit and never touches the grant. If it ran first the big one
-        // (100 used + 1,600) still needs the grant and gets it; if the big one ran first the small one then exceeds (1,600 used) and finds the
-        // grant gone. Either way the grant is consumed at most once and the limit is only ever passed by the sale that holds it.
-        $this->assertLessThanOrEqual(1, DB::table('employee_credit_entries')->whereNotNull('override_grant_id')->count());
-        $this->assertSame(
-            DB::table('employee_credit_entries')->whereNotNull('override_grant_id')->count(),
-            DB::table('credit_override_grants')->whereNotNull('consumed_at')->count(),
-        );
+        // Whichever sale got the lock first, the big one is over the 1,500 limit and needs the grant: alone (1,600) or after the small
+        // one (100 used + 1,600). The small one is within the limit if it runs first; after the big one it is over, and finds the grant
+        // gone. So the grant is consumed exactly once, always by the big sale.
+        $this->assertSame(['1600.00'], DB::table('employee_credit_entries')->whereNotNull('override_grant_id')->pluck('amount')->map(fn ($amount) => bcadd((string) $amount, '0', 2))->all());
+        $this->assertSame(1, DB::table('credit_override_grants')->whereNotNull('consumed_at')->count());
         foreach (array_filter($outcomes, fn ($o) => $o['outcome'] !== 'success') as $refused) {
             $this->assertContains($refused['code'], ['CREDIT_OVERRIDE_EXPIRED', 'CREDIT_LIMIT_EXCEEDED'], json_encode($refused));
         }

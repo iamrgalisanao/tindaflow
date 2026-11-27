@@ -426,7 +426,9 @@ class MealMenuHttpTest extends PostgresSchemaTestCase
         $history = $this->asUser($admin)->getJson("/api/v1/meals/{$m['meal']->id}/prices/history")->assertOk();
         $this->assertSame(['70.00', '68.00'], collect($history->json('data'))->pluck('amount')->all());
         $this->assertSame(2, $history->json('meta.total'));
-        $this->assertSame(['68.00'], collect($this->asUser($admin)->getJson("/api/v1/meals/{$m['meal']->id}/prices/history?dish_category_id={$m['cpf']->id}")->json('data'))->pluck('amount')->all() ?: ['68.00']);
+        $filtered = fn (string $categoryId) => collect($this->asUser($admin)->getJson("/api/v1/meals/{$m['meal']->id}/prices/history?dish_category_id={$categoryId}")->assertOk()->json('data'))->pluck('amount')->all();
+        $this->assertSame(['70.00', '68.00'], $filtered($m['beef']->id), 'the filter keeps its own category');
+        $this->assertSame([], $filtered($m['cpf']->id), 'and a category with no price has no history');
     }
 
     public function test_saving_the_price_already_in_force_records_nothing(): void

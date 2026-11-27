@@ -8,6 +8,7 @@ use App\Models\AuditEvent;
 use App\Models\CreditOverrideGrant;
 use App\Models\Employee;
 use App\Models\EmployeeCreditEntry;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Overrides\CreditOverrideService;
@@ -15,6 +16,7 @@ use App\Services\Overrides\OverrideCodeService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Tests\Database\Concerns\BuildsSalesScenario;
@@ -282,7 +284,29 @@ class CreditOverrideCheckoutTest extends PostgresSchemaTestCase
         $this->assertNotNull(CreditOverrideGrant::sole()->consumed_at, 'a consumed approval stays consumed');
     }
 
-    public function test_an_override_cannot_open_a_door_the_limit_check_did_not_close_a_sale_that_fails_for_another_reason_leaves_the_grant_unused(): void
+    public function test_a_sale_that_fails_after_the_grant_was_consumed_leaves_the_grant_unused(): void
+    {
+        $w = $this->world();
+        $employee = $this->employee($w);
+        $big = $this->product($w, '1600.00');
+        $token = $this->approval($w, $employee, '1600.00');
+        $consumedWhenItFailed = null;
+        Event::listen('eloquent.creating: '.Payment::class, function () use (&$consumedWhenItFailed): void {
+            $consumedWhenItFailed = CreditOverrideGrant::sole()->consumed_at !== null;
+            throw new \RuntimeException('failure injected after the grant was consumed');
+        });
+
+        $this->charge($w, $employee, $big, $token)->assertStatus(500);
+        Event::forget('eloquent.creating: '.Payment::class);
+
+        $this->assertTrue($consumedWhenItFailed, 'the failure came after the consumption, or this proves nothing');
+        $this->assertNull(CreditOverrideGrant::sole()->consumed_at);
+        $this->assertSame(0, EmployeeCreditEntry::count());
+        $this->charge($w, $employee, $big, $token)->assertStatus(201);
+        $this->assertNotNull(CreditOverrideGrant::sole()->consumed_at);
+    }
+
+    public function test_a_sale_refused_for_a_deactivated_employee_leaves_the_grant_unused(): void
     {
         $w = $this->world();
         $inactive = $this->employee($w);

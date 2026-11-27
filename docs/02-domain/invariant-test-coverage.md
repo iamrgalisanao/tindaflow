@@ -370,3 +370,7 @@ Found by reading, except as listed above.
   neither the ledger's amount check nor its entry-type check is pinned.
 - `CreditConcurrencyTest`: the race of a sale that needs the grant against one that does not would pass if the wrong sale
   consumed it (the rule itself is pinned elsewhere).
+
+> **Update 2026-11-27 (TF-83).** Each item in the list above was tightened (the meal report item was already fixed with TF-79).
+> One protection cannot be shown by a row: the ledger's entry-type check, because the reference check refuses the same row first;
+> the test reads the constraint from the database instead.

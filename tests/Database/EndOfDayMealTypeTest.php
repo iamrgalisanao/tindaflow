@@ -345,6 +345,12 @@ class EndOfDayMealTypeTest extends PostgresSchemaTestCase
         [$w, $m, $reading] = $this->closedSlipDay();
         $before = $this->printedSection($this->print($w, $reading)->json('render_html'));
         $stored = $reading->totals_snapshot;
+        // The standalone report reads the sales themselves, not the frozen section, so it is what a live menu read would change.
+        $day = $reading->fiscalDay->business_date;
+        $day = $day instanceof \DateTimeInterface ? $day->format('Y-m-d') : (string) $day;
+        $standalone = fn () => $this->report($w, ['from' => $day, 'to' => $day])->assertOk()->json('rows');
+        $rowsBefore = $standalone();
+        $this->assertNotEmpty($rowsBefore);
 
         foreach (Dish::orderBy('name')->get() as $index => $dish) {
             $dish->update(['name' => 'Renamed dish '.$index]);
@@ -352,6 +358,7 @@ class EndOfDayMealTypeTest extends PostgresSchemaTestCase
         foreach (Meal::orderBy('name')->get() as $index => $meal) {
             $meal->update(['name' => 'Renamed meal '.$index]);
         }
+        $this->assertSame($rowsBefore, $standalone(), 'a renamed dish or meal changes nothing in the report either');
         DB::table('products')->update(['name' => 'Renamed product']);
         DB::table('sales')->update(['grand_total' => '1.00']);
 
