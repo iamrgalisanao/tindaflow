@@ -88,8 +88,9 @@ jobs:
         run: bash scripts/validate-baselines.sh
 
   # The deployed application connects as a restricted role that may not change the append-only tables. This runs the database
-  # tests with every HTTP request handled as that role (tests/Database/PostgresSchemaTestCase.php), so a feature that needs a
-  # privilege the role lacks fails here and not in a shop. Beside the job above, so that it adds no waiting time.
+  # tests with their HTTP requests handled as that role, so that a request needing a privilege the role lacks fails here. It
+  # does not cover everything the role does in a shop (the scheduler's commands, for one): what is left out is listed in
+  # tests/Database/PostgresSchemaTestCase.php. Beside the job above, so that it adds no waiting time.
   restricted-role:
     name: Database tests as the application role
     runs-on: ubuntu-latest

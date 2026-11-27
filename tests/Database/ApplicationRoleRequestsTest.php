@@ -2,6 +2,7 @@
 
 namespace Tests\Database;
 
+use App\Models\User;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -42,6 +43,41 @@ class ApplicationRoleRequestsTest extends PostgresSchemaTestCase
         $this->getJson('/api/_test/who')->assertOk();
         $this->assertSame('tindaflow_app', DB::selectOne('select current_user as name')->name);
         DB::unprepared('RESET ROLE');
+    }
+
+    public function test_in_the_mode_sessions_and_rate_limits_are_written_to_the_database_by_the_application_role(): void
+    {
+        $this->handleRequestsAsTheApplicationRole();
+        $user = User::factory()->create();
+        $this->assertSame([0, 0], [DB::table('sessions')->count(), DB::table('cache')->count()]);
+
+        $this->postJson('/api/v1/auth/login', ['email' => $user->email, 'password' => 'password'])->assertOk();
+
+        $this->assertGreaterThan(0, DB::table('sessions')->count(), 'the session is a database row');
+        $this->assertGreaterThan(0, DB::table('cache')->count(), 'so is the rate limiter\'s count');
+        $this->assertSame([], RunsRequestsAsApplicationRole::$refusals);
+    }
+
+    public function test_a_refusal_the_application_catches_and_answers_normally_is_still_remembered(): void
+    {
+        $this->provisionAndRoute();
+        Route::get('/api/_test/swallowed', function () {
+            try {
+                DB::table('audit_events')->delete();
+            } catch (\Throwable) {
+                // as code that only logs the failure would
+            }
+
+            return ['ok' => true];
+        });
+
+        DB::beginTransaction();
+        $this->getJson('/api/_test/swallowed')->assertOk();
+        DB::rollBack();
+
+        $this->assertCount(1, RunsRequestsAsApplicationRole::$refusals);
+        $this->assertStringContainsString('caught', RunsRequestsAsApplicationRole::$refusals[0]);
+        RunsRequestsAsApplicationRole::$refusals = []; // expected here, so tearDown must not report it
     }
 
     public function test_a_privilege_the_application_role_lacks_is_remembered_even_though_the_request_only_failed(): void
