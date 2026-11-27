@@ -361,13 +361,13 @@ class CreditOverrideHttpTest extends PostgresSchemaTestCase
 
         foreach ($asked as [$reason, $employeeId, $status, $employeeCode]) {
             foreach ([self::CODE, '000111'] as $code) {
-                $before = AuditEvent::where('event_type', 'CREDIT_OVERRIDE_REFUSED')->count();
+                $before = AuditEvent::where('event_type', 'CREDIT_OVERRIDE_REFUSED')->pluck('id')->all();
 
                 $this->grant($w, $w['manager']->id, $code, $employeeId)->assertStatus($status)->assertJsonPath('error.code', $reason);
 
-                $events = AuditEvent::where('event_type', 'CREDIT_OVERRIDE_REFUSED')->get()->where('after_metadata.employee_id', $employeeId);
-                $this->assertSame($before + 1, AuditEvent::where('event_type', 'CREDIT_OVERRIDE_REFUSED')->count(), $reason);
-                $event = $events->last();
+                // Exactly the one row this request added, never an earlier one of the same employee.
+                $event = AuditEvent::where('event_type', 'CREDIT_OVERRIDE_REFUSED')->whereNotIn('id', $before)->sole();
+                $this->assertSame($employeeId, $event->after_metadata['employee_id']);
                 $this->assertSame($reason, $event->reason);
                 $this->assertSame($w['cashier']->id, $event->actor_user_id);
                 $this->assertSame($w['t1']->id, $event->terminal_id);
