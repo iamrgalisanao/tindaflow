@@ -11,6 +11,12 @@ use Illuminate\Support\Facades\DB;
  */
 class HardenDatabaseCommandTest extends PostgresSchemaTestCase
 {
+    /** These tests are about provisioning the role itself, from a database where it may not exist yet. */
+    protected function requestsRunAsTheApplicationRole(): bool
+    {
+        return false;
+    }
+
     private const APP_ROLE = 'tindaflow_app';
 
     protected function setUp(): void

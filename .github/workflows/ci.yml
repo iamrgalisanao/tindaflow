@@ -87,6 +87,62 @@ jobs:
       - name: Frozen documentation baselines
         run: bash scripts/validate-baselines.sh
 
+  # The deployed application connects as a restricted role that may not change the append-only tables. This runs the database
+  # tests with every HTTP request handled as that role (tests/Database/PostgresSchemaTestCase.php), so a feature that needs a
+  # privilege the role lacks fails here and not in a shop. Beside the job above, so that it adds no waiting time.
+  restricted-role:
+    name: Database tests as the application role
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tindaflow_schema_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGSQL_TEST_HOST: 127.0.0.1
+      PGSQL_TEST_PASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, bcmath, intl, mbstring
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare the environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Build the frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Create the database the concurrency tests use
+        run: PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c 'create database tindaflow_concurrency_test'
+
+      - name: Database tests, requests handled as the application role
+        env:
+          PGSQL_TEST_AS_APP_ROLE: '1'
+        run: php artisan test --compact tests/Database
+
   docker:
     name: Production images build
     runs-on: ubuntu-latest

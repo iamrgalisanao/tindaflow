@@ -4,8 +4,10 @@ namespace Tests\Database;
 
 use App\Models\User;
 use App\Services\StoreSetup\FiscalConfigurationLock;
+use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Tests\Database\Concerns\RunsRequestsAsApplicationRole;
 use Tests\TestCase;
 
 // This schema is PostgreSQL-specific (partial unique indexes, JSONB,
@@ -43,6 +45,31 @@ abstract class PostgresSchemaTestCase extends TestCase
         DB::beginTransaction();
         // This base class holds one transaction around the whole test; the override-code guard (CreditOverrideService) must tolerate exactly that.
         config(['tindaflow.credit_override.base_transaction_level' => 1]);
+
+        RunsRequestsAsApplicationRole::$refusals = [];
+        if ($this->requestsRunAsTheApplicationRole()) {
+            $this->handleRequestsAsTheApplicationRole();
+        }
+    }
+
+    /**
+     * With PGSQL_TEST_AS_APP_ROLE=1 every HTTP request of this suite is handled as the restricted role the deployed application
+     * connects as, so a screen or API that needs a privilege the hardening takes away fails here. Fixtures and assertions stay
+     * the owner's: tests build, and some deliberately damage, rows the application itself may not change. Work a test does by
+     * calling a service or a command directly is not covered, and neither are the classes that run separate processes.
+     */
+    protected function requestsRunAsTheApplicationRole(): bool
+    {
+        return filter_var(env('PGSQL_TEST_AS_APP_ROLE', false), FILTER_VALIDATE_BOOL);
+    }
+
+    private function handleRequestsAsTheApplicationRole(): void
+    {
+        // The same provisioning the deployment runs as the table owner, undone with the test's own transaction.
+        $exit = Artisan::call('tindaflow:harden-database', ['--password' => 'test-only-password']);
+        $this->assertSame(0, $exit, Artisan::output());
+
+        $this->app->make(Kernel::class)->prependMiddleware(RunsRequestsAsApplicationRole::class);
     }
 
     /** An ADMIN in a store whose fiscal configuration is unlocked (ADR-014), as during installation. */
@@ -58,9 +85,14 @@ abstract class PostgresSchemaTestCase extends TestCase
     {
         // Every test runs inside a transaction that is rolled back
         // afterward, so tests never see each other's fixture rows and
-        // the migrated schema only needs to be built once per run.
-        DB::rollBack();
+        // the migrated schema only needs to be built once per run. Every level is rolled back: a test that failed inside a
+        // transaction of its own would otherwise leave the outer one open, holding locks the next test waits on for ever.
+        DB::rollBack(0);
 
+        $refused = RunsRequestsAsApplicationRole::$refusals;
+        RunsRequestsAsApplicationRole::$refusals = [];
         parent::tearDown();
+
+        $this->assertSame([], $refused, 'the application role was refused a privilege during a request');
     }
 }
