@@ -7,6 +7,7 @@ use App\Models\Meal;
 use App\Models\MealOptionGroup;
 use App\Models\MenuGroup;
 use App\Models\Product;
+use App\Models\Store;
 use App\Services\Menu\DishCategoryService;
 use App\Services\Menu\DishService;
 use App\Services\Menu\MealOptionGroupService;
@@ -558,6 +559,83 @@ class BillingStatementHttpTest extends PostgresSchemaTestCase
         $this->assertSame($response->getContent(), $saved->getContent());
         $this->assertSame(2, DB::table('audit_events')->where('event_type', 'BILLING_EXPORTED')->count());
         $this->assertSame('saved_run', json_decode(DB::table('audit_events')->where('event_type', 'BILLING_EXPORTED')->where('entity_type', 'billing_run')->value('after_metadata'), true)['source']);
+    }
+
+    /** The statement is refused for exactly this reason, and no run is saved. */
+    private function assertDoesNotReconcile(array $w, string $because, ?array $params = null): void
+    {
+        $params ??= $this->october1();
+        $refused = $this->statement($w, $params)->assertStatus(500)->assertJsonPath('error.code', 'BILLING_RECONCILIATION_FAILED');
+        $this->assertStringContainsString($because, $refused->json('error.message'));
+        $this->asUser($w['manager'])->postJson('/api/v1/billing-runs', $params)->assertStatus(500);
+        $this->assertSame(0, DB::table('billing_runs')->count());
+    }
+
+    public function test_a_cut_off_whose_ledger_periods_disagree_with_its_sales_is_refused(): void
+    {
+        $w = $this->world();
+        $ana = $this->employee($w);
+        $this->at('2026-10-05 12:00:00');
+        $sale = $this->plainSale($w, $ana, quantity: '2');
+        $this->statement($w, $this->october1())->assertOk();
+
+        // Sold in the first half but booked to the second, behind the application's back: the sales and the totals still agree.
+        DB::table('employee_credit_entries')->where('sale_id', $sale['id'])->update(['period_start' => '2026-10-16', 'period_end' => '2026-10-31']);
+
+        $this->assertDoesNotReconcile($w, 'ledger net of the cut-off period');
+        // A plain date range has no cut-off period to compare with.
+        $this->statement($w, ['from' => '2026-10-01', 'to' => '2026-10-15'])->assertOk();
+    }
+
+    public function test_adjustments_that_only_agree_in_total_are_refused(): void
+    {
+        $w = $this->world();
+        $ana = $this->employee($w);
+        $this->at('2026-10-05 12:00:00');
+        $sale = $this->plainSale($w, $ana, quantity: '3');
+        $this->refund($w, $sale, '1', '100.00')->assertStatus(201);
+        $this->refund($w, $sale, '1', '100.00')->assertStatus(201);
+        $this->statement($w, $this->october1())->assertOk();
+
+        // Ten pesos moved from one reversal to the other: every total still agrees, and only each adjustment against its own lines does not.
+        [$first, $second] = DB::table('employee_credit_entries')->where('sale_id', $sale['id'])->where('entry_type', 'REVERSAL')->orderBy('id')->pluck('id')->all();
+        DB::table('employee_credit_entries')->where('id', $first)->update(['amount' => '110.00']);
+        DB::table('employee_credit_entries')->where('id', $second)->update(['amount' => '90.00']);
+
+        $this->assertDoesNotReconcile($w, 'the lines of an adjustment do not add up');
+    }
+
+    public function test_a_reversal_the_statement_reads_but_the_stores_ledger_does_not_is_refused(): void
+    {
+        $w = $this->world();
+        $ana = $this->employee($w);
+        $this->at('2026-10-05 12:00:00');
+        $sale = $this->plainSale($w, $ana, quantity: '2');
+        $this->refund($w, $sale, '1', '100.00')->assertStatus(201);
+        $this->statement($w, $this->october1())->assertOk();
+
+        // A reversal filed under another store, behind the application's back. The statement finds it by its sale and agrees with
+        // its own lines; the ledger of THIS store no longer holds it.
+        DB::table('employee_credit_entries')->where('sale_id', $sale['id'])->where('entry_type', 'REVERSAL')->update(['store_id' => Store::factory()->create()->id]);
+
+        $this->assertDoesNotReconcile($w, 'the total differs from the ledger net)');
+    }
+
+    public function test_a_statement_as_of_an_instant_leaves_out_the_charges_recorded_after_it(): void
+    {
+        $w = $this->world();
+        $ana = $this->employee($w);
+        $this->at('2026-10-05 12:00:00');
+        $this->plainSale($w, $ana, quantity: '2');
+        $this->at('2026-10-07 12:00:00');
+        $this->plainSale($w, $ana, quantity: '3');
+        $this->at('2026-10-09 09:00:00');
+
+        $then = $this->statement($w, $this->october1() + ['as_of' => '2026-10-06T00:00:00+08:00'])->assertOk()->json('data');
+        $now = $this->statement($w, $this->october1())->assertOk()->json('data');
+
+        $this->assertSame('200.00', $then['totals']['net_amount']);
+        $this->assertSame('500.00', $now['totals']['net_amount']);
     }
 
     public function test_a_statement_that_does_not_reconcile_with_the_ledger_is_refused_and_never_saved(): void

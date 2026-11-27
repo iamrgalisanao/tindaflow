@@ -342,6 +342,10 @@ Ranked by consequence.
 
 ### Confirmed by removal
 
+> **Update 2026-11-27 (TF-82).** Tests now fail when each of these is removed: #93, #94 (all three checks), #96 and #97 (the
+> lock tests are in `RowLockGuardTest`, which holds the row from a second connection instead of racing). #89 and #99 are covered
+> by the tightened tests of TF-83.
+
 Each protection below was removed or weakened and the whole `tests/Database` suite run: the only failures were the two
 `ResetUserPasswordCommandTest` cases that also fail on that Windows machine with the code unchanged. Seven were broken in one
 run and the charge-side `as_of` filter in another, so that disabled reconciliation checks could not hide it. For the three
