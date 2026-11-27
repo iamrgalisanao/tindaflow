@@ -169,7 +169,7 @@ export const REPORTS = [
     {
         slug: 'sales-by-product',
         title: 'Sales by Product',
-        description: 'Units, gross and net sales, and tax per product. Voided sales are excluded.',
+        description: 'Units, gross and net sales, and tax per product. A meal or add-on renamed within the dates has a row for each name it was sold as. Voided sales are excluded.',
         category: 'sales',
         filters: [
             dateRange('this_month'),
@@ -403,7 +403,7 @@ export const REPORTS = [
         slug: 'product-velocity',
         title: 'Product Velocity',
         description:
-            'Every product ranked by units sold, fastest first — including products with zero sales in the window, the true slow movers. No fast/slow label is applied; the ranking itself is the answer. Voided sales are excluded.',
+            'Every product ranked by units sold, fastest first — including products with zero sales in the window, the true slow movers. No fast/slow label is applied; the ranking itself is the answer. A meal or add-on renamed within the dates is listed under each name it was sold as. Voided sales are excluded.',
         category: 'sales',
         filters: [dateRange('this_month')],
         summary: [{ key: 'net_sales', label: 'Net sales', format: 'currency' }],

@@ -18,7 +18,7 @@ import {
     exportFailureMessage,
 } from './ReportParts';
 import { reportBySlug, withDocumentColumn } from './reportsRegistry';
-import { cellValue, datePreset, shortId, sumIntegers, sumMoney } from './formatters';
+import { cellValue, datePreset, deriveOptions, shortId, sumIntegers, sumMoney } from './formatters';
 
 const PAGE_SIZE = 50;
 const RETURN_KEY = 'tindaflow.returnTo';
@@ -68,17 +68,6 @@ async function fetchReport(slug, query) {
     } catch (error) {
         return { failure: { kind: error instanceof SyntaxError ? 'server' : 'network' } };
     }
-}
-
-function deriveOptions(rows, entityFilter) {
-    const seen = new Map();
-    for (const row of rows) {
-        const value = row[entityFilter.optionValue];
-        if (value && !seen.has(value)) {
-            seen.set(value, { value, code: entityFilter.optionCode?.(row), name: entityFilter.optionName(row) });
-        }
-    }
-    return [...seen.values()];
 }
 
 function initialFilters(searchParams, report) {
