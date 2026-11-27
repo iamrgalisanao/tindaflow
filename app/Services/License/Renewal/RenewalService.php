@@ -14,6 +14,7 @@ use App\Services\License\FingerprintMatcher;
 use App\Services\License\HostHardware;
 use App\Services\License\InstallationIdentity;
 use App\Services\License\LicenseGate;
+use App\Services\License\LicenseState;
 use App\Services\License\RefusalReason;
 use App\Services\License\Time\TrustedClock;
 use Carbon\CarbonImmutable;
@@ -223,7 +224,7 @@ final class RenewalService
 
         if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'DEPLOYMENT_SUSPENDED') {
             // Suspended, or past its term: the provider's answer does not say which. Kept short enough to be stored whole.
-            return $this->failed('The provider is not renewing this license at the moment (HTTP 403). '.$this->heldValidity($row, $current, $now).' Contact your TindaFlow provider. Nothing was changed.', $now);
+            return $this->failed('The provider is not renewing this license at the moment (HTTP 403). '.$this->heldValidity($now).' Contact your TindaFlow provider. Nothing was changed.', $now);
         }
 
         if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'FINGERPRINT_MISMATCH') {
@@ -254,19 +255,19 @@ final class RenewalService
     }
 
     /**
-     * How long the license held runs, an offline extension of it included, judged on trusted time as the gate judges it. It
-     * states only the date: another reason (a lock) may refuse selling before then.
+     * How long the license held runs, as the gate judges it, an offline extension included. A date is promised only while the
+     * license is usable: a lock, or a certificate this build no longer accepts, comes before any date.
      */
-    private function heldValidity(object $row, Certificate $current, DateTimeImmutable $now): string
+    private function heldValidity(DateTimeImmutable $now): string
     {
-        $until = $current->exp;
-        if ($row->extended_until !== null && (int) $row->extension_base_seq === $current->seq) {
-            $until = max($until, new DateTimeImmutable($row->extended_until));
+        $check = $this->gate->check($now);
+        $state = $check->verdict->state;
+        if ($check->validUntil === null || $state === LicenseState::Locked || $state === LicenseState::NotActivated) {
+            return 'The license held here is not usable now; the license status says why.';
         }
-        $trustedNow = max($now, $this->clock->highWaterMark() ?? $now);
-        $when = CarbonImmutable::instance($until)->setTimezone((string) config('app.timezone'))->format('Y-m-d H:i');
+        $when = CarbonImmutable::instance($check->validUntil)->setTimezone((string) config('app.timezone'))->format('Y-m-d H:i');
 
-        return $trustedNow > $until ? "The license held here ran out on {$when}." : "The license held here is valid until {$when}.";
+        return $state === LicenseState::Expired ? "The license held here ran out on {$when}." : "The license held here is valid until {$when}.";
     }
 
     /** @param  string|null  $url  where the answer came from just now, or null when it came as a file */

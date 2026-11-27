@@ -285,6 +285,28 @@ class LicenseRenewalTest extends PostgresSchemaTestCase
         $this->assertStringContainsString('ran out on '.$this->shown($end).'.', (string) $this->state()->last_renewal_error);
     }
 
+    private const UNUSABLE = 'The provider is not renewing this license at the moment (HTTP 403). The license held here is not usable now; the license status says why. Contact your TindaFlow provider. Nothing was changed.';
+
+    public function test_a_suspended_license_promises_no_date_while_the_clock_has_it_locked(): void
+    {
+        DB::table('license_state')->where('id', 1)->update(['trusted_time_hwm' => CarbonImmutable::now()->addDays(2)->format('Y-m-d\TH:i:sP')]);
+        $this->refuseRenewal();
+
+        $this->renew();
+
+        $this->assertSame(self::UNUSABLE, $this->state()->last_renewal_error, 'stored whole');
+    }
+
+    public function test_a_suspended_license_promises_no_date_for_a_certificate_the_build_no_longer_accepts(): void
+    {
+        $this->distrustTheHeldKey();
+        $this->refuseRenewal();
+
+        $this->renew();
+
+        $this->assertSame(self::UNUSABLE, $this->state()->last_renewal_error);
+    }
+
     public function test_a_new_certificate_discards_an_offline_extension_and_restarts_the_count_but_not_the_ordinals(): void
     {
         DB::table('license_state')->where('id', 1)->update(['extended_until' => CarbonImmutable::now()->addDays(40)->format('Y-m-d\TH:i:sP'), 'extension_base_seq' => 5, 'extensions_in_a_row' => 2, 'last_code_ordinal' => 7]);
