@@ -4,7 +4,9 @@ namespace Database\Seeders;
 
 use App\Models\Store;
 use App\Models\User;
+use App\Services\Overrides\OverrideCodeService;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -61,7 +63,10 @@ class AdminUserSeeder extends Seeder
         }
 
         if ($existing !== null) {
-            $existing->forceFill(['active' => true, 'password_hash' => Hash::make($password)])->save();
+            DB::transaction(function () use ($existing, $password): void {
+                $existing->forceFill(['active' => true, 'password_hash' => Hash::make($password)])->save();
+                app(OverrideCodeService::class)->clearIfSameAsPassword($existing, $password, null);
+            });
 
             $this->command?->warn(
                 "No ADMIN was active for '{$store->name}': reactivated ADMIN user '{$adminEmail}' with a new password."

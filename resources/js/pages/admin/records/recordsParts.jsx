@@ -334,6 +334,9 @@ export function describeAudit(event) {
         case 'OVERRIDE_CODE_SET':
             return (event.before_metadata ?? {}).has_code ? 'Override code changed by its owner' : 'Override code set by its owner';
         case 'OVERRIDE_CODE_RESET':
+            if (after.cause === 'PASSWORD_CHANGE') {
+                return `Override code of ${after.user_name ?? 'a user'}${after.role ? ` (${after.role})` : ''} cleared by a password change; they need to set a new one`;
+            }
             return `Override code of ${after.user_name ?? 'a user'}${after.role ? ` (${after.role})` : ''} cleared by an administrator${(event.before_metadata ?? {}).locked ? ' (it was locked)' : ''}`;
         case 'BILLING_RUN_CREATED':
             return `Billing run ${after.run_number ?? '—'} saved for ${after.from ?? '—'} to ${after.to ?? '—'}${after.employee_type ? ` (${EMPLOYEE_TYPE_NAMES[after.employee_type] ?? after.employee_type} only)` : ''}${after.employee_code ? `, ${after.employee_code} only` : ''}: total due ${money(after.net_amount)} for ${after.employee_count ?? 0} employees`;

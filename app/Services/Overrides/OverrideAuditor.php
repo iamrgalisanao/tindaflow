@@ -19,7 +19,7 @@ use App\Models\User;
  *   STOCK_ENTRY_APPROVED / STOCK_ENTRY_APPROVAL_REFUSED / _LOCKED   the same for a manager's code approving a CASHIER's daily stock entry (ADR-017 slice B);
  *                             the entry itself is DAILY_STOCK_ENTERED, written by DailyStockService with both ids;
  *   OVERRIDE_CODE_SET         an approver set or changed their own code;
- *   OVERRIDE_CODE_RESET       an administrator cleared an approver's code.
+ *   OVERRIDE_CODE_RESET       an approver's code was cleared: by an administrator, or (`cause` PASSWORD_CHANGE) by a password change.
  */
 final class OverrideAuditor
 {
@@ -105,6 +105,14 @@ final class OverrideAuditor
     {
         $this->write($admin->store_id, 'OVERRIDE_CODE_RESET', $admin->id, null, 'user', $target->id, ['has_code' => $hadCode, 'locked' => $wasLocked], [
             'has_code' => false, 'user_id' => $target->id, 'user_name' => $target->name, 'role' => $target->role, 'reset_by' => $admin->id,
+        ]);
+    }
+
+    /** The code went because of a password change (OVR-002). $actor is null when the password was reset from the server console. */
+    public function codeClearedForPassword(User $target, ?User $actor, bool $wasLocked): void
+    {
+        $this->write($target->store_id, 'OVERRIDE_CODE_RESET', $actor?->id, null, 'user', $target->id, ['has_code' => true, 'locked' => $wasLocked], [
+            'has_code' => false, 'user_id' => $target->id, 'user_name' => $target->name, 'role' => $target->role, 'reset_by' => $actor?->id, 'cause' => 'PASSWORD_CHANGE',
         ]);
     }
 

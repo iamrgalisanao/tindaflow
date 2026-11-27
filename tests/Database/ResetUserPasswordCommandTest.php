@@ -6,6 +6,8 @@ use App\Console\Commands\ResetUserPassword;
 use App\Models\AuditEvent;
 use App\Models\Store;
 use App\Models\User;
+use App\Models\UserOverrideCode;
+use App\Services\Overrides\OverrideCodeService;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -39,6 +41,30 @@ class ResetUserPasswordCommandTest extends PostgresSchemaTestCase
         $this->postJson('/api/v1/auth/login', ['email' => 'owner@shop.test', 'password' => $result['password']])->assertOk();
         $this->app['auth']->forgetGuards();
         $this->postJson('/api/v1/auth/login', ['email' => 'owner@shop.test', 'password' => 'password'])->assertStatus(401);
+    }
+
+    public function test_a_reset_password_equal_to_the_override_code_clears_the_code(): void
+    {
+        $admin = User::factory()->admin()->create(['email' => 'owner@shop.test']);
+        app(OverrideCodeService::class)->setOwn($admin, 'password', '73915284');
+        // A generated password is far longer than any code, so the command is given one to prove the rule holds on this path too.
+        $command = new class extends ResetUserPassword
+        {
+            protected function newPassword(): string
+            {
+                return '73915284';
+            }
+        };
+        Artisan::registerCommand($command);
+
+        $result = $this->reset('owner@shop.test');
+
+        $this->assertSame(0, $result['status']);
+        $this->assertStringContainsString('Their override code was cleared.', $result['output']);
+        $this->assertNull(UserOverrideCode::findOrFail($admin->id)->code_hash);
+        $event = AuditEvent::where('event_type', 'OVERRIDE_CODE_RESET')->sole();
+        $this->assertNull($event->actor_user_id);
+        $this->assertSame('PASSWORD_CHANGE', $event->after_metadata['cause']);
     }
 
     public function test_it_ends_every_session_of_that_user_and_only_theirs(): void
