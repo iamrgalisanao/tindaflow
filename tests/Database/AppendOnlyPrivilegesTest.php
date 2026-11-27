@@ -163,7 +163,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
      */
     private function withTheStacksDrivers(): void
     {
-        config(['session.driver' => 'database', 'cache.default' => 'database', 'session.lottery' => [100, 100]]);
+        $this->useTheStacksDrivers();
     }
 
     public function test_the_api_keeps_working_after_the_rate_limit_window_has_expired(): void
@@ -172,6 +172,7 @@ class AppendOnlyPrivilegesTest extends PostgresSchemaTestCase
         $w = $this->worldUnderTheHardenedRole();
 
         $this->asUser($w['cashier'], $w['enroll1'])->getJson('/api/v1/auth/me')->assertOk();
+        $this->assertGreaterThan(0, DB::table('cache')->count(), 'the rate limiter counts in the database, or this proves nothing');
         $this->travel(3)->minutes(); // the throttle rows written above are now expired and get deleted on the next read
         $this->asUser($w['cashier'], $w['enroll1'])->getJson('/api/v1/auth/me')->assertOk();
     }
