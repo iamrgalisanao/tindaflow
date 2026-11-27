@@ -56,6 +56,9 @@ describe('ShiftDetailPage X-readings', () => {
         ['111.00', '222.00', '333.00'].forEach((sales, index) => {
             // Once as the cash sales figure and once in the payments by method.
             expect(within(items[index]).getAllByText(`₱${sales}`).length).toBe(2);
+            // Each row's own label and its own number of transactions.
+            expect(within(items[index]).getByText(index === 2 ? 'CLOSING READING' : 'INTERIM READING')).toBeTruthy();
+            expect(within(items[index]).getByText(String(index + 1))).toBeTruthy();
         });
         expect(asked).toContain('/api/v1/shifts/s1/x-readings');
     });
