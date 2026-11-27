@@ -312,7 +312,6 @@ class BillingWriteOffHttpTest extends PostgresSchemaTestCase
         $this->assertSame(0, DB::table('audit_events')->where('event_type', 'BILLING_WRITE_OFF_REVERSED')->count());
     }
 
-    /** The statement must fail with a database error; it runs in a savepoint so the test's transaction survives. */
     /** The statement must be refused by the NAMED constraint: any other database error is not the protection under test. */
     private function refusedByTheDatabase(callable $statement, string $constraint): void
     {
