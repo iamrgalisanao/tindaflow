@@ -305,6 +305,25 @@ class CreditOverrideCheckoutTest extends PostgresSchemaTestCase
         $this->assertStringNotContainsString($token, json_encode($event->getAttributes()));
     }
 
+    public function test_another_stores_employee_and_approval_leave_nothing_of_theirs_in_the_audit_trail(): void
+    {
+        $theirs = $this->world();
+        $theirEmployee = $this->employee($theirs);
+        $theirToken = $this->approval($theirs, $theirEmployee, '1600.00');
+        $w = $this->world();
+
+        $this->charge($w, $theirEmployee, $this->product($w, '1600.00'), $theirToken)->assertStatus(404)->assertJsonPath('error.code', 'EMPLOYEE_NOT_FOUND');
+
+        $event = AuditEvent::where('store_id', $w['storeId'])->where('event_type', 'CREDIT_OVERRIDE_REFUSED')->sole();
+        $this->assertSame('EMPLOYEE_NOT_FOUND', $event->reason);
+        $this->assertSame($theirEmployee->id, $event->after_metadata['employee_id'], 'the id the till sent');
+        foreach (['employee_code', 'grant_id', 'approver_id'] as $field) {
+            $this->assertArrayNotHasKey($field, $event->after_metadata);
+        }
+        $this->assertSame(0, AuditEvent::where('store_id', $theirs['storeId'])->where('event_type', 'CREDIT_OVERRIDE_REFUSED')->count());
+        $this->assertNull(CreditOverrideGrant::sole()->consumed_at);
+    }
+
     public function test_a_sale_for_a_deactivated_employee_that_brings_no_approval_writes_no_override_event(): void
     {
         $w = $this->world();
