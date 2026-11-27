@@ -291,6 +291,28 @@ class CreditOverrideCheckoutTest extends PostgresSchemaTestCase
 
         $this->charge($w, $inactive, $this->product($w, '1600.00'), $token)->assertStatus(409)->assertJsonPath('error.code', 'EMPLOYEE_INACTIVE');
         $this->assertNull(CreditOverrideGrant::sole()->consumed_at);
+
+        // The approval was brought and refused, so that is on record, naming it but never its token.
+        $event = AuditEvent::where('event_type', 'CREDIT_OVERRIDE_REFUSED')->sole();
+        $this->assertSame('EMPLOYEE_INACTIVE', $event->reason);
+        $this->assertSame($w['cashier']->id, $event->actor_user_id);
+        $this->assertSame($w['t1']->id, $event->terminal_id);
+        $this->assertSame(CreditOverrideGrant::sole()->id, $event->after_metadata['grant_id']);
+        $this->assertSame($w['manager']->id, $event->after_metadata['approver_id']);
+        $this->assertSame($inactive->id, $event->after_metadata['employee_id']);
+        $this->assertSame($inactive->employee_code, $event->after_metadata['employee_code']);
+        $this->assertSame('CHECKOUT', $event->after_metadata['stage']);
+        $this->assertStringNotContainsString($token, json_encode($event->getAttributes()));
+    }
+
+    public function test_a_sale_for_a_deactivated_employee_that_brings_no_approval_writes_no_override_event(): void
+    {
+        $w = $this->world();
+        $inactive = $this->employee($w, ['active' => false]);
+
+        $this->charge($w, $inactive, $this->product($w, '100.00'))->assertStatus(409);
+
+        $this->assertSame(0, AuditEvent::where('event_type', 'CREDIT_OVERRIDE_REFUSED')->count());
     }
 
     private function at(string $manila): void

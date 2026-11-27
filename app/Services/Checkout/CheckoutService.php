@@ -5,6 +5,8 @@ namespace App\Services\Checkout;
 use App\Domain\Exceptions\CreditLimitExceededException;
 use App\Domain\Exceptions\CreditOverrideException;
 use App\Domain\Exceptions\CreditTenderException;
+use App\Domain\Exceptions\EmployeeInactiveException;
+use App\Domain\Exceptions\EmployeeNotFoundException;
 use App\Domain\Exceptions\FiscalDayNotOpenException;
 use App\Domain\Exceptions\InsufficientPaymentException;
 use App\Domain\Exceptions\InsufficientStockException;
@@ -132,6 +134,17 @@ final class CheckoutService
             // The sale's transaction has rolled back (so the grant is still unused and nothing was charged). The refusal is audited NOW,
             // outside it, because an event written inside would have rolled back with it (ADR-016 section 6, CREDIT_OVERRIDE_REFUSED).
             $this->creditOverrides->recordCheckoutRefusal($refusal, Terminal::findOrFail($terminalId)->store_id, $cashierId, $terminalId);
+
+            throw $refusal;
+        } catch (EmployeeInactiveException|EmployeeNotFoundException $refusal) {
+            // The employee ruled the sale out before any approval was looked at. A sale that brought one was still an attempt to use
+            // it, so that is audited too (invariants.md OVR-001), outside the rolled-back transaction like the refusals above.
+            if (is_string($payload['credit_override_token'] ?? null)) {
+                $this->creditOverrides->recordCheckoutEmployeeRefusal(
+                    $refusal->errorCode(), $payload['credit_override_token'], (string) $payload['employee_id'],
+                    Terminal::findOrFail($terminalId)->store_id, $cashierId, $terminalId,
+                );
+            }
 
             throw $refusal;
         } catch (StockOverrideException $refusal) {
