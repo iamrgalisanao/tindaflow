@@ -2,6 +2,7 @@
 
 namespace Tests\Database;
 
+use App\Models\BillingRun;
 use App\Models\Employee;
 use App\Models\Meal;
 use App\Models\MealOptionGroup;
@@ -16,6 +17,7 @@ use App\Services\Menu\MenuPriceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Testing\TestResponse;
 use Tests\Database\Concerns\BuildsSalesScenario;
 
@@ -285,7 +287,10 @@ class BillingStatementHttpTest extends PostgresSchemaTestCase
         $ana = $this->employee($w);
         $this->at('2026-10-05 12:00:00');
         $this->creditSale($w, $ana, [$this->standardItem($m, true)], '83.00');
+        $turon = Product::factory()->create(['store_id' => $w['storeId'], 'menu_group_id' => $m['snacks']->id, 'selling_price' => '20.00']);
+        $this->plainSale($w, $ana, $turon);
         $before = $this->statement($w, $this->october1())->assertOk()->json('data');
+        $this->assertContains('Snacks', array_column($before['accounts'][0]['meal_types'], 'meal_type'), 'the renamed group has a line in the statement');
         $run = $this->asUser($w['manager'])->postJson('/api/v1/billing-runs', $this->october1())->assertStatus(201)->json('data');
 
         // The menu moves on: the dish and the meal are renamed, the meal is repriced, the meal group renamed.
@@ -297,8 +302,9 @@ class BillingStatementHttpTest extends PostgresSchemaTestCase
 
         $after = $this->statement($w, $this->october1())->assertOk()->json('data');
         $this->assertSame($before['accounts'], $after['accounts'], 'MENU-001: the statement is built from the sale snapshots');
-        $this->assertSame('Standard Meal', $after['accounts'][0]['meal_types'][0]['meal_type']);
-        $this->assertSame('Beef nilaga', $after['accounts'][0]['meal_types'][0]['items'][0]['item']);
+        $byType = collect($after['accounts'][0]['meal_types'])->keyBy('meal_type');
+        $this->assertEqualsCanonicalizing(['Standard Meal', 'Snacks'], $byType->keys()->all());
+        $this->assertSame('Beef nilaga', $byType['Standard Meal']['items'][0]['item']);
 
         $saved = $this->asUser($w['manager'])->getJson("/api/v1/billing-runs/{$run['id']}")->assertOk()->json('data');
         $this->assertEquals($run['statement']['accounts'], $saved['statement']['accounts']);
@@ -493,6 +499,11 @@ class BillingStatementHttpTest extends PostgresSchemaTestCase
             $numbers[] = $this->asUser($w['manager'])->postJson('/api/v1/billing-runs', $params)->assertStatus(201)->json('data.run_number');
         }
         $this->asUser($w['manager'])->postJson('/api/v1/billing-runs', ['cutoff_month' => '2026-13', 'cutoff_half' => '1'])->assertStatus(422);
+        // Refused requests never reach the counter, so also: a save that fails AFTER its number was taken gives the number back.
+        Event::listen('eloquent.creating: '.BillingRun::class, fn () => throw new \RuntimeException('failure injected at the billing run'));
+        $this->asUser($w['manager'])->postJson('/api/v1/billing-runs', $params)->assertStatus(500);
+        Event::forget('eloquent.creating: '.BillingRun::class);
+        $this->assertSame(3, (int) DB::table('billing_run_counters')->where('store_id', $w['storeId'])->value('last_number'));
         $numbers[] = $this->asUser($w['manager'])->postJson('/api/v1/billing-runs', ['from' => '2026-10-01', 'to' => '2026-10-31'])->json('data.run_number');
 
         $this->assertSame(['BR-000001', 'BR-000002', 'BR-000003', 'BR-000004'], $numbers);
