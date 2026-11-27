@@ -221,6 +221,11 @@ final class RenewalService
             return $this->failed('The provider reports that this computer has been replaced by another and is not renewed any more (HTTP 403). Contact your TindaFlow provider.', $now);
         }
 
+        if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'DEPLOYMENT_SUSPENDED') {
+            // Suspended, or past its term: the provider's answer does not say which. Kept short enough to be stored whole.
+            return $this->failed('The provider is not renewing this license at the moment (HTTP 403). '.$this->heldValidity($row, $current, $now).' Contact your TindaFlow provider. Nothing was changed.', $now);
+        }
+
         if ($reply->status === 403 && ($reply->json['error']['code'] ?? null) === 'FINGERPRINT_MISMATCH') {
             // Kept short enough to be stored whole. The provider approves changed hardware by this reference (ADR-019 slice 3).
             $reference = FingerprintMatcher::reference($request['fingerprint']);
@@ -246,6 +251,22 @@ final class RenewalService
         }
 
         return $this->failed("Unexpected answer from the control plane (HTTP {$reply->status}).", $now);
+    }
+
+    /**
+     * How long the license held runs, an offline extension of it included, judged on trusted time as the gate judges it. It
+     * states only the date: another reason (a lock) may refuse selling before then.
+     */
+    private function heldValidity(object $row, Certificate $current, DateTimeImmutable $now): string
+    {
+        $until = $current->exp;
+        if ($row->extended_until !== null && (int) $row->extension_base_seq === $current->seq) {
+            $until = max($until, new DateTimeImmutable($row->extended_until));
+        }
+        $trustedNow = max($now, $this->clock->highWaterMark() ?? $now);
+        $when = CarbonImmutable::instance($until)->setTimezone((string) config('app.timezone'))->format('Y-m-d H:i');
+
+        return $trustedNow > $until ? "The license held here ran out on {$when}." : "The license held here is valid until {$when}.";
     }
 
     /** @param  string|null  $url  where the answer came from just now, or null when it came as a file */

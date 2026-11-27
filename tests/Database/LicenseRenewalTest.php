@@ -227,6 +227,64 @@ class LicenseRenewalTest extends PostgresSchemaTestCase
         $this->assertStringContainsString("Hardware reference: {$reference}", Artisan::output());
     }
 
+    /** The refusal answer of a suspended (or ended) license, and the instant as the shop shows it. */
+    private function refuseRenewal(): void
+    {
+        $this->fakeControlPlane(['error' => ['code' => 'DEPLOYMENT_SUSPENDED', 'message' => 'This deployment is not being renewed. Contact your TindaFlow provider.']], 403);
+    }
+
+    private function shown(\DateTimeInterface $at): string
+    {
+        return CarbonImmutable::instance($at)->setTimezone((string) config('app.timezone'))->format('Y-m-d H:i');
+    }
+
+    public function test_a_suspended_license_says_so_and_until_when_the_held_one_runs(): void
+    {
+        $this->freezeSecond();
+        $this->storeCertificate(5);
+        $this->refuseRenewal();
+
+        $this->assertSame(1, Artisan::call('tindaflow:license-renew'));
+
+        $expected = 'The provider is not renewing this license at the moment (HTTP 403). The license held here is valid until '.$this->shown(CarbonImmutable::now()->addDays(28)).'. Contact your TindaFlow provider. Nothing was changed.';
+        $this->assertSame($expected, $this->state()->last_renewal_error, 'stored whole');
+        $this->assertSame($this->currentToken, $this->state()->certificate);
+        $this->assertFalse((bool) $this->state()->revoked);
+    }
+
+    public function test_a_suspended_license_counts_an_offline_extension_of_the_certificate_held(): void
+    {
+        $this->freezeSecond();
+        $this->storeCertificate(5);
+        $extended = CarbonImmutable::now()->addDays(40);
+        DB::table('license_state')->where('id', 1)->update(['extended_until' => $extended->format('Y-m-d\TH:i:sP'), 'extension_base_seq' => 5]);
+        $this->refuseRenewal();
+
+        $this->renew();
+
+        $this->assertStringContainsString('is valid until '.$this->shown($extended).'.', (string) $this->state()->last_renewal_error);
+
+        // An extension of an earlier certificate does not count.
+        DB::table('license_state')->where('id', 1)->update(['extension_base_seq' => 4]);
+        $this->renew();
+
+        $this->assertStringContainsString('is valid until '.$this->shown(CarbonImmutable::now()->addDays(28)).'.', (string) $this->state()->last_renewal_error);
+    }
+
+    public function test_a_suspended_license_that_has_run_out_says_it_ran_out(): void
+    {
+        $this->freezeSecond();
+        $this->storeCertificate(5);
+        $end = CarbonImmutable::now()->addDays(28);
+        $this->travel(29)->days();
+        $this->fakeHostHardware();
+        $this->refuseRenewal();
+
+        $this->renew();
+
+        $this->assertStringContainsString('ran out on '.$this->shown($end).'.', (string) $this->state()->last_renewal_error);
+    }
+
     public function test_a_new_certificate_discards_an_offline_extension_and_restarts_the_count_but_not_the_ordinals(): void
     {
         DB::table('license_state')->where('id', 1)->update(['extended_until' => CarbonImmutable::now()->addDays(40)->format('Y-m-d\TH:i:sP'), 'extension_base_seq' => 5, 'extensions_in_a_row' => 2, 'last_code_ordinal' => 7]);
