@@ -243,3 +243,26 @@ export function datePreset(name, now = new Date()) {
             return { from: ymd(today), to: ymd(today) };
     }
 }
+
+/**
+ * One filter choice per id found in the rows. An id can appear under more than one name (a meal renamed within the dates has a
+ * row for each name it was sold as), so its choice carries them all and can be found by any of them.
+ */
+export function deriveOptions(rows, entityFilter) {
+    const seen = new Map();
+    for (const row of rows) {
+        const value = row[entityFilter.optionValue];
+        if (!value) {
+            continue;
+        }
+        const name = entityFilter.optionName(row);
+        const option = seen.get(value);
+        if (!option) {
+            seen.set(value, { value, code: entityFilter.optionCode?.(row), name, names: [name] });
+        } else if (!option.names.includes(name)) {
+            option.names.push(name);
+            option.name = option.names.join(' / ');
+        }
+    }
+    return [...seen.values()].map(({ names, ...option }) => option);
+}

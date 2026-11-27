@@ -303,6 +303,12 @@ Ranked by consequence.
    in the sales and gross-profit reports as "Regular Meal" and "Big rice". No test checks the product name in these reports after a rename.
 2. **The daily-stock report labels past movements with today's dish and category names (#82).** `DailyStockQuery`.
    **Reproduced** for a dish rename. Whether an inventory report is within the rule's scope is an owner or design call.
+
+> **Update 2026-11-27 (TF-79).** Finding 1 is fixed: the sales-by-product, gross-profit-by-product and product-velocity reports
+> now name a meal or add-on line as it was sold, with one row for each name sold in the window. For finding 2 the engineering
+> team decided the daily-stock report is outside the rule: it is a stock report that names the dish whose stock it counts,
+> not a report of a sale's names, and stock movements keep no name snapshot. The owner can change this. The tables below show
+> the audit as it stood before the fix.
 3. **An override code can become equal to the account password (#93).** The two are compared only when the code is set.
    Changing the password later (`UserService`, `ResetUserPassword`) neither checks nor clears the code. **Reproduced**
    through the user update; the reset command was only read.

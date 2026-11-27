@@ -23,6 +23,16 @@ use Illuminate\Support\Facades\DB;
  */
 final class ReportQueryService
 {
+    /**
+     * The name a sale line is reported under (invariants.md MENU-001). A meal or add-on line is backed by a hidden product that is
+     * renamed with the menu, so it takes the name the line was sold under: the meal's for a meal line, the add-on's own for an
+     * add-on line. Any other line keeps its product's current name. A product sold under two such names in one window therefore
+     * has one row for each, so that no sale is shown under a name it was not sold as.
+     */
+    private const SOLD_NAME = 'CASE WHEN sale_items.meal_id IS NULL THEN products.name'
+        .' WHEN sale_items.parent_line_number IS NULL THEN sale_items.meal_name_snapshot'
+        .' ELSE sale_items.product_name_snapshot END';
+
     public function __construct(private readonly NetCollectionService $netCollection) {}
 
     /** @return array{rows: array<int, array<string, mixed>>, summary: array<string, mixed>} */
@@ -156,12 +166,12 @@ final class ReportQueryService
             ->where('sales.store_id', $storeId)
             ->where('sales.status', '!=', 'VOIDED')
             ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
-            ->selectRaw('sale_items.product_id as product_id, products.sku as sku, products.name as product_name')
+            ->selectRaw('sale_items.product_id as product_id, products.sku as sku, '.self::SOLD_NAME.' as product_name')
             ->selectRaw('SUM(sale_items.quantity) as quantity_sold')
             ->selectRaw('SUM(sale_items.net_line_amount) as net_sales')
             ->selectRaw('SUM(ROUND(COALESCE(sale_items.unit_cost_snapshot, 0) * sale_items.quantity, 2)) as cost_of_goods_sold')
             ->selectRaw('COUNT(*) FILTER (WHERE sale_items.unit_cost_snapshot IS NULL) as lines_with_unknown_cost')
-            ->groupBy('sale_items.product_id', 'products.sku', 'products.name')
+            ->groupBy('sale_items.product_id', 'products.sku', DB::raw(self::SOLD_NAME))
             ->orderByDesc('net_sales')
             ->get();
 
@@ -212,10 +222,10 @@ final class ReportQueryService
      * sales** -- the true "identify fast/slow-moving items" answer (per the Qtech comparison) needs
      * the zero-sale, still-in-stock products at the bottom, not just a re-sort of salesByProduct
      * (which, being an INNER JOIN through sale_items, can only ever list products that sold at least
-     * once). `products` is the driving table; `sale_items`/`sales` are LEFT JOINed with the date/
-     * status filters in the JOIN condition, not a WHERE clause -- a WHERE would silently drop every
-     * zero-sale product's now-NULL sales columns from a null-vs-value comparison, which is exactly
-     * the bug this design avoids. No fast/slow threshold or label is invented here (the standing
+     * once). `products` is the driving table; the window's sold lines are LEFT JOINed as a subquery that
+     * carries the date and status filters -- a WHERE on the outer query would silently drop every
+     * zero-sale product, which is exactly the bug this design avoids. A never-sold product is listed under
+     * its current name; a sold meal or add-on under the name it was sold as ({@see SOLD_NAME}). No fast/slow threshold or label is invented here (the standing
      * "do not invent unsupported business rules" directive): the report is a ranked list, in the same
      * spirit as lowStock's own "a display convention, not a business rule" tiering -- the caller
      * decides what counts as fast or slow.
@@ -224,22 +234,19 @@ final class ReportQueryService
      */
     public function productVelocity(string $storeId, ?Carbon $from, ?Carbon $to): array
     {
+        // The window's sold lines, each under the name it was sold as. The window is applied INSIDE this subquery, not in a
+        // WHERE of the outer query: a never-sold product must still be listed (that is the report's point).
+        $sold = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->where('sales.store_id', $storeId)
+            ->where('sales.status', '!=', 'VOIDED')
+            ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
+            ->selectRaw('sale_items.product_id, sale_items.sale_id, sale_items.quantity, sale_items.net_line_amount, '.self::SOLD_NAME.' as sold_name');
+
         $rows = DB::table('products')
             ->where('products.store_id', $storeId)
-            ->leftJoin('sale_items', 'sale_items.product_id', '=', 'products.id')
-            // The window is applied INSIDE the join, not in a WHERE: a never-sold product must still be listed (that is the
-            // report's point), and a WHERE on sales/fiscal_days would drop it. The business-day filter needs fiscal_days,
-            // so the sales side is a small subquery that carries it.
-            ->leftJoinSub(
-                DB::table('sales')
-                    ->where('sales.status', '!=', 'VOIDED')
-                    ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
-                    ->select('sales.id'),
-                'sales',
-                'sales.id',
-                '=',
-                'sale_items.sale_id',
-            )
+            ->leftJoinSub($sold, 'sold', 'sold.product_id', '=', 'products.id')
             ->leftJoinSub(
                 DB::table('stock_balances')->selectRaw('product_id, SUM(quantity_on_hand) as quantity_on_hand')->groupBy('product_id'),
                 'stock',
@@ -247,14 +254,14 @@ final class ReportQueryService
                 '=',
                 'products.id',
             )
-            ->selectRaw('products.id as product_id, products.sku as sku, products.name as product_name, products.stock_mode as stock_mode')
-            ->selectRaw('COALESCE(SUM(CASE WHEN sales.id IS NOT NULL THEN sale_items.quantity ELSE 0 END), 0) as quantity_sold')
-            ->selectRaw('COUNT(DISTINCT sales.id) as transaction_count')
-            ->selectRaw('COALESCE(SUM(CASE WHEN sales.id IS NOT NULL THEN sale_items.net_line_amount ELSE 0 END), 0) as net_sales')
+            ->selectRaw('products.id as product_id, products.sku as sku, COALESCE(sold.sold_name, products.name) as product_name, products.stock_mode as stock_mode')
+            ->selectRaw('COALESCE(SUM(sold.quantity), 0) as quantity_sold')
+            ->selectRaw('COUNT(DISTINCT sold.sale_id) as transaction_count')
+            ->selectRaw('COALESCE(SUM(sold.net_line_amount), 0) as net_sales')
             ->selectRaw('stock.quantity_on_hand as quantity_on_hand')
-            ->groupBy('products.id', 'products.sku', 'products.name', 'products.stock_mode', 'stock.quantity_on_hand')
+            ->groupBy('products.id', 'products.sku', DB::raw('COALESCE(sold.sold_name, products.name)'), 'products.stock_mode', 'stock.quantity_on_hand')
             ->orderByDesc('quantity_sold')
-            ->orderBy('products.name') // deterministic tie-break, e.g. between two never-sold products
+            ->orderBy('product_name') // deterministic tie-break, e.g. between two never-sold products
             ->get();
 
         $mapped = $rows->map(fn ($row) => [
@@ -314,12 +321,12 @@ final class ReportQueryService
             ->where('sales.status', '!=', 'VOIDED')
             ->tap(fn ($q) => $this->withinBusinessDays($q, $from, $to))
             ->when($productId, fn ($q) => $q->where('sale_items.product_id', $productId))
-            ->selectRaw('sale_items.product_id as product_id, products.sku as sku, products.name as product_name')
+            ->selectRaw('sale_items.product_id as product_id, products.sku as sku, '.self::SOLD_NAME.' as product_name')
             ->selectRaw('SUM(sale_items.quantity) as quantity_sold')
             ->selectRaw('SUM(sale_items.gross_line_amount) as gross_sales')
             ->selectRaw('SUM(sale_items.net_line_amount) as net_sales')
             ->selectRaw('SUM(sale_items.tax_amount) as tax_amount')
-            ->groupBy('sale_items.product_id', 'products.sku', 'products.name')
+            ->groupBy('sale_items.product_id', 'products.sku', DB::raw(self::SOLD_NAME))
             ->orderByDesc('net_sales')
             ->get();
 
