@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
+use Illuminate\Validation\ValidationException;
 use Tests\Database\Concerns\BuildsSalesScenario;
 
 /**
@@ -171,6 +172,22 @@ class CreditOverrideHttpTest extends PostgresSchemaTestCase
         $this->assertSame($w['manager']->id, $event->entity_id);
         $this->assertSame('PASSWORD_CHANGE', $event->after_metadata['cause']);
         $this->assertStringNotContainsString($code, json_encode($event->getAttributes()));
+    }
+
+    public function test_a_code_is_compared_with_the_password_as_it_is_when_the_code_is_stored(): void
+    {
+        $w = $this->world();
+        $held = $w['manager']->fresh(); // as a request loaded it, before the password changed under it
+        User::whereKey($held->id)->update(['password_hash' => Hash::make('73915284')]);
+
+        try {
+            app(OverrideCodeService::class)->setOwn($held, 'password', '73915284');
+            $this->fail('The code was stored although it equals the password.');
+        } catch (ValidationException $refused) {
+            $this->assertArrayHasKey('code', $refused->errors());
+        }
+
+        $this->assertNull(UserOverrideCode::find($held->id)?->code_hash);
     }
 
     public function test_a_cashier_cannot_hold_or_set_a_code_and_the_endpoints_are_for_the_signed_in_user_only(): void

@@ -2,8 +2,11 @@
 
 namespace Tests\Database;
 
+use App\Models\AuditEvent;
 use App\Models\Store;
 use App\Models\User;
+use App\Models\UserOverrideCode;
+use App\Services\Overrides\OverrideCodeService;
 use Database\Seeders\AdminUserSeeder;
 use Illuminate\Console\Command;
 use Illuminate\Console\OutputStyle;
@@ -57,6 +60,21 @@ class AdminUserSeederRecoveryTest extends PostgresSchemaTestCase
         putenv("{$key}={$value}");
         $_ENV[$key] = $value;
         $_SERVER[$key] = $value;
+    }
+
+    public function test_recovery_with_a_password_equal_to_the_override_code_clears_the_code(): void
+    {
+        $store = Store::create(['name' => self::STORE_NAME]);
+        $admin = User::factory()->admin()->create(['store_id' => $store->id, 'email' => self::EMAIL]);
+        app(OverrideCodeService::class)->setOwn($admin, 'password', '73915284');
+        $admin->forceFill(['active' => false])->save();
+        $this->setEnv('TINDAFLOW_INITIAL_ADMIN_PASSWORD', '73915284');
+
+        $this->runSeeder();
+
+        $this->assertTrue(Hash::check('73915284', $admin->fresh()->password_hash));
+        $this->assertNull(UserOverrideCode::findOrFail($admin->id)->code_hash);
+        $this->assertSame('PASSWORD_CHANGE', AuditEvent::where('event_type', 'OVERRIDE_CODE_RESET')->sole()->after_metadata['cause']);
     }
 
     /** @return string what the seeder printed */

@@ -90,6 +90,12 @@ final class OverrideCodeService
         }
 
         DB::transaction(function () use ($actor, $code): void {
+            // Compared again with the password as it is NOW, under a shared lock on the user: a password change under way finishes
+            // first, and one that starts later waits and then finds this code. User before code, the order a password change uses.
+            $passwordNow = (string) User::whereKey($actor->id)->sharedLock()->value('password_hash');
+            if (Hash::check($code, $passwordNow)) {
+                throw ValidationException::withMessages(['code' => 'The code must be different from your account password.']);
+            }
             $row = UserOverrideCode::lockForUpdate()->find($actor->id);
             $hadCode = $row?->hasCode() ?? false;
             $values = ['code_hash' => Hash::make($code), 'failed_attempts' => 0, 'locked_until' => null, 'set_at' => now(), 'set_by' => $actor->id];
@@ -135,8 +141,9 @@ final class OverrideCodeService
 
     /**
      * OVR-002 when the PASSWORD is what changes: a code equal to the new password is cleared, and its owner sets another. Call it
-     * inside the transaction that stores the new password. The password is never refused for matching: a refusal would tell whoever
-     * is setting it that they had guessed the code, without the lockout that guards guesses at the till.
+     * inside the transaction that stores the new password. The password is not refused for matching: a refusal would confirm a guess
+     * at a code and leave that code in use. A cleared code can still be noticed (the code list, the audit trail), but what was
+     * guessed no longer works at the till; each try changes the user's password, ends their sessions and is audited.
      *
      * @param  User|null  $actor  who is changing the password; null for the server console
      * @return bool whether a code was cleared
@@ -144,7 +151,9 @@ final class OverrideCodeService
     public function clearIfSameAsPassword(User $user, string $password, ?User $actor): bool
     {
         // A code is only ever digits, so no other password needs the slow comparison. The row is read without a lock first: the
-        // till's code check locks it and then refers to the user, which the caller may already hold locked.
+        // till's code check locks it and then refers to the user, which the caller may already hold locked. Only a match takes the
+        // lock; should the till be approving with this very code at that instant, the database ends one of the two with an error
+        // and a retry succeeds.
         if (! ctype_digit($password)) {
             return false;
         }
