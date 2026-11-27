@@ -6,6 +6,7 @@ use App\Domain\Exceptions\UserNotFoundException;
 use App\Models\AuditEvent;
 use App\Models\User;
 use App\Services\Auth\UserSessions;
+use App\Services\Overrides\OverrideCodeService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +30,11 @@ use Illuminate\Validation\ValidationException;
  */
 final class UserService
 {
-    public function __construct(private readonly UserSessions $sessions, private readonly UserRolePolicy $roles) {}
+    public function __construct(
+        private readonly UserSessions $sessions,
+        private readonly UserRolePolicy $roles,
+        private readonly OverrideCodeService $overrideCodes,
+    ) {}
 
     /**
      * `password` is optional in openapi.yaml's UserInput. Without one the account gets an unguessable
@@ -119,6 +124,8 @@ final class UserService
                 }
 
                 if ($passwordChanged) {
+                    $this->overrideCodes->clearIfSameAsPassword($user, $data['password'], $actor);
+
                     // An administrator changing their OWN password keeps the screen they are on; every other browser of the
                     // user is signed out, as is every browser of anyone else whose password was changed.
                     $kept = $actor?->id === $user->id ? $currentSessionId : null;

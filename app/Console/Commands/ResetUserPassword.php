@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\AuditEvent;
 use App\Models\User;
 use App\Services\Auth\UserSessions;
+use App\Services\Overrides\OverrideCodeService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -56,8 +57,9 @@ class ResetUserPassword extends Command
         $password = $this->newPassword();
         $reactivated = ! $user->active;
 
-        DB::transaction(function () use ($user, $password, $reactivated) {
+        $codeCleared = DB::transaction(function () use ($user, $password, $reactivated): bool {
             $user->forceFill(['password_hash' => Hash::make($password), 'active' => true])->save();
+            $codeCleared = app(OverrideCodeService::class)->clearIfSameAsPassword($user, $password, null);
 
             // Signed-in browsers of this user must not survive a password reset (a lost or borrowed till, for instance).
             app(UserSessions::class)->endFor($user->id);
@@ -70,9 +72,14 @@ class ResetUserPassword extends Command
                 'entity_id' => $user->id,
                 'after_metadata' => ['email' => $user->email, 'role' => $user->role, 'reactivated' => $reactivated, 'via' => 'console'],
             ]);
+
+            return $codeCleared;
         });
 
         $this->info("Password reset for '{$user->email}' ({$user->role})".($reactivated ? ' and the user was reactivated' : '').'. Their sessions were ended.');
+        if ($codeCleared) {
+            $this->warn('Their override code was cleared. They need to set a new one.');
+        }
         // Written RAW: the console treats `<...>` as style tags, so a generated password containing one would be shown altered.
         $this->getOutput()->writeln("New password (shown once, not stored anywhere): {$password}", OutputInterface::OUTPUT_RAW);
 

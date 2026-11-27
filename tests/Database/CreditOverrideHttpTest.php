@@ -147,6 +147,32 @@ class CreditOverrideHttpTest extends PostgresSchemaTestCase
         $put($w['manager'], ['password' => 'password', 'code' => self::CODE])->assertOk();
     }
 
+    public function test_a_password_changed_to_match_the_code_clears_the_code_and_is_not_refused(): void
+    {
+        $w = $this->world();
+        $code = '73915284'; // eight digits: also long enough to be a password
+        $this->setCode($w['manager'], $code);
+        $change = fn (string $password) => $this->asUser($w['admin'])->patchJson('/api/v1/users/'.$w['manager']->id, [
+            'name' => $w['manager']->name, 'email' => $w['manager']->email, 'role' => 'MANAGER', 'password' => $password,
+        ]);
+
+        // Another password leaves the code alone.
+        $change('28461937')->assertOk();
+        $this->assertTrue(Hash::check($code, (string) UserOverrideCode::findOrFail($w['manager']->id)->code_hash));
+        $this->assertSame(0, AuditEvent::where('event_type', 'OVERRIDE_CODE_RESET')->count());
+
+        // The code as the password is accepted, so the answer says nothing about the code, and the code is gone.
+        $change($code)->assertOk();
+        $this->assertTrue(Hash::check($code, $w['manager']->fresh()->password_hash));
+        $this->assertNull(UserOverrideCode::findOrFail($w['manager']->id)->code_hash);
+
+        $event = AuditEvent::where('event_type', 'OVERRIDE_CODE_RESET')->sole();
+        $this->assertSame($w['admin']->id, $event->actor_user_id);
+        $this->assertSame($w['manager']->id, $event->entity_id);
+        $this->assertSame('PASSWORD_CHANGE', $event->after_metadata['cause']);
+        $this->assertStringNotContainsString($code, json_encode($event->getAttributes()));
+    }
+
     public function test_a_cashier_cannot_hold_or_set_a_code_and_the_endpoints_are_for_the_signed_in_user_only(): void
     {
         $w = $this->world();

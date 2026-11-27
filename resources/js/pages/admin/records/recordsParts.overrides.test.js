@@ -29,6 +29,8 @@ describe('credit override audit events', () => {
         expect(describeAudit({ event_type: 'OVERRIDE_CODE_SET', before_metadata: { has_code: true }, after_metadata: {} })).toBe('Override code changed by its owner');
         expect(describeAudit({ event_type: 'OVERRIDE_CODE_RESET', before_metadata: { has_code: true, locked: true }, after_metadata: { user_name: 'Mia Manager', role: 'MANAGER' } }))
             .toBe('Override code of Mia Manager (MANAGER) cleared by an administrator (it was locked)');
+        expect(describeAudit({ event_type: 'OVERRIDE_CODE_RESET', after_metadata: { user_name: 'Mia Manager', role: 'MANAGER', cause: 'PASSWORD_CHANGE' } }))
+            .toBe('Override code of Mia Manager (MANAGER) cleared by a password change; they need to set a new one');
     });
 });
 

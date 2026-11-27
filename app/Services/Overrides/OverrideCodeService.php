@@ -15,7 +15,8 @@ use Illuminate\Validation\ValidationException;
 /**
  * An approver's credit-limit override code (ADR-016 section 6): set by the approver themselves from their own signed-in session after
  * re-entering their account password, or cleared by an administrator (who never learns or chooses it: the approver then sets a new one).
- * The code is stored only as a slow hash, must differ from the account password and must not be trivially guessable. Nothing here ever
+ * The code is stored only as a slow hash, must differ from the account password and must not be trivially guessable; a later password
+ * change that would make the two equal clears the code ({@see clearIfSameAsPassword()}). Nothing here ever
  * returns, logs or audits a code or a hash.
  */
 final class OverrideCodeService
@@ -130,6 +131,34 @@ final class OverrideCodeService
         });
 
         return $this->statusOf($target);
+    }
+
+    /**
+     * OVR-002 when the PASSWORD is what changes: a code equal to the new password is cleared, and its owner sets another. Call it
+     * inside the transaction that stores the new password. The password is never refused for matching: a refusal would tell whoever
+     * is setting it that they had guessed the code, without the lockout that guards guesses at the till.
+     *
+     * @param  User|null  $actor  who is changing the password; null for the server console
+     * @return bool whether a code was cleared
+     */
+    public function clearIfSameAsPassword(User $user, string $password, ?User $actor): bool
+    {
+        // A code is only ever digits, so no other password needs the slow comparison. The row is read without a lock first: the
+        // till's code check locks it and then refers to the user, which the caller may already hold locked.
+        if (! ctype_digit($password)) {
+            return false;
+        }
+        $seen = UserOverrideCode::find($user->id);
+        if ($seen === null || ! $seen->hasCode() || ! Hash::check($password, $seen->code_hash)) {
+            return false;
+        }
+
+        $row = UserOverrideCode::lockForUpdate()->findOrFail($user->id);
+        $wasLocked = $row->isLockedAt(now());
+        $row->forceFill(['code_hash' => null, 'failed_attempts' => 0, 'locked_until' => null, 'set_at' => null, 'set_by' => $actor?->id ?? $user->id])->save();
+        $this->auditor->codeClearedForPassword($user, $actor, $wasLocked);
+
+        return true;
     }
 
     private function assertPassword(User $user, string $password): void
