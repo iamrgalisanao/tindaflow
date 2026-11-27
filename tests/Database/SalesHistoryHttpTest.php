@@ -3,6 +3,7 @@
 namespace Tests\Database;
 
 use App\Models\Sale;
+use App\Models\User;
 use Illuminate\Support\Str;
 use Tests\Database\Concerns\BuildsSalesScenario;
 
@@ -30,7 +31,7 @@ class SalesHistoryHttpTest extends PostgresSchemaTestCase
         $this->assertSame([$second['id'], $first['id']], collect($response->json('data'))->pluck('id')->all());
         $this->assertSame(2, $response->json('meta.total'));
         $this->assertSame(
-            ['id', 'uuid', 'transaction_number', 'invoice_number', 'document_mode', 'document_reference', 'store_id', 'terminal_id', 'fiscal_day_id', 'shift_id', 'cashier_id', 'sold_at', 'grand_total', 'status'],
+            ['id', 'uuid', 'transaction_number', 'invoice_number', 'document_mode', 'document_reference', 'store_id', 'terminal_id', 'fiscal_day_id', 'shift_id', 'cashier_id', 'sold_at', 'grand_total', 'status', 'item_count', 'payment_methods'],
             array_keys($response->json('data.0')),
         );
         $this->assertSame($second['invoice_number'], $response->json('data.0.invoice_number'));
@@ -66,6 +67,53 @@ class SalesHistoryHttpTest extends PostgresSchemaTestCase
         foreach (['?status=NOPE', '?payment_method=BARTER', '?product_id=not-a-uuid', '?cashier_id=x', '?terminal_id=x', '?transaction_number=nope', '?invoice_number=000000'] as $query) {
             $this->assertSame([], $this->ids($w, $query), $query);
         }
+    }
+
+    public function test_a_row_says_how_many_lines_it_has_and_how_it_was_paid(): void
+    {
+        $w = $this->world();
+        $this->ring($w, [[$w['product'], '3'], [$w['product2'], '1']], 'CARD');
+
+        $row = $this->asUser($w['cashier'])->getJson('/api/v1/sales')->assertOk()->json('data.0');
+
+        // Lines, not units: three of one product are one line.
+        $this->assertSame(2, $row['item_count']);
+        $this->assertSame(['CARD'], $row['payment_methods']);
+    }
+
+    public function test_part_of_any_number_on_the_paper_finds_the_sale(): void
+    {
+        $w = $this->world();
+        $first = $this->ring($w);
+        $second = $this->ring($w);
+        $this->ring($this->world()); // another store, whose numbers must never be found
+
+        // The end of a transaction number, in either letter case.
+        $tail = substr($first['transaction_number'], -10);
+        $this->assertSame([$first['id']], $this->ids($w, '?number_contains='.$tail));
+        $this->assertSame([$first['id']], $this->ids($w, '?number_contains='.strtolower($tail)));
+        // Part of an invoice number.
+        $this->assertContains($second['id'], $this->ids($w, '?number_contains='.substr($second['invoice_number'], -3)));
+        // Every transaction number starts with "T-": only this store's two sales.
+        $this->assertEqualsCanonicalizing([$first['id'], $second['id']], $this->ids($w, '?number_contains=T-'));
+        // It narrows the other filters and never replaces them.
+        $this->assertSame([], $this->ids($w, '?status=VOIDED&number_contains='.$tail));
+        // %, _ and \ are ordinary characters.
+        foreach (['%', '_', '\\', 'T_', '%25', 'no-such-number'] as $text) {
+            $this->assertSame([], $this->ids($w, '?number_contains='.rawurlencode($text)), $text);
+        }
+    }
+
+    public function test_part_of_a_number_never_shows_a_cashier_another_cashiers_sale(): void
+    {
+        $w = $this->world();
+        $mine = $this->ring($w);
+        $other = User::factory()->create(['store_id' => $w['cashier']->store_id]);
+
+        $theirs = $this->asUser($other)->getJson('/api/v1/sales?number_contains=T-')->assertOk()->json('data');
+
+        $this->assertSame([], $theirs);
+        $this->assertSame([$mine['id']], $this->ids($w, '?number_contains=T-'));
     }
 
     public function test_sorting_and_page_size(): void

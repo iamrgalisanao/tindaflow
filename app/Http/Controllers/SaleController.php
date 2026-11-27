@@ -66,7 +66,7 @@ class SaleController extends Controller
     public function list(Request $request): JsonResponse
     {
         $actor = Auth::guard('web')->user();
-        $query = Sale::query()->where('store_id', $actor->store_id)->with(['invoice', 'slip', 'employee'])
+        $query = Sale::query()->where('store_id', $actor->store_id)->with(['invoice', 'slip', 'employee', 'payments'])->withCount('items')
             ->when(! $actor->can('REPORT_VIEW'), fn (Builder $sales) => $sales->where('cashier_id', $actor->id));
 
         if ($request->filled('transaction_number')) {
@@ -84,6 +84,15 @@ class SaleController extends Controller
             $query->where(fn (Builder $either) => $either
                 ->whereHas('invoice', fn (Builder $invoice) => $invoice->where('invoice_number', $number))
                 ->orWhereHas('slip', fn (Builder $slip) => $slip->where('slip_number', $number)));
+        }
+        // Any part of the transaction, invoice or slip number, in either letter case: what a customer can still read off the paper.
+        if ($request->filled('number_contains')) {
+            // The person's % and _ are ordinary characters, not wildcards.
+            $part = '%'.addcslashes((string) $request->query('number_contains'), '\%_').'%';
+            $query->where(fn (Builder $any) => $any
+                ->whereLike('transaction_number', $part)
+                ->orWhereHas('invoice', fn (Builder $invoice) => $invoice->whereLike('invoice_number', $part))
+                ->orWhereHas('slip', fn (Builder $slip) => $slip->whereLike('slip_number', $part)));
         }
         foreach (['cashier_id', 'terminal_id'] as $column) {
             if ($request->filled($column)) {

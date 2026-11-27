@@ -113,6 +113,18 @@ class SlipModeHttpTest extends PostgresSchemaTestCase
         $this->assertArrayNotHasKey('tax_registration_assumed', AuditEvent::where('event_type', 'SALE_FINALIZED')->where('entity_id', $registered['id'])->sole()->after_metadata);
     }
 
+    public function test_part_of_a_slip_number_finds_the_sale(): void
+    {
+        $w = $this->world();
+        $this->slipMode($w);
+        $first = $this->ringAt($w);
+        $this->ringAt($w);
+
+        $found = $this->asUser($w['cashier'])->getJson('/api/v1/sales?number_contains=01-000001')->assertOk()->json('data');
+
+        $this->assertSame([$first['id']], array_column($found, 'id'));
+    }
+
     public function test_slip_numbers_run_per_terminal_with_no_gap_and_two_tills_have_their_own_sequence(): void
     {
         $w = $this->world();

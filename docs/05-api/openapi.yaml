@@ -3276,6 +3276,10 @@ paths:
       - name: transaction_number
         in: query
         schema: {type: string}
+      - name: number_contains
+        in: query
+        description: 'Any part of the transaction, invoice or slip number, ignoring letter case. "%" and "_" are ordinary characters. It narrows the other filters.'
+        schema: {type: string}
       - name: cashier_id
         in: query
         schema: {type: string, format: uuid}
@@ -6738,6 +6742,13 @@ components:
             id: {type: string, format: uuid}
             employee_code: {type: string}
             name: {type: string}
+        item_count:
+          type: integer
+          description: 'Present in saleList rows only. The number of lines on the sale (not the number of units); an add-on line counts as a line.'
+        payment_methods:
+          type: array
+          description: 'Present in saleList rows only. The methods the sale was paid with, each once, in alphabetical order.'
+          items: {$ref: '#/components/schemas/PaymentMethod'}
     SaleDocumentMode:
       type: string
       enum: [INVOICE, SLIP]
